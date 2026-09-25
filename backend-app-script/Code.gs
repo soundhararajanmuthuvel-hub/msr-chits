@@ -18,7 +18,7 @@
 // CONFIGURATION
 // ============================================================================
 
-const SPREADSHEET_ID = 'ACTIVE'; // Replace with your Spreadsheet ID or leave 'ACTIVE' if bound
+const SPREADSHEET_ID = 'ACTIVE'; // Replace with your Spreadsheet ID or leave 'ACTIVE' if bound to Sheet
 
 const SHEET_NAMES = {
   USERS: 'Users',
@@ -36,25 +36,53 @@ const SHEET_NAMES = {
 // ============================================================================
 
 /**
- * Returns the target Google Spreadsheet instance
+ * Returns the target Google Spreadsheet instance.
+ * NEVER returns null.
  */
 function getSpreadsheet() {
+  // 1. Check Script Properties for SPREADSHEET_ID
   const scriptProps = PropertiesService.getScriptProperties();
   const propId = scriptProps.getProperty('SPREADSHEET_ID');
 
-  if (propId && propId !== 'YOUR_GOOGLE_SPREADSHEET_ID') {
-    return SpreadsheetApp.openById(propId);
+  if (propId && propId.trim() && propId !== 'YOUR_GOOGLE_SPREADSHEET_ID' && propId !== 'ACTIVE') {
+    try {
+      return SpreadsheetApp.openById(propId.trim());
+    } catch (e) {
+      throw new Error('Failed to open spreadsheet by Script Property SPREADSHEET_ID (' + propId + '): ' + e.message);
+    }
   }
 
+  // 2. Check SPREADSHEET_ID constant in Code.gs
   if (SPREADSHEET_ID && SPREADSHEET_ID !== 'ACTIVE' && SPREADSHEET_ID !== 'YOUR_GOOGLE_SPREADSHEET_ID') {
-    return SpreadsheetApp.openById(SPREADSHEET_ID);
+    try {
+      return SpreadsheetApp.openById(SPREADSHEET_ID.trim());
+    } catch (e) {
+      throw new Error('Failed to open spreadsheet by SPREADSHEET_ID constant (' + SPREADSHEET_ID + '): ' + e.message);
+    }
   }
 
+  // 3. Fallback to active bound spreadsheet
   try {
-    return SpreadsheetApp.getActiveSpreadsheet();
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    if (active) return active;
   } catch (e) {
-    throw new Error('Spreadsheet not found. Please set SPREADSHEET_ID in Code.gs or Script Properties.');
+    // Ignore and proceed to throw configuration error
   }
+
+  // 4. If all fail, throw clear configuration instructions
+  throw new Error('MSR CHITS spreadsheet not configured. Please set SPREADSHEET_ID in Project Settings -> Script Properties or in Code.gs.');
+}
+
+/**
+ * One-click helper to save SPREADSHEET_ID into Script Properties from Apps Script editor
+ */
+function setSpreadsheetId(id) {
+  if (!id || id === 'YOUR_GOOGLE_SPREADSHEET_ID') {
+    throw new Error('Please provide a valid Google Spreadsheet ID.');
+  }
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id.trim());
+  Logger.log('SPREADSHEET_ID successfully set to: ' + id.trim());
+  return 'SPREADSHEET_ID saved: ' + id.trim();
 }
 
 /**
