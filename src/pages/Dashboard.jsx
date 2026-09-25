@@ -33,14 +33,17 @@ export const Dashboard = () => {
 
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await api.getDashboard();
       setDashboardData(data);
     } catch (err) {
       console.error('Failed to load dashboard:', err);
+      setError(err.message || 'Unable to connect to MSR CHITS server.');
     } finally {
       setLoading(false);
     }
@@ -50,7 +53,34 @@ export const Dashboard = () => {
     loadData();
   }, [activeChit]);
 
-  if (loading || !dashboardData) {
+  if (loading) {
+    return <LoadingState message="Loading MSR Chits Dashboard..." />;
+  }
+
+  if (error && !dashboardData) {
+    return (
+      <div className="bg-white rounded-2xl p-8 border border-red-200 shadow-sm text-center max-w-xl mx-auto my-12 space-y-4">
+        <div className="w-12 h-12 bg-red-100 text-red-700 rounded-full flex items-center justify-center mx-auto">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-bold text-[#003524]">API Connection Notice</h3>
+        <p className="text-xs text-[#5B7065] leading-relaxed">
+          {error}
+        </p>
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={loadData}
+            className="px-5 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dashboardData) {
     return <LoadingState message="Loading MSR Chits Dashboard..." />;
   }
 
@@ -296,7 +326,7 @@ export const Dashboard = () => {
             className="w-full py-2.5 px-4 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5"
           >
             <Send className="w-3.5 h-3.5 text-[#174D38]" />
-            <span>Process Month {currentChit.currentMonth} Payout</span>
+            <span>Process Month {chit.currentMonth || 1} Payout</span>
           </button>
         </div>
       </div>
