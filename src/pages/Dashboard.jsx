@@ -55,6 +55,23 @@ export const Dashboard = () => {
   }
 
   const { stats, currentChit, recentActivity } = dashboardData;
+  const chit = currentChit || activeChit || {
+    chitId: 'CHIT-100K-01',
+    chitName: 'MSR Chit — ₹1,00,000',
+    chitValue: 100000,
+    duration: 20,
+    currentMonth: 1,
+    monthlyContribution: 3750,
+    memberCount: stats?.activeMembers || 0,
+    paymentDay: 20,
+    progressPercent: 5,
+    expectedCollection: 0,
+    collected: stats?.thisMonthCollection || 0,
+    pending: stats?.pendingPayments || 0,
+    currentPayout: 0,
+    payoutAllocation: 'Not Assigned',
+    expected20M: 88825
+  };
 
   return (
     <div className="space-y-6">
@@ -65,7 +82,7 @@ export const Dashboard = () => {
             Dashboard Overview
           </h2>
           <p className="text-xs sm:text-sm font-medium text-[#5B7065] mt-1">
-            Active tracking for <span className="font-bold text-[#003524]">{currentChit.chitName}</span>
+            Active tracking for <span className="font-bold text-[#003524]">{chit.chitName}</span>
           </p>
         </div>
 
@@ -94,31 +111,31 @@ export const Dashboard = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         <StatCard
           title="Total Chits"
-          value={stats.totalChits}
-          subtitle="1 Active, 0 Completed"
+          value={stats?.totalChits || 0}
+          subtitle="Registered Chit Groups"
           icon={Layers}
           accentColor="primary"
         />
 
         <StatCard
           title="Active Members"
-          value={`${stats.activeMembers} / 20`}
-          subtitle="100% Enrollment"
+          value={stats?.activeMembers || 0}
+          subtitle="Enrolled Active Members"
           icon={Users}
           accentColor="emerald"
         />
 
         <StatCard
           title="This Month Collection"
-          value={formatINR(stats.thisMonthCollection)}
-          subtitle={`Month ${currentChit.currentMonth} Collected`}
+          value={formatINR(stats?.thisMonthCollection || 0)}
+          subtitle={`Month ${chit.currentMonth} Collected`}
           icon={CreditCard}
           accentColor="gold"
         />
 
         <StatCard
           title="Pending Payments"
-          value={formatINR(stats.pendingPayments)}
+          value={formatINR(stats?.pendingPayments || 0)}
           subtitle="Current month due"
           icon={AlertCircle}
           accentColor="blue"
@@ -136,13 +153,13 @@ export const Dashboard = () => {
                   Active Chit Scheme
                 </span>
                 <h3 className="text-xl font-bold text-[#003524] mt-1.5">
-                  {currentChit.chitName}
+                  {chit.chitName}
                 </h3>
               </div>
               <div className="text-right">
                 <span className="text-xs text-[#5B7065]">Chit Value</span>
                 <p className="text-lg font-extrabold text-[#003524]">
-                  {formatINR(currentChit.chitValue)}
+                  {formatINR(chit.chitValue)}
                 </p>
               </div>
             </div>
@@ -152,42 +169,42 @@ export const Dashboard = () => {
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                 <p className="text-[11px] font-semibold text-[#5B7065]">Duration</p>
                 <p className="text-base font-bold text-[#131E19] mt-0.5">
-                  {currentChit.duration} Months
+                  {chit.duration} Months
                 </p>
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                 <p className="text-[11px] font-semibold text-[#5B7065]">Current Month</p>
                 <p className="text-base font-bold text-[#003524] mt-0.5">
-                  Month {currentChit.currentMonth} / {currentChit.duration}
+                  Month {chit.currentMonth} / {chit.duration}
                 </p>
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                 <p className="text-[11px] font-semibold text-[#5B7065]">Monthly Contribution</p>
                 <p className="text-base font-bold text-[#003524] mt-0.5">
-                  {formatINR(currentChit.monthlyContribution)}
+                  {formatINR(chit.monthlyContribution)}
                 </p>
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                 <p className="text-[11px] font-semibold text-[#5B7065]">Total Expected 20M</p>
                 <p className="text-base font-bold text-[#003524] mt-0.5">
-                  {formatINR(currentChit.expected20M || 88825)}
+                  {formatINR(chit.expected20M || 88825)}
                 </p>
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                 <p className="text-[11px] font-semibold text-[#5B7065]">Enrolled Members</p>
                 <p className="text-base font-bold text-[#131E19] mt-0.5">
-                  {currentChit.memberCount} / 20
+                  {chit.memberCount} Members
                 </p>
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                 <p className="text-[11px] font-semibold text-[#5B7065]">Payment Day</p>
                 <p className="text-base font-bold text-[#131E19] mt-0.5">
-                  {currentChit.paymentDay}th of month
+                  {chit.paymentDay || 20}th of month
                 </p>
               </div>
             </div>
@@ -197,13 +214,13 @@ export const Dashboard = () => {
               <div className="flex justify-between text-xs font-semibold text-[#131E19]">
                 <span>Chit Timeline Progress</span>
                 <span className="text-[#003524] font-bold">
-                  {currentChit.progressPercent || 10}% (Month {currentChit.currentMonth}/{currentChit.duration})
+                  {chit.progressPercent || 5}% (Month {chit.currentMonth}/{chit.duration})
                 </span>
               </div>
               <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-[#DCE8E0]">
                 <div
                   className="h-full bg-gradient-to-r from-[#003524] to-[#174D38] rounded-full transition-all duration-500"
-                  style={{ width: `${currentChit.progressPercent || 10}%` }}
+                  style={{ width: `${chit.progressPercent || 5}%` }}
                 />
               </div>
             </div>
@@ -212,7 +229,7 @@ export const Dashboard = () => {
           <div className="pt-5 border-t border-[#EAF2EC] flex items-center justify-between">
             <button
               type="button"
-              onClick={() => navigate(`/chits/${currentChit.chitId}`)}
+              onClick={() => navigate(`/chits/${chit.chitId}`)}
               className="text-xs font-bold text-[#003524] hover:text-[#174D38] flex items-center gap-1 group"
             >
               <span>View 20-Month Master Schedule</span>
@@ -226,7 +243,7 @@ export const Dashboard = () => {
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-[#EAF2EC]">
               <h3 className="text-base font-bold text-[#003524]">
-                Month {currentChit.currentMonth} Collection & Payout
+                Month {chit.currentMonth} Collection & Payout
               </h3>
               <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
                 Active Month
@@ -237,21 +254,21 @@ export const Dashboard = () => {
               <div className="flex items-center justify-between p-3 rounded-xl bg-[#F0FCF4] border border-[#DCE8E0]">
                 <span className="text-xs font-semibold text-[#4B6358]">Expected Collection:</span>
                 <span className="text-sm font-extrabold text-[#131E19]">
-                  {formatINR(currentChit.expectedCollection || 75000)}
+                  {formatINR(chit.expectedCollection || 0)}
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-200">
                 <span className="text-xs font-semibold text-emerald-800">Collected so far:</span>
                 <span className="text-sm font-extrabold text-emerald-900">
-                  {formatINR(currentChit.collected || stats.thisMonthCollection)}
+                  {formatINR(chit.collected || stats?.thisMonthCollection || 0)}
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-200">
                 <span className="text-xs font-semibold text-amber-800">Pending Collection:</span>
                 <span className="text-sm font-extrabold text-amber-900">
-                  {formatINR(currentChit.pending || stats.pendingPayments)}
+                  {formatINR(chit.pending || stats?.pendingPayments || 0)}
                 </span>
               </div>
 
@@ -260,13 +277,13 @@ export const Dashboard = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-[#C4D9CC]">Current Month Payout:</span>
                   <span className="text-base font-extrabold text-[#C9A227]">
-                    {formatINR(currentChit.currentPayout || 70000)}
+                    {formatINR(chit.currentPayout || 0)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs pt-1 border-t border-[#174D38]">
                   <span className="text-[#C4D9CC]">Payout Beneficiary:</span>
                   <span className="font-bold text-white">
-                    {currentChit.payoutAllocation || 'Amma + MU'}
+                    {chit.payoutAllocation || 'Not Assigned'}
                   </span>
                 </div>
               </div>

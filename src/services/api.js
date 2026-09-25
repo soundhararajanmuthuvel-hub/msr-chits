@@ -109,7 +109,7 @@ export async function postApi(action, payload = {}) {
 }
 
 /**
- * Robust GET request helper for read-only actions
+ * Robust GET request helper for read-only actions with automatic POST fallback
  */
 export async function getApi(action, params = {}) {
   if (!API_URL || API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
@@ -119,59 +119,43 @@ export async function getApi(action, params = {}) {
   const queryParams = new URLSearchParams({ action, ...params });
   const url = `${API_URL}?${queryParams.toString()}`;
 
-  let response;
   try {
-    response = await fetch(url, {
+    const response = await fetch(url, {
       method: 'GET'
     });
-  } catch (networkErr) {
-    console.error(`[MSR CHITS API] GET ${action} network failure:`, {
-      url,
-      action,
-      error: networkErr.message
-    });
-    throw new Error('Unable to reach MSR CHITS API. Please check your internet connection or server availability.');
-  }
 
-  // Detect Google OAuth login redirect
-  if (response.url && response.url.includes('accounts.google.com')) {
-    console.error(`[MSR CHITS API] Authentication required by Google:`, response.url);
-    throw new Error('Google Apps Script authentication failed. Web App must be deployed with "Who has access: Anyone".');
-  }
-
-  if (!response.ok) {
-    console.error(`[MSR CHITS API] HTTP error ${response.status}:`, {
-      url,
-      action,
-      status: response.status,
-      statusText: response.statusText
-    });
-    throw new Error(`MSR CHITS API returned HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  const rawText = await response.text();
-  let result;
-  try {
-    result = JSON.parse(rawText);
-  } catch (jsonErr) {
-    console.error(`[MSR CHITS API] Invalid JSON response:`, {
-      action,
-      status: response.status,
-      preview: rawText.slice(0, 300)
-    });
-    if (rawText.includes('<!DOCTYPE') || rawText.includes('<!doctype html>')) {
-      throw new Error('Google Apps Script returned an HTML login page instead of JSON. Please ensure "Who has access: Anyone" is active.');
+    // Detect Google OAuth login redirect
+    if (response.url && response.url.includes('accounts.google.com')) {
+      console.error(`[MSR CHITS API] Authentication required by Google:`, response.url);
+      throw new Error('Google Apps Script authentication failed. Web App must be deployed with "Who has access: Anyone".');
     }
-    throw new Error('MSR CHITS API returned invalid JSON.');
-  }
 
-  if (!result.success) {
-    console.error(`[MSR CHITS API] Application error for action "${action}":`, result.message);
-    throw new Error(result.message || 'MSR CHITS server returned an application error.');
-  }
+    if (!response.ok) {
+      throw new Error(`MSR CHITS API returned HTTP ${response.status}: ${response.statusText}`);
+    }
 
-  localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
-  return result.data;
+    const rawText = await response.text();
+    let result;
+    try {
+      result = JSON.parse(rawText);
+    } catch (jsonErr) {
+      if (rawText.includes('<!DOCTYPE') || rawText.includes('<!doctype html>')) {
+        throw new Error('Google Apps Script returned an HTML login page instead of JSON. Please ensure "Who has access: Anyone" is active.');
+      }
+      throw new Error('MSR CHITS API returned invalid JSON.');
+    }
+
+    if (!result.success) {
+      throw new Error(result.message || 'MSR CHITS server returned an application error.');
+    }
+
+    localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
+    return result.data;
+  } catch (getErr) {
+    // If GET fails (e.g. CORS on redirect or network), try POST fallback with text/plain
+    console.warn(`[MSR CHITS API] GET ${action} failed (${getErr.message}), trying POST fallback...`);
+    return await postApi(action, params);
+  }
 }
 
 // ----------------------------------------------------------------------------
