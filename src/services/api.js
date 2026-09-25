@@ -1,8 +1,7 @@
 /**
  * MSR CHITS API Client
  * Connects frontend React directly to Google Apps Script Web App & Google Sheets.
- * Single source of truth is the Google Spreadsheet.
- * NO static / fake mock members or fake transactions.
+ * Uses text/plain;charset=utf-8 to eliminate CORS preflight restrictions on Google Apps Script.
  */
 
 const API_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '';
@@ -37,51 +36,92 @@ const setCache = (key, data) => {
 };
 
 /**
- * Generic fetch wrapper for Google Apps Script Web App
+ * Robust POST request helper for Google Apps Script
+ * Uses text/plain;charset=utf-8 to prevent browser CORS preflight (OPTIONS)
  */
-async function callAppsScript(action, payload = {}, timeoutMs = 12000) {
+export async function postApi(action, payload = {}) {
   if (!API_URL || API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
-    throw new Error('Google Apps Script URL is not configured in .env');
+    throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL.');
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
+  let response;
   try {
-    const response = await fetch(API_URL, {
+    response = await fetch(API_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8', // Prevents CORS preflight on Google Apps Script
+        'Content-Type': 'text/plain;charset=utf-8'
       },
       body: JSON.stringify({
         action,
-        payload,
-        timestamp: new Date().toISOString()
-      }),
-      signal: controller.signal
+        payload
+      })
     });
-
-    clearTimeout(timer);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const resJson = await response.json();
-    if (!resJson.success) {
-      throw new Error(resJson.message || 'API request failed');
-    }
-
-    localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
-    return resJson.data;
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
+  } catch (networkErr) {
+    console.error('postApi network error:', networkErr);
+    throw new Error('Unable to connect to MSR CHITS server. Please check your internet connection.');
   }
+
+  if (!response.ok) {
+    throw new Error(`API HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch (jsonErr) {
+    throw new Error('Invalid response from MSR CHITS server. Please ensure Google Apps Script is deployed as "Anyone".');
+  }
+
+  if (!result.success) {
+    throw new Error(result.message || 'API request failed');
+  }
+
+  localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
+  return result.data;
+}
+
+/**
+ * Robust GET request helper for read-only actions
+ */
+export async function getApi(action, params = {}) {
+  if (!API_URL || API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
+    throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL.');
+  }
+
+  const queryParams = new URLSearchParams({ action, ...params });
+  const url = `${API_URL}?${queryParams.toString()}`;
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'GET'
+    });
+  } catch (networkErr) {
+    console.error('getApi network error:', networkErr);
+    throw new Error('Unable to connect to MSR CHITS server. Please check your internet connection.');
+  }
+
+  if (!response.ok) {
+    throw new Error(`API HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch (jsonErr) {
+    throw new Error('Invalid response from MSR CHITS server. Please ensure Google Apps Script is deployed as "Anyone".');
+  }
+
+  if (!result.success) {
+    throw new Error(result.message || 'API request failed');
+  }
+
+  localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
+  return result.data;
 }
 
 // ----------------------------------------------------------------------------
-// API Service Methods
+// API Service Object
 // ----------------------------------------------------------------------------
 
 export const api = {
@@ -91,7 +131,7 @@ export const api = {
       return { connected: false, message: 'VITE_API_URL not set', lastSync: localStorage.getItem(STORAGE_KEYS.LAST_SYNC) };
     }
     try {
-      const data = await callAppsScript('health', {}, 6000);
+      const data = await getApi('health');
       return { connected: true, data, lastSync: new Date().toISOString() };
     } catch (err) {
       return { connected: false, error: err.message, lastSync: localStorage.getItem(STORAGE_KEYS.LAST_SYNC) };
@@ -106,7 +146,7 @@ export const api = {
   async login(username, password) {
     if (API_URL) {
       try {
-        const data = await callAppsScript('login', { username, password });
+        const data = await postApi('login', { username, password });
         return { success: true, user: data.user, token: data.token };
       } catch (err) {
         // Fallback local admin check if network fails
@@ -130,7 +170,7 @@ export const api = {
   async getDashboard() {
     if (API_URL) {
       try {
-        const data = await callAppsScript('dashboard');
+        const data = await getApi('dashboard');
         setCache('msr_dashboard_cache', data);
         return data;
       } catch (e) {
@@ -141,7 +181,6 @@ export const api = {
     const cached = getCache('msr_dashboard_cache');
     if (cached) return cached;
 
-    // Default zero state if completely uninitialized
     const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
     const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
     const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
@@ -181,7 +220,7 @@ export const api = {
   async getMembers() {
     if (API_URL) {
       try {
-        const data = await callAppsScript('getMembers');
+        const data = await getApi('getMembers');
         setCache(STORAGE_KEYS.MEMBERS_CACHE, data || []);
         return data || [];
       } catch (e) {
@@ -194,7 +233,7 @@ export const api = {
   async getMember(memberId) {
     if (API_URL) {
       try {
-        return await callAppsScript('getMember', { memberId });
+        return await getApi('getMember', { memberId });
       } catch (e) {
         console.warn('getMember fetch error:', e.message);
       }
@@ -208,8 +247,22 @@ export const api = {
   },
 
   async createMember(memberData) {
+    const payload = {
+      name: memberData.name.trim(),
+      mobile: memberData.mobile || memberData.phone || '',
+      phone: memberData.mobile || memberData.phone || '',
+      email: memberData.email || '',
+      address: memberData.address || '',
+      joinDate: memberData.joinDate || new Date().toISOString().split('T')[0],
+      payoutMonth: memberData.payoutMonth || 'Not Assigned',
+      status: memberData.status || 'Active',
+      notes: memberData.notes || '',
+      totalPaid: Number(memberData.totalPaid) || 0,
+      pendingAmount: Number(memberData.pendingAmount) || 3750
+    };
+
     if (API_URL) {
-      const newMember = await callAppsScript('createMember', memberData);
+      const newMember = await postApi('createMember', payload);
       const cached = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
       setCache(STORAGE_KEYS.MEMBERS_CACHE, [...cached, newMember]);
       return newMember;
@@ -220,18 +273,9 @@ export const api = {
     const newId = `MEM-${String(cached.length + 1).padStart(3, '0')}`;
     const newMember = {
       memberId: newId,
-      name: memberData.name.trim(),
-      mobile: memberData.mobile || memberData.phone || '',
-      phone: memberData.mobile || memberData.phone || '',
-      address: memberData.address || '',
-      joinDate: memberData.joinDate || new Date().toISOString().split('T')[0],
-      payoutMonth: memberData.payoutMonth || 'Not Assigned',
+      ...payload,
       assignedMonths: [],
-      chitCount: Number(memberData.chitCount) || 1,
-      status: 'Active',
-      totalPaid: 0,
-      totalPending: 3750,
-      notes: memberData.notes || ''
+      chitCount: Number(memberData.chitCount) || 1
     };
     setCache(STORAGE_KEYS.MEMBERS_CACHE, [...cached, newMember]);
     return newMember;
@@ -239,7 +283,7 @@ export const api = {
 
   async updateMember(memberId, updateData) {
     if (API_URL) {
-      await callAppsScript('updateMember', { memberId, ...updateData });
+      await postApi('updateMember', { memberId, ...updateData });
     }
     const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
     const updated = members.map(m => String(m.memberId) === String(memberId) ? { ...m, ...updateData } : m);
@@ -251,7 +295,7 @@ export const api = {
   async getChits() {
     if (API_URL) {
       try {
-        const data = await callAppsScript('getChits');
+        const data = await getApi('getChits');
         setCache(STORAGE_KEYS.CHITS_CACHE, data || []);
         return data || [];
       } catch (e) {
@@ -264,7 +308,7 @@ export const api = {
   async getChit(chitId) {
     if (API_URL) {
       try {
-        return await callAppsScript('getChit', { chitId });
+        return await getApi('getChit', { chitId });
       } catch (e) {
         console.warn('getChit error:', e.message);
       }
@@ -293,20 +337,29 @@ export const api = {
   },
 
   async createChit(chitData) {
+    const payload = {
+      chitName: chitData.chitName,
+      chitValue: Number(chitData.chitValue || chitData.totalAmount) || 100000,
+      duration: Number(chitData.duration || chitData.durationMonths) || 20,
+      totalMembers: Number(chitData.totalMembers || chitData.memberCount) || 20,
+      paymentDay: Number(chitData.paymentDay) || 20,
+      startDate: chitData.startDate || new Date().toISOString().split('T')[0],
+      monthlyContribution: Number(chitData.monthlyContribution || chitData.monthlyAmount) || 3750,
+      notes: chitData.description || chitData.notes || ''
+    };
+
     if (API_URL) {
-      return await callAppsScript('createChit', chitData);
+      const newChit = await postApi('createChit', payload);
+      const cached = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
+      setCache(STORAGE_KEYS.CHITS_CACHE, [...cached, newChit]);
+      return newChit;
     }
+
     const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
     const newChit = {
       chitId: `CHIT-${Date.now().toString().slice(-6)}`,
-      chitName: chitData.chitName,
-      chitValue: Number(chitData.chitValue) || 100000,
-      duration: Number(chitData.duration) || 20,
-      memberCount: Number(chitData.memberCount) || 20,
+      ...payload,
       currentMonth: 1,
-      startDate: chitData.startDate || new Date().toISOString().split('T')[0],
-      paymentDay: Number(chitData.paymentDay) || 20,
-      monthlyContribution: Number(chitData.monthlyContribution) || 3750,
       status: 'Active'
     };
     setCache(STORAGE_KEYS.CHITS_CACHE, [...chits, newChit]);
@@ -317,7 +370,7 @@ export const api = {
   async getMonthlySchedule(chitId = 'CHIT-100K-01') {
     if (API_URL) {
       try {
-        return await callAppsScript('getMonthlySchedule', { chitId });
+        return await getApi('getMonthlySchedule', { chitId });
       } catch (e) {
         console.warn('getMonthlySchedule error:', e.message);
       }
@@ -327,7 +380,7 @@ export const api = {
 
   async assignChit(payload) {
     if (API_URL) {
-      return await callAppsScript('assignChit', payload);
+      return await postApi('assignChit', payload);
     }
     return { success: true };
   },
@@ -336,7 +389,7 @@ export const api = {
   async getPayments() {
     if (API_URL) {
       try {
-        const data = await callAppsScript('getPayments');
+        const data = await getApi('getPayments');
         setCache(STORAGE_KEYS.PAYMENTS_CACHE, data || []);
         return data || [];
       } catch (e) {
@@ -348,7 +401,7 @@ export const api = {
 
   async recordPayment(paymentData) {
     if (API_URL) {
-      const newPayment = await callAppsScript('recordPayment', paymentData);
+      const newPayment = await postApi('recordPayment', paymentData);
       const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
       setCache(STORAGE_KEYS.PAYMENTS_CACHE, [newPayment, ...payments]);
       return newPayment;
@@ -376,7 +429,7 @@ export const api = {
   async getPayouts() {
     if (API_URL) {
       try {
-        const data = await callAppsScript('getPayouts');
+        const data = await getApi('getPayouts');
         setCache(STORAGE_KEYS.PAYOUTS_CACHE, data || []);
         return data || [];
       } catch (e) {
@@ -388,7 +441,7 @@ export const api = {
 
   async recordPayout(payoutData) {
     if (API_URL) {
-      const newPayout = await callAppsScript('recordPayout', payoutData);
+      const newPayout = await postApi('recordPayout', payoutData);
       const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
       setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...payouts]);
       return newPayout;
@@ -415,7 +468,7 @@ export const api = {
   async getReports() {
     if (API_URL) {
       try {
-        return await callAppsScript('getReports');
+        return await getApi('getReports');
       } catch (e) {
         console.warn('getReports error:', e.message);
       }
@@ -441,7 +494,7 @@ export const api = {
   async getSettings() {
     if (API_URL) {
       try {
-        return await callAppsScript('getSettings');
+        return await getApi('getSettings');
       } catch (e) {
         console.warn('getSettings error:', e.message);
       }
@@ -460,7 +513,7 @@ export const api = {
 
   async updateSettings(settingsData) {
     if (API_URL) {
-      return await callAppsScript('updateSettings', settingsData);
+      return await postApi('updateSettings', settingsData);
     }
     setCache(STORAGE_KEYS.SETTINGS_CACHE, settingsData);
     return settingsData;
@@ -470,7 +523,7 @@ export const api = {
   async getActivityLog() {
     if (API_URL) {
       try {
-        return await callAppsScript('getActivityLog');
+        return await getApi('getActivityLog');
       } catch (e) {
         console.warn('getActivityLog error:', e.message);
       }
