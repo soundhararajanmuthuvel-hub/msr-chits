@@ -2,9 +2,11 @@
  * MSR CHITS API Client
  * Connects frontend React directly to Google Apps Script Web App & Google Sheets.
  * Uses text/plain;charset=utf-8 to eliminate CORS preflight restrictions on Google Apps Script.
+ * Strictly relies on Google Sheets as the single source of truth.
  */
 
-const API_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '';
+const RAW_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '';
+const API_URL = RAW_URL.replace(/\/+$/, '');
 
 const STORAGE_KEYS = {
   SESSION: 'msr_auth_session',
@@ -41,7 +43,7 @@ const setCache = (key, data) => {
  */
 export async function postApi(action, payload = {}) {
   if (!API_URL || API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
-    throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL.');
+    throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL in .env');
   }
 
   let response;
@@ -57,23 +59,49 @@ export async function postApi(action, payload = {}) {
       })
     });
   } catch (networkErr) {
-    console.error('postApi network error:', networkErr);
-    throw new Error('Unable to connect to MSR CHITS server. Please check your internet connection.');
+    console.error(`[MSR CHITS API] POST ${action} network failure:`, {
+      url: API_URL,
+      action,
+      error: networkErr.message
+    });
+    throw new Error('Unable to reach MSR CHITS API. Please check your internet connection or server availability.');
+  }
+
+  // Detect Google OAuth login redirect
+  if (response.url && response.url.includes('accounts.google.com')) {
+    console.error(`[MSR CHITS API] Authentication required by Google:`, response.url);
+    throw new Error('Google Apps Script authentication failed. Web App must be deployed with "Who has access: Anyone".');
   }
 
   if (!response.ok) {
-    throw new Error(`API HTTP ${response.status}: ${response.statusText}`);
+    console.error(`[MSR CHITS API] HTTP error ${response.status}:`, {
+      url: API_URL,
+      action,
+      status: response.status,
+      statusText: response.statusText
+    });
+    throw new Error(`MSR CHITS API returned HTTP ${response.status}: ${response.statusText}`);
   }
 
+  const rawText = await response.text();
   let result;
   try {
-    result = await response.json();
+    result = JSON.parse(rawText);
   } catch (jsonErr) {
-    throw new Error('Invalid response from MSR CHITS server. Please ensure Google Apps Script is deployed as "Anyone".');
+    console.error(`[MSR CHITS API] Invalid JSON response:`, {
+      action,
+      status: response.status,
+      preview: rawText.slice(0, 300)
+    });
+    if (rawText.includes('<!DOCTYPE') || rawText.includes('<!doctype html>')) {
+      throw new Error('Google Apps Script returned an HTML login page instead of JSON. Please ensure "Who has access: Anyone" is active.');
+    }
+    throw new Error('MSR CHITS API returned invalid JSON.');
   }
 
   if (!result.success) {
-    throw new Error(result.message || 'API request failed');
+    console.error(`[MSR CHITS API] Application error for action "${action}":`, result.message);
+    throw new Error(result.message || 'MSR CHITS server returned an application error.');
   }
 
   localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
@@ -85,7 +113,7 @@ export async function postApi(action, payload = {}) {
  */
 export async function getApi(action, params = {}) {
   if (!API_URL || API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
-    throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL.');
+    throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL in .env');
   }
 
   const queryParams = new URLSearchParams({ action, ...params });
@@ -97,23 +125,49 @@ export async function getApi(action, params = {}) {
       method: 'GET'
     });
   } catch (networkErr) {
-    console.error('getApi network error:', networkErr);
-    throw new Error('Unable to connect to MSR CHITS server. Please check your internet connection.');
+    console.error(`[MSR CHITS API] GET ${action} network failure:`, {
+      url,
+      action,
+      error: networkErr.message
+    });
+    throw new Error('Unable to reach MSR CHITS API. Please check your internet connection or server availability.');
+  }
+
+  // Detect Google OAuth login redirect
+  if (response.url && response.url.includes('accounts.google.com')) {
+    console.error(`[MSR CHITS API] Authentication required by Google:`, response.url);
+    throw new Error('Google Apps Script authentication failed. Web App must be deployed with "Who has access: Anyone".');
   }
 
   if (!response.ok) {
-    throw new Error(`API HTTP ${response.status}: ${response.statusText}`);
+    console.error(`[MSR CHITS API] HTTP error ${response.status}:`, {
+      url,
+      action,
+      status: response.status,
+      statusText: response.statusText
+    });
+    throw new Error(`MSR CHITS API returned HTTP ${response.status}: ${response.statusText}`);
   }
 
+  const rawText = await response.text();
   let result;
   try {
-    result = await response.json();
+    result = JSON.parse(rawText);
   } catch (jsonErr) {
-    throw new Error('Invalid response from MSR CHITS server. Please ensure Google Apps Script is deployed as "Anyone".');
+    console.error(`[MSR CHITS API] Invalid JSON response:`, {
+      action,
+      status: response.status,
+      preview: rawText.slice(0, 300)
+    });
+    if (rawText.includes('<!DOCTYPE') || rawText.includes('<!doctype html>')) {
+      throw new Error('Google Apps Script returned an HTML login page instead of JSON. Please ensure "Who has access: Anyone" is active.');
+    }
+    throw new Error('MSR CHITS API returned invalid JSON.');
   }
 
   if (!result.success) {
-    throw new Error(result.message || 'API request failed');
+    console.error(`[MSR CHITS API] Application error for action "${action}":`, result.message);
+    throw new Error(result.message || 'MSR CHITS server returned an application error.');
   }
 
   localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
@@ -186,32 +240,17 @@ export const api = {
     const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
 
     const activeMembers = members.filter(m => m.status === 'Active').length;
-    const thisMonthPayments = payments.filter(p => Number(p.month || p.monthNumber) === 2);
+    const thisMonthPayments = payments.filter(p => Number(p.month || p.monthNumber) === 1);
     const thisMonthCollected = thisMonthPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
-    const expectedCollection = 3750 * (members.length || 0);
 
     return {
       stats: {
         totalChits: chits.length,
         activeMembers: activeMembers,
         thisMonthCollection: thisMonthCollected,
-        pendingPayments: Math.max(0, expectedCollection - thisMonthCollected)
+        pendingPayments: 0
       },
-      currentChit: chits[0] || {
-        chitId: 'CHIT-100K-01',
-        chitName: 'MSR Chit — ₹1,00,000',
-        chitValue: 100000,
-        duration: 20,
-        currentMonth: 2,
-        monthlyContribution: 3750,
-        expected20M: 88825,
-        expectedCollection: expectedCollection,
-        collected: thisMonthCollected,
-        pending: Math.max(0, expectedCollection - thisMonthCollected),
-        currentPayout: 70000,
-        payoutAllocation: 'Amma + MU',
-        progressPercent: 10
-      },
+      currentChit: chits[0] || null,
       recentActivity: []
     };
   },
@@ -258,7 +297,7 @@ export const api = {
       status: memberData.status || 'Active',
       notes: memberData.notes || '',
       totalPaid: Number(memberData.totalPaid) || 0,
-      pendingAmount: Number(memberData.pendingAmount) || 3750
+      pendingAmount: Number(memberData.pendingAmount) || 0
     };
 
     if (API_URL) {
@@ -268,7 +307,6 @@ export const api = {
       return newMember;
     }
 
-    // Local fallback when no API URL is provided
     const cached = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
     const newId = `MEM-${String(cached.length + 1).padStart(3, '0')}`;
     const newMember = {
@@ -314,24 +352,18 @@ export const api = {
       }
     }
     const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
-    const chit = chits.find(c => String(c.chitId) === String(chitId)) || chits[0] || {
-      chitId: 'CHIT-100K-01',
-      chitName: 'MSR Chit — ₹1,00,000',
-      chitValue: 100000,
-      duration: 20,
-      currentMonth: 2
-    };
+    const chit = chits.find(c => String(c.chitId) === String(chitId)) || chits[0] || null;
     return {
       chit,
       schedule: getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [],
       summary: {
-        chitValue: chit.chitValue || 100000,
-        currentMonth: chit.currentMonth || 2,
-        totalMonths: chit.duration || 20,
+        chitValue: chit ? Number(chit.chitValue || chit.totalAmount) : 0,
+        currentMonth: chit ? Number(chit.currentMonth) : 1,
+        totalMonths: chit ? Number(chit.duration || chit.durationMonths) : 0,
         totalCollected: 0,
         totalPending: 0,
-        currentMonthPayout: 70000,
-        totalContributions20M: 88825
+        currentMonthPayout: 0,
+        totalContributions20M: 0
       }
     };
   },
@@ -339,12 +371,12 @@ export const api = {
   async createChit(chitData) {
     const payload = {
       chitName: chitData.chitName,
-      chitValue: Number(chitData.chitValue || chitData.totalAmount) || 100000,
-      duration: Number(chitData.duration || chitData.durationMonths) || 20,
-      totalMembers: Number(chitData.totalMembers || chitData.memberCount) || 20,
+      chitValue: Number(chitData.chitValue || chitData.totalAmount) || 0,
+      duration: Number(chitData.duration || chitData.durationMonths) || 0,
+      totalMembers: Number(chitData.totalMembers || chitData.memberCount) || 0,
       paymentDay: Number(chitData.paymentDay) || 20,
       startDate: chitData.startDate || new Date().toISOString().split('T')[0],
-      monthlyContribution: Number(chitData.monthlyContribution || chitData.monthlyAmount) || 3750,
+      monthlyContribution: Number(chitData.monthlyContribution || chitData.monthlyAmount) || 0,
       notes: chitData.description || chitData.notes || ''
     };
 
@@ -415,11 +447,11 @@ export const api = {
       month: Number(paymentData.month),
       monthNumber: Number(paymentData.month),
       amount: Number(paymentData.paidAmount),
-      dueAmount: Number(paymentData.dueAmount),
+      dueAmount: Number(paymentData.dueAmount || paymentData.paidAmount),
       paymentDate: paymentData.paymentDate || new Date().toISOString().split('T')[0],
       paymentMode: paymentData.paymentMode || 'UPI',
       reference: paymentData.reference || '',
-      status: Number(paymentData.paidAmount) >= Number(paymentData.dueAmount) ? 'Paid' : 'Partial'
+      status: Number(paymentData.paidAmount) >= Number(paymentData.dueAmount || paymentData.paidAmount) ? 'Paid' : 'Partial'
     };
     setCache(STORAGE_KEYS.PAYMENTS_CACHE, [newPayment, ...payments]);
     return newPayment;

@@ -377,47 +377,40 @@ function getDashboardData() {
   const schedule = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE);
   const activityLog = getSheetData(SHEET_NAMES.ACTIVITY_LOG);
 
-  const currentChit = chits[0] || {
-    chitId: 'CHIT-100K-01',
-    chitName: 'MSR Chit — ₹1,00,000',
-    totalAmount: 100000,
-    durationMonths: 20,
-    currentMonth: 2,
-    monthlyAmount: 3750
-  };
-
-  const currentMonthNum = Number(currentChit.currentMonth || 2);
-  const currentScheduleItem = schedule.find(s => Number(s.monthNumber || s.month) === currentMonthNum) || schedule[1] || {};
+  const currentChit = chits[0] || null;
+  const currentMonthNum = currentChit ? Number(currentChit.currentMonth || 1) : 1;
+  const currentScheduleItem = schedule.find(s => Number(s.monthNumber || s.month) === currentMonthNum) || {};
 
   const thisMonthPayments = payments.filter(p => Number(p.monthNumber || p.month) === currentMonthNum);
   const thisMonthCollected = thisMonthPayments.reduce((s, p) => s + (Number(p.amount || p.paidAmount) || 0), 0);
-  const memberCount = members.length || 20;
-  const expectedCollection = (Number(currentScheduleItem.amount || currentScheduleItem.monthlyAmount) || 3750) * memberCount;
+  const activeMembers = members.filter(m => m.status === 'Active').length;
+  const monthlyContribution = Number(currentScheduleItem.amount || currentScheduleItem.monthlyAmount) || (currentChit ? Number(currentChit.monthlyAmount || currentChit.monthlyContribution) : 0);
+  const expectedCollection = monthlyContribution * activeMembers;
   const pendingCollection = Math.max(0, expectedCollection - thisMonthCollected);
 
   return {
     stats: {
       totalChits: chits.length,
-      activeMembers: members.filter(m => m.status === 'Active').length,
+      activeMembers: activeMembers,
       thisMonthCollection: thisMonthCollected,
       pendingPayments: pendingCollection
     },
-    currentChit: {
+    currentChit: currentChit ? {
       chitId: currentChit.chitId,
       chitName: currentChit.chitName,
-      chitValue: Number(currentChit.totalAmount || currentChit.chitValue) || 100000,
-      duration: Number(currentChit.durationMonths || currentChit.duration) || 20,
-      memberCount: memberCount,
+      chitValue: Number(currentChit.totalAmount || currentChit.chitValue) || 0,
+      duration: Number(currentChit.durationMonths || currentChit.duration) || 0,
+      memberCount: activeMembers,
       currentMonth: currentMonthNum,
-      monthlyContribution: Number(currentScheduleItem.amount || currentScheduleItem.monthlyAmount) || 3750,
-      expected20M: 88825,
+      monthlyContribution: monthlyContribution,
+      expected20M: schedule.reduce((sum, item) => sum + (Number(item.amount || item.monthlyAmount) || 0), 0),
       expectedCollection: expectedCollection,
       collected: thisMonthCollected,
       pending: pendingCollection,
-      currentPayout: Number(currentScheduleItem.payoutAmount) || 70000,
-      payoutAllocation: currentScheduleItem.memberName || currentScheduleItem.assignedMemberName || 'Amma + MU',
-      progressPercent: Math.round((currentMonthNum / (Number(currentChit.durationMonths || currentChit.duration) || 20)) * 100)
-    },
+      currentPayout: Number(currentScheduleItem.payoutAmount || currentScheduleItem.amount) || 0,
+      payoutAllocation: currentScheduleItem.memberName || currentScheduleItem.assignedMemberName || 'Not Assigned',
+      progressPercent: currentChit && Number(currentChit.durationMonths || currentChit.duration) > 0 ? Math.round((currentMonthNum / Number(currentChit.durationMonths || currentChit.duration)) * 100) : 0
+    } : null,
     recentActivity: activityLog.slice(-6).reverse()
   };
 }
@@ -431,16 +424,16 @@ function getAllChits() {
   return chits.map(c => ({
     chitId: c.chitId,
     chitName: c.chitName,
-    chitValue: Number(c.totalAmount || c.chitValue) || 100000,
-    totalAmount: Number(c.totalAmount || c.chitValue) || 100000,
-    duration: Number(c.durationMonths || c.duration) || 20,
-    durationMonths: Number(c.durationMonths || c.duration) || 20,
-    memberCount: Number(c.memberCount) || 20,
-    currentMonth: Number(c.currentMonth) || 2,
-    monthlyContribution: Number(c.monthlyAmount) || 3750,
-    monthlyAmount: Number(c.monthlyAmount) || 3750,
+    chitValue: Number(c.totalAmount || c.chitValue) || 0,
+    totalAmount: Number(c.totalAmount || c.chitValue) || 0,
+    duration: Number(c.durationMonths || c.duration) || 0,
+    durationMonths: Number(c.durationMonths || c.duration) || 0,
+    memberCount: Number(c.memberCount) || 0,
+    currentMonth: Number(c.currentMonth) || 1,
+    monthlyContribution: Number(c.monthlyAmount) || 0,
+    monthlyAmount: Number(c.monthlyAmount) || 0,
     expected20M: 88825,
-    startDate: c.startDate || '2026-01-01',
+    startDate: c.startDate || '',
     paymentDay: Number(c.paymentDay) || 20,
     status: c.status || 'Active'
   }));
@@ -448,37 +441,38 @@ function getAllChits() {
 
 function getChitDetails(chitId) {
   const chits = getAllChits();
-  const chit = chits.find(c => String(c.chitId) === String(chitId)) || chits[0] || {
-    chitId: 'CHIT-100K-01',
-    chitName: 'MSR Chit — ₹1,00,000',
-    chitValue: 100000,
-    duration: 20,
-    currentMonth: 2
-  };
+  const chit = chits.find(c => String(c.chitId) === String(chitId)) || chits[0] || null;
+
+  if (!chit) {
+    return {
+      chit: null,
+      schedule: [],
+      summary: {
+        chitValue: 0,
+        currentMonth: 1,
+        totalMonths: 0,
+        totalCollected: 0,
+        totalPending: 0,
+        currentMonthPayout: 0,
+        totalContributions20M: 0
+      }
+    };
+  }
 
   const scheduleRaw = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE);
   const schedule = scheduleRaw
     .filter(s => String(s.chitId) === String(chit.chitId))
     .map(s => {
       const monthNum = Number(s.monthNumber || s.month);
-      const monthlyAmount = Number(s.amount || s.monthlyAmount) || 3750;
-      // Fixed payout amounts mapping
-      let payoutAmount = 70000;
-      if (monthNum === 1) payoutAmount = 100000;
-      else if (monthNum >= 2 && monthNum <= 20) payoutAmount = 70000 + (monthNum - 2) * 1500;
-      if (monthNum >= 17) {
-        if (monthNum === 17) payoutAmount = 92000;
-        if (monthNum === 18) payoutAmount = 93000;
-        if (monthNum === 19) payoutAmount = 94000;
-        if (monthNum === 20) payoutAmount = 95000;
-      }
+      const monthlyAmount = Number(s.amount || s.monthlyAmount) || 0;
+      const payoutAmount = Number(s.payoutAmount || s.amount) || 0;
 
       return {
         month: monthNum,
         monthNumber: monthNum,
         monthlyAmount: monthlyAmount,
         amount: monthlyAmount,
-        payoutAmount: Number(s.payoutAmount) || payoutAmount,
+        payoutAmount: payoutAmount,
         chitNumber: s.notes ? s.notes.replace('Chit ', '') : (monthNum === 1 ? 'NIL' : String(monthNum)),
         assignedMemberId: s.memberId || s.assignedMemberId || '',
         assignedMemberName: s.memberName || s.assignedMemberName || 'Not Assigned',
@@ -486,21 +480,23 @@ function getChitDetails(chitId) {
       };
     });
 
-  const payments = getAllPayments();
+  const payments = getAllPayments().filter(p => String(p.chitId) === String(chit.chitId));
   const totalCollected = payments.reduce((sum, p) => sum + (Number(p.paidAmount || p.amount) || 0), 0);
-  const currentItem = schedule.find(s => s.month === Number(chit.currentMonth)) || schedule[1] || {};
+  const currentItem = schedule.find(s => s.month === Number(chit.currentMonth)) || {};
+  const activeMembersCount = getAllMembers().filter(m => m.status === 'Active').length;
+  const expectedForCurrentMonth = (Number(currentItem.monthlyAmount) || 0) * activeMembersCount;
 
   return {
     chit: chit,
     schedule: schedule,
     summary: {
-      chitValue: chit.chitValue || 100000,
-      currentMonth: chit.currentMonth || 2,
-      totalMonths: chit.duration || 20,
+      chitValue: Number(chit.chitValue || chit.totalAmount) || 0,
+      currentMonth: Number(chit.currentMonth) || 1,
+      totalMonths: Number(chit.duration || chit.durationMonths) || 0,
       totalCollected: totalCollected,
-      totalPending: 3750 * 2,
-      currentMonthPayout: currentItem.payoutAmount || 70000,
-      totalContributions20M: 88825
+      totalPending: Math.max(0, expectedForCurrentMonth - totalCollected),
+      currentMonthPayout: Number(currentItem.payoutAmount) || 0,
+      totalContributions20M: schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount) || 0), 0)
     }
   };
 }
@@ -510,9 +506,9 @@ function createNewChit(data) {
   const newChit = {
     chitId: chitId,
     chitName: data.chitName,
-    totalAmount: Number(data.chitValue || data.totalAmount) || 100000,
-    durationMonths: Number(data.duration || data.durationMonths) || 20,
-    monthlyAmount: Number(data.monthlyContribution || data.monthlyAmount) || 3750,
+    totalAmount: Number(data.chitValue || data.totalAmount) || 0,
+    durationMonths: Number(data.duration || data.durationMonths) || 0,
+    monthlyAmount: Number(data.monthlyContribution || data.monthlyAmount) || 0,
     startDate: data.startDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
     currentMonth: 1,
     status: 'Active',
@@ -547,23 +543,22 @@ function getAllMembers() {
   return members.map(m => {
     const memPayments = payments.filter(p => String(p.memberId) === String(m.memberId));
     const paid = memPayments.reduce((s, p) => s + (Number(p.amount || p.paidAmount) || 0), 0);
-    const hasPending = memPayments.some(p => p.status === 'Pending');
 
     return {
       memberId: m.memberId,
       name: m.name,
-      mobile: m.phone || m.mobile,
-      phone: m.phone || m.mobile,
+      mobile: m.phone || m.mobile || '',
+      phone: m.phone || m.mobile || '',
       email: m.email || '',
       address: m.address || '',
-      joinDate: m.joinDate || '2026-01-01',
+      joinDate: m.joinDate || '',
       payoutMonth: m.assignedChits || m.payoutMonth || 'Not Assigned',
       assignedMonths: [],
       chitCount: Number(m.chitCount) || 1,
       status: m.status || 'Active',
       notes: m.notes || '',
       totalPaid: paid || Number(m.totalPaid) || 0,
-      totalPending: hasPending ? 3750 : (Number(m.pendingAmount) || 0),
+      totalPending: Number(m.pendingAmount) || 0,
       payoutAmount: 0
     };
   });
@@ -597,7 +592,7 @@ function createNewMember(data) {
     joinDate: data.joinDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
     status: data.status || 'Active',
     totalPaid: Number(data.totalPaid) || 0,
-    pendingAmount: Number(data.pendingAmount) || 3750,
+    pendingAmount: Number(data.pendingAmount) || 0,
     assignedChits: data.payoutMonth || data.assignedChits || 'Not Assigned',
     notes: data.notes || '',
     createdAt: new Date().toISOString(),
@@ -687,7 +682,7 @@ function getAllPayments() {
     monthNumber: Number(p.monthNumber || p.month),
     amount: Number(p.amount || p.paidAmount) || 0,
     paidAmount: Number(p.amount || p.paidAmount) || 0,
-    dueAmount: Number(p.dueAmount) || 3750,
+    dueAmount: Number(p.dueAmount) || 0,
     paymentDate: p.paymentDate,
     paymentMode: p.paymentMethod || p.paymentMode || 'Cash',
     paymentMethod: p.paymentMethod || p.paymentMode || 'Cash',
@@ -701,7 +696,7 @@ function getAllPayments() {
 function recordMemberPayment(data) {
   const paymentId = generateSequentialId(SHEET_NAMES.PAYMENTS, 'PAY', 'paymentId');
   const paidAmount = Number(data.paidAmount || data.amount) || 0;
-  const dueAmount = Number(data.dueAmount) || 3750;
+  const dueAmount = Number(data.dueAmount) || paidAmount;
 
   let status = 'Pending';
   if (paidAmount >= dueAmount && dueAmount > 0) {
@@ -743,7 +738,7 @@ function getAllPayouts() {
     monthNumber: Number(po.monthNumber || po.month),
     memberId: po.memberId,
     memberName: po.memberName,
-    amount: Number(po.amount),
+    amount: Number(po.amount) || 0,
     payoutDate: po.payoutDate,
     paymentMode: po.paymentMethod || po.paymentMode || 'Bank Transfer',
     paymentMethod: po.paymentMethod || po.paymentMode || 'Bank Transfer',
@@ -756,7 +751,7 @@ function getAllPayouts() {
 
 function recordChitPayout(data) {
   const payoutId = generateSequentialId(SHEET_NAMES.PAYOUTS, 'PO', 'payoutId');
-  const amount = Number(data.amount);
+  const amount = Number(data.amount) || 0;
 
   const newPayout = {
     payoutId: payoutId,
@@ -791,24 +786,25 @@ function getFinancialReports() {
   const totalCollection = payments.reduce((sum, p) => sum + (Number(p.paidAmount || p.amount) || 0), 0);
   const totalPayout = payouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
   const pendingCollection = members.reduce((sum, m) => sum + (Number(m.totalPending) || 0), 0);
+  const activeMembersCount = members.filter(m => m.status === 'Active').length;
 
   const monthlyBreakdown = schedule.map(sch => {
     const monthNum = Number(sch.monthNumber || sch.month);
     const monthPayments = payments.filter(p => Number(p.month || p.monthNumber) === monthNum);
     const collected = monthPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
-    const memberCount = members.length || 20;
-    const expected = (Number(sch.amount || sch.monthlyAmount) || 3750) * memberCount;
+    const monthlyAmount = Number(sch.amount || sch.monthlyAmount) || 0;
+    const expected = monthlyAmount * activeMembersCount;
     const payout = payouts.find(po => Number(po.month || po.monthNumber) === monthNum);
 
     return {
       month: monthNum,
-      monthlyAmount: Number(sch.amount || sch.monthlyAmount) || 3750,
+      monthlyAmount: monthlyAmount,
       expected: expected,
       collected: collected,
       pending: Math.max(0, expected - collected),
-      payoutAmount: Number(sch.payoutAmount) || 70000,
+      payoutAmount: Number(sch.payoutAmount || sch.amount) || 0,
       payoutBeneficiary: sch.memberName || sch.assignedMemberName || 'Not Assigned',
-      payoutStatus: payout ? 'Completed' : (monthNum < 2 ? 'Completed' : (monthNum === 2 ? 'Completed' : 'Scheduled'))
+      payoutStatus: payout ? (payout.status || 'Completed') : (sch.payoutStatus || 'Scheduled')
     };
   });
 
