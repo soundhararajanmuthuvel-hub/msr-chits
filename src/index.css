@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #003524;
+    --primary-container: #174D38;
+    --primary-hover: #0a4430;
+    --primary-light: #e6f6ee;
+    --surface: #F0FCF4;
+    --surface-card: #FFFFFF;
+    --gold: #C9A227;
+    --gold-light: #FEF9C3;
+    --gold-dark: #9A7712;
+    --text-main: #131E19;
+    --text-muted: #4B6358;
+    --border-color: #DCE8E0;
+    --border-subtle: #EAF2EC;
+
+    /* iOS Safe Area insets */
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #F0FCF4;
+    color: #131E19;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    /* Safe Area insets for iOS */
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  }
+
+  /* Ensure minimum 44px touch targets on mobile for touch elements */
+  button, select, input[type="button"], input[type="submit"] {
+    touch-action: manipulation;
+  }
+}
+
+/* Safe Area Utility Classes */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-bottom-nav {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.safe-header {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0.75rem));
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F0FCF4;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C4D9CC;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #174D38;
+}
+
+/* Print Optimization for Reports and Statements */
+@media print {
+  aside, header, nav, .no-print, button, .btn {
+    display: none !important;
+  }
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    padding: 0 !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-container {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .print-page-break {
+    page-break-inside: avoid;
+  }
+}
