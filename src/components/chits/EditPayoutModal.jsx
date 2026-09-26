@@ -33,7 +33,8 @@ export const EditPayoutModal = ({
   const chitId = chit?.chitId || scheduleItem.chitId || 'CHIT-100K-01';
   const chitValue = Number(chit?.chitValue || chit?.totalAmount || 100000);
   const chitNo = scheduleItem.chitNo || generateChitNumber({ year: 2026, chitValue, sequenceNumber: month });
-  const memberName = scheduleItem.assignedMemberName || 'Not Assigned';
+  const memberName = scheduleItem.memberName || scheduleItem.assignedMemberName || 'Not Assigned';
+  const fundingSource = String(scheduleItem.fundingSource || '').toUpperCase().includes('EXTRA') ? 'EXTRA_INVESTMENT' : 'CHIT_FUND';
   const monthlyChit = Number(scheduleItem.monthlyAmount || scheduleItem.amount || 0);
 
   const handleSubmit = async (e) => {
@@ -50,14 +51,18 @@ export const EditPayoutModal = ({
 
     try {
       await api.updateSchedulePayout({
+        payoutId: scheduleItem.payoutId,
         chitId,
         month,
         payoutAmount: numAmt,
         chitNo,
+        memberId: scheduleItem.memberId || scheduleItem.assignedMemberId,
+        memberName,
+        fundingSource,
         notes
       });
 
-      showToast(`Month ${month} Payout updated to ${formatINR(numAmt)} successfully!`, 'success');
+      showToast(`Month ${month} Payout for ${memberName} updated to ${formatINR(numAmt)} successfully!`, 'success');
       if (onSuccess) onSuccess();
       onClose();
     } catch (err) {
@@ -74,7 +79,7 @@ export const EditPayoutModal = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Edit Payout"
-      subtitle={`Month ${month} Payout Allocation • Chit: ${chit?.chitName || 'MSR Chit'}`}
+      subtitle={`Month ${month} Payout Allocation for ${memberName} • Chit: ${chit?.chitName || 'MSR Chit'}`}
       maxWidth="max-w-md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -107,6 +112,21 @@ export const EditPayoutModal = ({
             </span>
             <span className="font-bold text-[#003524]">
               {memberName}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between py-1 border-b border-[#DCE8E0]/70">
+            <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
+              <span>Funding Source:</span>
+            </span>
+            <span
+              className={`font-extrabold text-[10px] px-2 py-0.5 rounded uppercase border ${
+                fundingSource === 'EXTRA_INVESTMENT'
+                  ? 'bg-purple-100 text-purple-900 border-purple-300'
+                  : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+              }`}
+            >
+              {fundingSource === 'EXTRA_INVESTMENT' ? 'EXTRA INVESTMENT' : 'CHIT FUND'}
             </span>
           </div>
 

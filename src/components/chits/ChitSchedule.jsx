@@ -2,13 +2,77 @@ import React from 'react';
 import { formatINR } from '../../utils/currency';
 import { generateChitNumber } from '../../utils/chitNumber';
 import StatusBadge from '../common/StatusBadge';
-import { UserCheck, Edit3, Send, IndianRupee } from 'lucide-react';
+import { UserCheck, Edit3, Send, IndianRupee, Layers } from 'lucide-react';
 import { useChit } from '../../context/ChitContext';
 
 export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayout, onEditPayout }) => {
   const { setIsRecordPayoutOpen } = useChit();
 
-  const totalMonthlyAmount = schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount) || 0), 0);
+  const totalMonthlyAmount = schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount || item.amount) || 0), 0);
+
+  const sanitizePayoutAmount = (rawAmt, monthNum, defaultVal = 70000) => {
+    const num = Number(rawAmt);
+    // If num is less than 10,000, it's a legacy monthly collection amount (e.g. 3,750 or 5,000), not a payout
+    if (!num || isNaN(num) || num < 10000) {
+      return monthNum === 1 ? 100000 : defaultVal;
+    }
+    return num;
+  };
+
+  const getPayoutListForMonth = (item) => {
+    if (Array.isArray(item.payouts) && item.payouts.length > 0) {
+      return item.payouts.map((po, idx) => ({
+        payoutId: po.payoutId || `PO-M${item.month}-${idx + 1}`,
+        memberId: po.memberId || '',
+        memberName: po.memberName || 'Member',
+        chitNo: po.chitNo || item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month }),
+        payoutAmount: sanitizePayoutAmount(po.payoutAmount || po.amount, item.month, item.month === 1 ? 100000 : 70000),
+        fundingSource: String(po.fundingSource || '').toUpperCase().includes('EXTRA') ? 'EXTRA_INVESTMENT' : 'CHIT_FUND',
+        notes: po.notes || ''
+      }));
+    }
+
+    // Month 2 Multiple Payouts: Amma (₹70k CHIT_FUND) and MU (₹50k EXTRA_INVESTMENT)
+    if (item.month === 2 && (item.assignedMemberName === 'Amma + MU' || item.assignedMemberName === 'Amma' || !item.assignedMemberName)) {
+      return [
+        {
+          payoutId: 'PO-M2-01',
+          memberId: 'MEM-001',
+          memberName: 'Amma',
+          chitNo: item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: 2 }),
+          payoutAmount: sanitizePayoutAmount(item.payoutAmount, 2, 70000),
+          fundingSource: 'CHIT_FUND',
+          notes: 'Chit Fund Allocation'
+        },
+        {
+          payoutId: 'PO-M2-02',
+          memberId: 'MEM-003',
+          memberName: 'MU',
+          chitNo: 'MSR261L02-B',
+          payoutAmount: 50000,
+          fundingSource: 'EXTRA_INVESTMENT',
+          notes: 'Extra Investment Allocation'
+        }
+      ];
+    }
+
+    const amt = sanitizePayoutAmount(item.payoutAmount, item.month, item.month === 1 ? 100000 : 0);
+    if (amt > 0) {
+      return [
+        {
+          payoutId: item.scheduleId || `PO-M${item.month}`,
+          memberId: item.assignedMemberId || '',
+          memberName: (item.assignedMemberName && item.assignedMemberName !== 'Not Assigned') ? item.assignedMemberName : (item.month === 1 ? 'MU' : 'Not Assigned'),
+          chitNo: item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month }),
+          payoutAmount: amt,
+          fundingSource: 'CHIT_FUND',
+          notes: item.notes || ''
+        }
+      ];
+    }
+
+    return [];
+  };
 
   return (
     <div className="bg-white rounded-xl border border-[#DCE8E0] shadow-sm overflow-hidden">
@@ -18,7 +82,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
             Master {schedule.length || 20}-Month Chit Schedule
           </h3>
           <p className="text-xs text-[#5B7065]">
-            Complete installment amounts, auction dividends, member assignments, and disbursed payouts
+            Complete installment amounts, auction dividends, member allocations, and independent payout disbursements
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -36,10 +100,10 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
               <th className="py-3.5 px-4">Month</th>
               <th className="py-3.5 px-4">Monthly Chit</th>
               <th className="py-3.5 px-4">Dividend</th>
-              <th className="py-3.5 px-4">Payout</th>
+              <th className="py-3.5 px-4">Payout / Disbursement</th>
               <th className="py-3.5 px-4">Chit No</th>
               <th className="py-3.5 px-4">Status</th>
-              <th className="py-3.5 px-4">Assigned Member</th>
+              <th className="py-3.5 px-4">Assigned Member(s)</th>
               <th className="py-3.5 px-4 text-right">Actions</th>
             </tr>
           </thead>
@@ -47,8 +111,8 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
             {schedule.map((item) => {
               const isCurrent = item.month === currentMonth;
               const isCompleted = item.month < currentMonth;
-              const isAssigned = item.assignedMemberName && item.assignedMemberName !== 'Not Assigned';
-              const permanentChitNo = item.chitNo || generateChitNumber(100000, 2026, item.month);
+              const permanentChitNo = item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month });
+              const payoutList = getPayoutListForMonth(item);
 
               return (
                 <tr
@@ -79,7 +143,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
 
                   {/* Monthly Chit Amount (Collected from each member) */}
                   <td className="py-3.5 px-4 font-bold text-[#003524]">
-                    {formatINR(item.monthlyAmount)}
+                    {formatINR(item.monthlyAmount || item.amount)}
                   </td>
 
                   {/* Dividend Amount */}
@@ -87,31 +151,116 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                     {item.dividend ? formatINR(item.dividend) : '—'}
                   </td>
 
-                  {/* Payout (Actual net amount given to the chit taker) */}
+                  {/* Payout / Disbursement Column */}
                   <td className="py-3.5 px-4 font-semibold text-[#131E19]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-extrabold text-[#003524]">
-                        {item.payoutAmount ? formatINR(item.payoutAmount) : '—'}
-                      </span>
-                      {onEditPayout && (
-                        <button
-                          type="button"
-                          onClick={() => onEditPayout(item)}
-                          title={`Edit Month ${item.month} Payout Amount`}
-                          className="px-1.5 py-0.5 text-[10px] font-bold text-[#174D38] bg-[#F0FCF4] hover:bg-[#DCE8E0] rounded border border-[#DCE8E0] transition-colors inline-flex items-center gap-0.5"
+                    {payoutList.length > 1 ? (
+                      <div className="space-y-1.5 py-0.5">
+                        {payoutList.map((po, idx) => (
+                          <div
+                            key={po.payoutId || idx}
+                            className="flex items-center justify-between gap-2 p-1.5 bg-[#F8FAF9] rounded-lg border border-[#DCE8E0]"
+                          >
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-[#003524] text-xs">
+                                {po.memberName}:
+                              </span>
+                              <span className="font-extrabold text-[#003524]">
+                                {formatINR(po.payoutAmount)}
+                              </span>
+                              <span
+                                className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase border ${
+                                  po.fundingSource === 'EXTRA_INVESTMENT'
+                                    ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                }`}
+                              >
+                                {po.fundingSource === 'EXTRA_INVESTMENT' ? 'EXTRA INVESTMENT' : 'CHIT FUND'}
+                              </span>
+                            </div>
+                            {onEditPayout && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onEditPayout({
+                                    ...item,
+                                    ...po,
+                                    month: item.month,
+                                    chitNo: po.chitNo,
+                                    payoutAmount: po.payoutAmount,
+                                    memberName: po.memberName,
+                                    assignedMemberName: po.memberName,
+                                    fundingSource: po.fundingSource
+                                  })
+                                }
+                                title={`Edit ${po.memberName}'s Month ${item.month} Payout`}
+                                className="px-1.5 py-0.5 text-[10px] font-bold text-[#174D38] bg-white hover:bg-[#DCE8E0] rounded border border-[#DCE8E0] transition-colors inline-flex items-center gap-0.5"
+                              >
+                                <Edit3 className="w-2.5 h-2.5" />
+                                <span>Edit</span>
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : payoutList.length === 1 ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-extrabold text-[#003524]">
+                          {formatINR(payoutList[0].payoutAmount)}
+                        </span>
+                        <span
+                          className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase border ${
+                            payoutList[0].fundingSource === 'EXTRA_INVESTMENT'
+                              ? 'bg-purple-50 text-purple-800 border-purple-200'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}
                         >
-                          <Edit3 className="w-2.5 h-2.5" />
-                          <span>Edit</span>
-                        </button>
-                      )}
-                    </div>
+                          {payoutList[0].fundingSource === 'EXTRA_INVESTMENT' ? 'EXTRA INVESTMENT' : 'CHIT FUND'}
+                        </span>
+                        {onEditPayout && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onEditPayout({
+                                ...item,
+                                ...payoutList[0],
+                                month: item.month,
+                                chitNo: payoutList[0].chitNo,
+                                payoutAmount: payoutList[0].payoutAmount,
+                                memberName: payoutList[0].memberName,
+                                assignedMemberName: payoutList[0].memberName,
+                                fundingSource: payoutList[0].fundingSource
+                              })
+                            }
+                            title={`Edit Month ${item.month} Payout Amount`}
+                            className="px-1.5 py-0.5 text-[10px] font-bold text-[#174D38] bg-[#F0FCF4] hover:bg-[#DCE8E0] rounded border border-[#DCE8E0] transition-colors inline-flex items-center gap-0.5"
+                          >
+                            <Edit3 className="w-2.5 h-2.5" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[#5B7065] italic text-xs">—</span>
+                    )}
                   </td>
 
                   {/* Permanent Chit No */}
                   <td className="py-3.5 px-4">
-                    <span className="px-2 py-0.5 rounded bg-emerald-50 text-[#003524] border border-emerald-200 text-xs font-mono font-bold">
-                      {permanentChitNo}
-                    </span>
+                    {payoutList.length > 1 ? (
+                      <div className="space-y-1">
+                        {payoutList.map((po, idx) => (
+                          <div key={idx}>
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-[#003524] border border-emerald-200 text-xs font-mono font-bold block w-fit">
+                              {po.chitNo}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-[#003524] border border-emerald-200 text-xs font-mono font-bold">
+                        {permanentChitNo}
+                      </span>
+                    )}
                   </td>
 
                   {/* Status */}
@@ -127,26 +276,44 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                     />
                   </td>
 
-                  {/* Assigned Member */}
+                  {/* Assigned Member(s) */}
                   <td className="py-3.5 px-4">
-                    <div className="flex items-center gap-1.5">
-                      {isAssigned ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-[#003524]">
-                            {item.assignedMemberName}
-                          </span>
-                          {item.assignedMemberName === 'Amma + MU' && (
-                            <span className="text-[10px] bg-[#C9A227]/20 text-[#85660D] font-extrabold px-1.5 py-0.2 rounded">
-                              Shared
+                    {payoutList.length > 1 ? (
+                      <div className="space-y-1 py-0.5">
+                        {payoutList.map((po, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5">
+                            <span className="font-bold text-[#003524] text-xs">
+                              {po.memberName}
                             </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[#5B7065] italic text-xs">
-                          Not Assigned
+                            <span
+                              className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
+                                po.fundingSource === 'EXTRA_INVESTMENT'
+                                  ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}
+                            >
+                              {po.fundingSource === 'EXTRA_INVESTMENT' ? 'Extra Inv' : 'Chit Fund'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : payoutList.length === 1 && payoutList[0].memberName !== 'Not Assigned' ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-[#003524]">
+                          {payoutList[0].memberName}
                         </span>
-                      )}
-                    </div>
+                      </div>
+                    ) : item.assignedMemberName && item.assignedMemberName !== 'Not Assigned' && item.assignedMemberName !== 'Amma + MU' ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-[#003524]">
+                          {item.assignedMemberName}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-[#5B7065] italic text-xs">
+                        Not Assigned
+                      </span>
+                    )}
                   </td>
 
                   {/* Actions */}

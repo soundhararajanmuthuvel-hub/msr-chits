@@ -313,25 +313,25 @@ function setupDatabase() {
   if (scheduleSheet.getLastRow() <= 1) {
     const masterSchedule = [
       ['SCH-01', 'CHIT-100K-01', 1, '2026-01-20', 'MEM-003', 'MU', 5000, 'Paid', 'Completed', '2026-01-22', 'Chit NIL', 100000],
-      ['SCH-02', 'CHIT-100K-01', 2, '2026-02-20', 'MEM-001,MEM-003', 'Amma + MU', 3750, 'In Progress', 'Completed', '2026-02-22', 'Chit 2 (Shared)', 75000],
-      ['SCH-03', 'CHIT-100K-01', 3, '2026-03-20', '', 'Not Assigned', 3825, 'Upcoming', 'Upcoming', '', 'Chit 3', 76500],
-      ['SCH-04', 'CHIT-100K-01', 4, '2026-04-20', '', 'Not Assigned', 3900, 'Upcoming', 'Upcoming', '', 'Chit 4', 78000],
-      ['SCH-05', 'CHIT-100K-01', 5, '2026-05-20', '', 'Not Assigned', 3975, 'Upcoming', 'Upcoming', '', 'Chit 5', 79500],
-      ['SCH-06', 'CHIT-100K-01', 6, '2026-06-20', '', 'Not Assigned', 4050, 'Upcoming', 'Upcoming', '', 'Chit 6', 81000],
-      ['SCH-07', 'CHIT-100K-01', 7, '2026-07-20', '', 'Not Assigned', 4125, 'Upcoming', 'Upcoming', '', 'Chit 7', 82500],
-      ['SCH-08', 'CHIT-100K-01', 8, '2026-08-20', 'MEM-003', 'MU', 4200, 'Upcoming', 'Upcoming', '', 'Chit 8', 84000],
-      ['SCH-09', 'CHIT-100K-01', 9, '2026-09-20', '', 'Not Assigned', 4275, 'Upcoming', 'Upcoming', '', 'Chit 9', 85500],
-      ['SCH-10', 'CHIT-100K-01', 10, '2026-10-20', '', 'Not Assigned', 4350, 'Upcoming', 'Upcoming', '', 'Chit 10', 87000],
-      ['SCH-11', 'CHIT-100K-01', 11, '2026-11-20', '', 'Not Assigned', 4425, 'Upcoming', 'Upcoming', '', 'Chit 11', 88500],
-      ['SCH-12', 'CHIT-100K-01', 12, '2026-12-20', '', 'Not Assigned', 4500, 'Upcoming', 'Upcoming', '', 'Chit 12', 90000],
-      ['SCH-13', 'CHIT-100K-01', 13, '2027-01-20', '', 'Not Assigned', 4575, 'Upcoming', 'Upcoming', '', 'Chit 13', 91500],
-      ['SCH-14', 'CHIT-100K-01', 14, '2027-02-20', '', 'Not Assigned', 4650, 'Upcoming', 'Upcoming', '', 'Chit 14', 93000],
-      ['SCH-15', 'CHIT-100K-01', 15, '2027-03-20', 'MEM-003', 'MU', 4725, 'Upcoming', 'Upcoming', '', 'Chit 15', 94500],
-      ['SCH-16', 'CHIT-100K-01', 16, '2027-04-20', '', 'Not Assigned', 4800, 'Upcoming', 'Upcoming', '', 'Chit 16', 96000],
-      ['SCH-17', 'CHIT-100K-01', 17, '2027-05-20', '', 'Not Assigned', 4850, 'Upcoming', 'Upcoming', '', 'Chit 17', 97000],
-      ['SCH-18', 'CHIT-100K-01', 18, '2027-06-20', '', 'Not Assigned', 4900, 'Upcoming', 'Upcoming', '', 'Chit 18', 98000],
-      ['SCH-19', 'CHIT-100K-01', 19, '2027-07-20', '', 'Not Assigned', 4950, 'Upcoming', 'Upcoming', '', 'Chit 19', 99000],
-      ['SCH-20', 'CHIT-100K-01', 20, '2027-08-20', '', 'Not Assigned', 5000, 'Upcoming', 'Upcoming', '', 'Chit 20', 100000]
+      ['SCH-02', 'CHIT-100K-01', 2, '2026-02-20', 'MEM-001', 'Amma', 3750, 'In Progress', 'Completed', '2026-02-22', 'Chit 2', 70000],
+      ['SCH-03', 'CHIT-100K-01', 3, '2026-03-20', '', 'Not Assigned', 3825, 'Upcoming', 'Upcoming', '', 'Chit 3', 71500],
+      ['SCH-04', 'CHIT-100K-01', 4, '2026-04-20', '', 'Not Assigned', 3900, 'Upcoming', 'Upcoming', '', 'Chit 4', 73000],
+      ['SCH-05', 'CHIT-100K-01', 5, '2026-05-20', '', 'Not Assigned', 3975, 'Upcoming', 'Upcoming', '', 'Chit 5', 74500],
+      ['SCH-06', 'CHIT-100K-01', 6, '2026-06-20', '', 'Not Assigned', 4050, 'Upcoming', 'Upcoming', '', 'Chit 6', 76000],
+      ['SCH-07', 'CHIT-100K-01', 7, '2026-07-20', '', 'Not Assigned', 4125, 'Upcoming', 'Upcoming', '', 'Chit 7', 77500],
+      ['SCH-08', 'CHIT-100K-01', 8, '2026-08-20', 'MEM-003', 'MU', 4200, 'Upcoming', 'Upcoming', '', 'Chit 8', 79000],
+      ['SCH-09', 'CHIT-100K-01', 9, '2026-09-20', '', 'Not Assigned', 4275, 'Upcoming', 'Upcoming', '', 'Chit 9', 80500],
+      ['SCH-10', 'CHIT-100K-01', 10, '2026-10-20', '', 'Not Assigned', 4350, 'Upcoming', 'Upcoming', '', 'Chit 10', 82000],
+      ['SCH-11', 'CHIT-100K-01', 11, '2026-11-20', '', 'Not Assigned', 4425, 'Upcoming', 'Upcoming', '', 'Chit 11', 83500],
+      ['SCH-12', 'CHIT-100K-01', 12, '2026-12-20', '', 'Not Assigned', 4500, 'Upcoming', 'Upcoming', '', 'Chit 12', 85000],
+      ['SCH-13', 'CHIT-100K-01', 13, '2027-01-20', '', 'Not Assigned', 4575, 'Upcoming', 'Upcoming', '', 'Chit 13', 86500],
+      ['SCH-14', 'CHIT-100K-01', 14, '2027-02-20', '', 'Not Assigned', 4650, 'Upcoming', 'Upcoming', '', 'Chit 14', 88000],
+      ['SCH-15', 'CHIT-100K-01', 15, '2027-03-20', 'MEM-003', 'MU', 4725, 'Upcoming', 'Upcoming', '', 'Chit 15', 89500],
+      ['SCH-16', 'CHIT-100K-01', 16, '2027-04-20', '', 'Not Assigned', 4800, 'Upcoming', 'Upcoming', '', 'Chit 16', 91000],
+      ['SCH-17', 'CHIT-100K-01', 17, '2027-05-20', '', 'Not Assigned', 4850, 'Upcoming', 'Upcoming', '', 'Chit 17', 92000],
+      ['SCH-18', 'CHIT-100K-01', 18, '2027-06-20', '', 'Not Assigned', 4900, 'Upcoming', 'Upcoming', '', 'Chit 18', 93000],
+      ['SCH-19', 'CHIT-100K-01', 19, '2027-07-20', '', 'Not Assigned', 4950, 'Upcoming', 'Upcoming', '', 'Chit 19', 94000],
+      ['SCH-20', 'CHIT-100K-01', 20, '2027-08-20', '', 'Not Assigned', 5000, 'Upcoming', 'Upcoming', '', 'Chit 20', 95000]
     ];
     masterSchedule.forEach(row => scheduleSheet.appendRow(row));
   }
@@ -546,6 +546,7 @@ function getChitDetails(chitId) {
     };
   }
 
+  const allPayouts = getAllPayouts().filter(po => String(po.chitId) === String(chit.chitId));
   const scheduleRaw = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE);
   const schedule = scheduleRaw
     .filter(s => String(s.chitId) === String(chit.chitId))
@@ -553,11 +554,13 @@ function getChitDetails(chitId) {
       const monthNum = Number(s.monthNumber || s.month);
       const monthlyAmount = Number(s.amount || s.monthlyAmount) || 0;
       
-      // IMPORTANT: Payout is the actual amount given to the member taking the chit in that month.
-      // It is completely independent from Monthly Chit collection!
+      const monthPayouts = allPayouts.filter(po => Number(po.monthNumber || po.month) === monthNum);
+
       let payoutAmount = Number(s.payoutAmount);
       if (isNaN(payoutAmount) || payoutAmount <= 0) {
-        if (monthNum === 1) {
+        if (monthPayouts.length > 0) {
+          payoutAmount = monthPayouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
+        } else if (monthNum === 1) {
           payoutAmount = Number(chit.chitValue || chit.totalAmount) || 100000;
         } else {
           const div = Number(chit.dividend) || 0;
@@ -567,6 +570,11 @@ function getChitDetails(chitId) {
         }
       }
 
+      let assignedMemberName = s.memberName || s.assignedMemberName || 'Not Assigned';
+      if (assignedMemberName === 'Amma + MU' && monthPayouts.length === 0) {
+        assignedMemberName = 'Amma';
+      }
+
       return {
         month: monthNum,
         monthNumber: monthNum,
@@ -574,9 +582,10 @@ function getChitDetails(chitId) {
         amount: monthlyAmount,
         dividend: s.dividend !== undefined ? Number(s.dividend) : 0,
         payoutAmount: payoutAmount,
+        payouts: monthPayouts,
         chitNumber: s.notes ? s.notes.replace('Chit ', '') : (monthNum === 1 ? 'NIL' : String(monthNum)),
         assignedMemberId: s.memberId || s.assignedMemberId || '',
-        assignedMemberName: s.memberName || s.assignedMemberName || 'Not Assigned',
+        assignedMemberName: assignedMemberName,
         status: monthNum < Number(chit.currentMonth) ? 'Completed' : (monthNum === Number(chit.currentMonth) ? 'Active' : 'Upcoming')
       };
     });
@@ -1314,11 +1323,32 @@ function updateSchedulePayout(payload) {
     const pAmtCol = pHeaders.indexOf('amount');
     const pUpdatedAtCol = pHeaders.indexOf('updatedAt');
 
+    const pPayoutIdCol = pHeaders.indexOf('payoutId');
+    const pChitNoCol = pHeaders.indexOf('chitNo');
+    const pMemberIdCol = pHeaders.indexOf('memberId');
+    const pMemberNameCol = pHeaders.indexOf('memberName');
+
     const pData = payoutsSheet.getRange(2, 1, payoutsSheet.getLastRow() - 1, payoutsSheet.getLastColumn()).getValues();
     for (let pr = 0; pr < pData.length; pr++) {
-      if (String(pData[pr][pChitIdCol]) === chitId && Number(pData[pr][pMonthCol]) === month) {
-        if (pAmtCol !== -1) payoutsSheet.getRange(pr + 2, pAmtCol + 1).setValue(payoutAmount);
-        if (pUpdatedAtCol !== -1) payoutsSheet.getRange(pr + 2, pUpdatedAtCol + 1).setValue(new Date().toISOString());
+      const isMonthMatch = String(pData[pr][pChitIdCol]) === chitId && Number(pData[pr][pMonthCol]) === month;
+      if (isMonthMatch) {
+        let isRecordMatch = false;
+        if (payload.payoutId && pPayoutIdCol !== -1) {
+          isRecordMatch = String(pData[pr][pPayoutIdCol]) === String(payload.payoutId);
+        } else if (payload.chitNo && pChitNoCol !== -1) {
+          isRecordMatch = String(pData[pr][pChitNoCol]) === String(payload.chitNo);
+        } else if (payload.memberId && pMemberIdCol !== -1) {
+          isRecordMatch = String(pData[pr][pMemberIdCol]) === String(payload.memberId);
+        } else if (payload.memberName && pMemberNameCol !== -1) {
+          isRecordMatch = String(pData[pr][pMemberNameCol]) === String(payload.memberName);
+        } else {
+          isRecordMatch = true;
+        }
+
+        if (isRecordMatch) {
+          if (pAmtCol !== -1) payoutsSheet.getRange(pr + 2, pAmtCol + 1).setValue(payoutAmount);
+          if (pUpdatedAtCol !== -1) payoutsSheet.getRange(pr + 2, pUpdatedAtCol + 1).setValue(new Date().toISOString());
+        }
       }
     }
   }

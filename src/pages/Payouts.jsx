@@ -95,11 +95,6 @@ export const Payouts = () => {
       render: (row) => (
         <div>
           <span className="font-bold text-[#131E19] text-sm">{row.memberName}</span>
-          {row.memberName === 'Amma + MU' && (
-            <span className="ml-2 text-[10px] bg-[#C9A227]/20 text-[#85660D] font-bold px-1.5 py-0.2 rounded">
-              Shared Allocation
-            </span>
-          )}
           {row.notes && (
             <span className="text-[10px] text-[#5B7065] block">{row.notes}</span>
           )}
@@ -118,11 +113,18 @@ export const Payouts = () => {
     {
       header: 'Funding Source',
       accessor: 'fundingSource',
-      render: (row) => (
-        <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold">
-          {row.fundingSource || 'Chit Fund Collections'}
-        </span>
-      )
+      render: (row) => {
+        const isExtra = String(row.fundingSource || '').toUpperCase().includes('EXTRA');
+        return (
+          <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase border ${
+            isExtra
+              ? 'bg-purple-50 text-purple-900 border-purple-200'
+              : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+          }`}>
+            {isExtra ? 'EXTRA INVESTMENT' : 'CHIT FUND'}
+          </span>
+        );
+      }
     },
     {
       header: 'Disbursed Date',

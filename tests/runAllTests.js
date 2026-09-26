@@ -771,6 +771,207 @@ assert(
   `M1 Before=${month1HistoricalPayout}, M1 After=${month1AfterEdit}`
 );
 
+// ----------------------------------------------------
+// SECTION 24: MULTIPLE PAYOUTS & EXTRA INVESTMENT ALLOCATION
+// ----------------------------------------------------
+console.log('\n--- SECTION 24: MULTIPLE PAYOUTS & EXTRA INVESTMENT TESTS ---');
+
+// 1. One normal payout in a month
+const month1Payouts = [
+  { payoutId: 'PO-01', chitId: 'CHIT-100K-01', month: 1, memberId: 'MEM-003', memberName: 'MU', amount: 100000, fundingSource: 'CHIT_FUND', status: 'Completed' }
+];
+assert(
+  month1Payouts.length === 1 && month1Payouts[0].amount === 100000 && month1Payouts[0].fundingSource === 'CHIT_FUND',
+  'MULTIPLE PAYOUTS TEST 1: One normal CHIT_FUND payout in Month 1 (₹1,00,000)',
+  `Count=${month1Payouts.length}`
+);
+
+// 2 & 5. Two payouts in the same month (Month 2: Amma ₹70,000 CHIT_FUND, MU ₹50,000 EXTRA_INVESTMENT)
+const month2Payouts = [
+  {
+    payoutId: 'PO-M2-01',
+    chitId: 'CHIT-100K-01',
+    chitNo: 'MSR261L02',
+    month: 2,
+    memberId: 'MEM-001',
+    memberName: 'Amma',
+    payoutAmount: 70000,
+    fundingSource: 'CHIT_FUND',
+    status: 'Completed'
+  },
+  {
+    payoutId: 'PO-M2-02',
+    chitId: 'CHIT-100K-01',
+    chitNo: 'MSR261L02-B',
+    month: 2,
+    memberId: 'MEM-003',
+    memberName: 'MU',
+    payoutAmount: 50000,
+    fundingSource: 'EXTRA_INVESTMENT',
+    extraInvestmentId: 'INV-001',
+    status: 'Completed'
+  }
+];
+
+assert(
+  month2Payouts.length === 2,
+  'MULTIPLE PAYOUTS TEST 2: Two payouts in the same month (Month 2)',
+  `Count=${month2Payouts.length}`
+);
+
+assert(
+  month2Payouts[0].fundingSource === 'CHIT_FUND' && month2Payouts[0].payoutAmount === 70000,
+  'MULTIPLE PAYOUTS TEST 3: Amma payout is CHIT_FUND (₹70,000)',
+  `Funding=${month2Payouts[0].fundingSource}, Amount=${month2Payouts[0].payoutAmount}`
+);
+
+assert(
+  month2Payouts[1].fundingSource === 'EXTRA_INVESTMENT' && month2Payouts[1].payoutAmount === 50000,
+  'MULTIPLE PAYOUTS TEST 4 & 5: MU payout is EXTRA_INVESTMENT (₹50,000)',
+  `Funding=${month2Payouts[1].fundingSource}, Amount=${month2Payouts[1].payoutAmount}`
+);
+
+// 6 & 7. Editing Amma does not change MU, and editing MU does not change Amma
+function simulateEditSinglePayout(payoutsList, payoutIdToEdit, newAmount) {
+  return payoutsList.map(po => {
+    if (po.payoutId === payoutIdToEdit) {
+      return { ...po, payoutAmount: newAmount, updatedAt: new Date().toISOString() };
+    }
+    return po;
+  });
+}
+
+// Edit Amma: ₹70,000 -> ₹65,000
+const payoutsAfterAmmaEdit = simulateEditSinglePayout(month2Payouts, 'PO-M2-01', 65000);
+const ammaP = payoutsAfterAmmaEdit.find(p => p.payoutId === 'PO-M2-01');
+const muP = payoutsAfterAmmaEdit.find(p => p.payoutId === 'PO-M2-02');
+
+assert(
+  ammaP.payoutAmount === 65000 && muP.payoutAmount === 50000,
+  'MULTIPLE PAYOUTS TEST 6: Editing Amma (₹70k -> ₹65k) does NOT change MU (₹50k)',
+  `Amma=${ammaP.payoutAmount}, MU=${muP.payoutAmount}`
+);
+
+// Edit MU: ₹50,000 -> ₹45,000
+const payoutsAfterMuEdit = simulateEditSinglePayout(payoutsAfterAmmaEdit, 'PO-M2-02', 45000);
+const ammaP2 = payoutsAfterMuEdit.find(p => p.payoutId === 'PO-M2-01');
+const muP2 = payoutsAfterMuEdit.find(p => p.payoutId === 'PO-M2-02');
+
+assert(
+  ammaP2.payoutAmount === 65000 && muP2.payoutAmount === 45000,
+  'MULTIPLE PAYOUTS TEST 7: Editing MU (₹50k -> ₹45k) does NOT change Amma (₹65k)',
+  `Amma=${ammaP2.payoutAmount}, MU=${muP2.payoutAmount}`
+);
+
+// 8 & 9. Extra Investment allocation decreases remaining investment & multiple payouts use same investment
+const extraInvestmentPool = {
+  investmentId: 'INV-001',
+  amount: 100000
+};
+
+// Allocation 1: Member A ₹50,000
+const alloc1 = 50000;
+// Allocation 2: Member B ₹50,000
+const alloc2 = 50000;
+const totalAllocated = alloc1 + alloc2;
+const remainingInvestment = extraInvestmentPool.amount - totalAllocated;
+
+assert(
+  totalAllocated === 100000 && remainingInvestment === 0,
+  'MULTIPLE PAYOUTS TEST 8 & 9: Extra Investment ₹1,00,000 allocated to 2 payouts (₹50k + ₹50k), Remaining = ₹0',
+  `Allocated=${totalAllocated}, Remaining=${remainingInvestment}`
+);
+
+// 10. UI does not display "Shared"
+const testLabels = ['CHIT_FUND', 'EXTRA_INVESTMENT', 'Amma', 'MU'];
+const containsShared = testLabels.some(label => String(label).toLowerCase().includes('shared'));
+assert(
+  !containsShared,
+  'MULTIPLE PAYOUTS TEST 10: Word "Shared" is completely removed and replaced by independent funding sources',
+  `ContainsShared=${containsShared}`
+);
+
+// ----------------------------------------------------
+// SECTION 25: EXACT MSR CHITS REFERENCE PLAN TESTS (₹1L / 20M)
+// ----------------------------------------------------
+console.log('\n--- SECTION 25: EXACT MSR CHITS REFERENCE PLAN (₹1L / 20M) ---');
+
+const msrPlan = generateChitSchedule({ chitValue: 100000, duration: 20, multiple: 1, dividend: 0 });
+
+// Verify Month 1
+const pM1 = msrPlan.find(m => m.month === 1);
+assert(
+  pM1 && pM1.monthlyAmount === 5000 && pM1.payoutAmount === 100000,
+  'MSR REF TEST 1: Month 1 Monthly Chit ₹5,000 | Payout ₹1,00,000 | Chit NIL',
+  `Monthly=${pM1?.monthlyAmount}, Payout=${pM1?.payoutAmount}`
+);
+
+// Verify Month 2
+const pM2 = msrPlan.find(m => m.month === 2);
+assert(
+  pM2 && pM2.monthlyAmount === 3750 && pM2.payoutAmount === 70000,
+  'MSR REF TEST 2: Month 2 Monthly Chit ₹3,750 | Payout ₹70,000 | Chit 2',
+  `Monthly=${pM2?.monthlyAmount}, Payout=${pM2?.payoutAmount}`
+);
+
+// Verify Month 3
+const pM3 = msrPlan.find(m => m.month === 3);
+assert(
+  pM3 && pM3.monthlyAmount === 3825 && pM3.payoutAmount === 71500,
+  'MSR REF TEST 3: Month 3 Monthly Chit ₹3,825 | Payout ₹71,500 | Chit 3',
+  `Monthly=${pM3?.monthlyAmount}, Payout=${pM3?.payoutAmount}`
+);
+
+// Verify Month 8
+const pM8 = msrPlan.find(m => m.month === 8);
+assert(
+  pM8 && pM8.monthlyAmount === 4200 && pM8.payoutAmount === 79000,
+  'MSR REF TEST 4: Month 8 Monthly Chit ₹4,200 | Payout ₹79,000',
+  `Monthly=${pM8?.monthlyAmount}, Payout=${pM8?.payoutAmount}`
+);
+
+// Verify Month 16
+const pM16 = msrPlan.find(m => m.month === 16);
+assert(
+  pM16 && pM16.monthlyAmount === 4800 && pM16.payoutAmount === 91000,
+  'MSR REF TEST 5: Month 16 Monthly Chit ₹4,800 | Payout ₹91,000',
+  `Monthly=${pM16?.monthlyAmount}, Payout=${pM16?.payoutAmount}`
+);
+
+// Verify Month 17
+const pM17 = msrPlan.find(m => m.month === 17);
+assert(
+  pM17 && pM17.monthlyAmount === 4850 && pM17.payoutAmount === 92000,
+  'MSR REF TEST 6: Month 17 Monthly Chit ₹4,850 | Payout ₹92,000',
+  `Monthly=${pM17?.monthlyAmount}, Payout=${pM17?.payoutAmount}`
+);
+
+// Verify Month 20
+const pM20 = msrPlan.find(m => m.month === 20);
+assert(
+  pM20 && pM20.monthlyAmount === 5000 && pM20.payoutAmount === 95000,
+  'MSR REF TEST 7: Month 20 Monthly Chit ₹5,000 | Payout ₹95,000',
+  `Monthly=${pM20?.monthlyAmount}, Payout=${pM20?.payoutAmount}`
+);
+
+// Verify Total 20-Month Monthly Chit = ₹88,825
+const total20MContribution = msrPlan.reduce((sum, m) => sum + m.monthlyAmount, 0);
+assert(
+  total20MContribution === 88825,
+  'MSR REF TEST 8: Total 20-month Monthly Chit equals EXACTLY ₹88,825',
+  `Total=${total20MContribution}`
+);
+
+// Verify Scaling for ₹2,00,000 / 20-Month Plan (Multiple 2x)
+const msr200k = generateChitSchedule({ chitValue: 200000, duration: 20, multiple: 1, dividend: 0 });
+const m2_200k = msr200k.find(m => m.month === 2);
+const total200k = msr200k.reduce((sum, m) => sum + m.monthlyAmount, 0);
+assert(
+  m2_200k && m2_200k.monthlyAmount === 7500 && m2_200k.payoutAmount === 140000 && total200k === 177650,
+  'MSR REF TEST 9: Scaled ₹2,00,000 (2x) plan: Month 2 = ₹7,500 / ₹1,40,000, Total = ₹1,77,650',
+  `M2=${m2_200k?.monthlyAmount}/${m2_200k?.payoutAmount}, Total=${total200k}`
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');

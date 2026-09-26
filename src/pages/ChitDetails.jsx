@@ -39,6 +39,7 @@ export const ChitDetails = () => {
   const [data, setData] = useState(null);
   const [members, setMembers] = useState([]);
   const [memberships, setMemberships] = useState([]);
+  const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Modals for this page
@@ -56,14 +57,16 @@ export const ChitDetails = () => {
   const loadChitDetails = async () => {
     setLoading(true);
     try {
-      const [res, mems, mShips] = await Promise.all([
+      const [res, mems, mShips, pOuts] = await Promise.all([
         api.getChit(chitId || 'CHIT-100K-01'),
         api.getMembers(),
-        api.getMemberships({ chitId: chitId || 'CHIT-100K-01' })
+        api.getMemberships({ chitId: chitId || 'CHIT-100K-01' }),
+        api.getPayouts()
       ]);
       setData(res);
       setMembers(mems || []);
       setMemberships((mShips || []).filter(m => String(m.chitId) === String(chitId || 'CHIT-100K-01')));
+      setPayouts(pOuts || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -82,6 +85,21 @@ export const ChitDetails = () => {
   const duration = Number(chit?.duration || chit?.durationMonths || summary?.totalMonths || 20);
   const multiple = Number(chit?.multiple) || 1;
   const dividend = Number(chit?.dividend) || 0;
+
+  // Enriched schedule with independent payouts per month
+  const enrichedSchedule = useMemo(() => {
+    return schedule.map(item => {
+      const monthNum = Number(item.month || item.monthNumber);
+      const matchingPayouts = (payouts || []).filter(
+        p => Number(p.month || p.monthNumber) === monthNum &&
+        (!p.chitId || String(p.chitId) === String(chit?.chitId || 'CHIT-100K-01'))
+      );
+      return {
+        ...item,
+        payouts: matchingPayouts.length > 0 ? matchingPayouts : (item.payouts || [])
+      };
+    });
+  }, [schedule, payouts, chit]);
 
   // Capacity stats - unconditional hook at top level
   const capacityStats = useMemo(() => {
@@ -581,7 +599,7 @@ export const ChitDetails = () => {
 
       {/* MASTER SCHEDULE TABLE */}
       <ChitSchedule
-        schedule={schedule}
+        schedule={enrichedSchedule}
         currentMonth={chit.currentMonth || 1}
         onAssign={handleOpenAssign}
         onEditPayout={handleOpenEditPayout}

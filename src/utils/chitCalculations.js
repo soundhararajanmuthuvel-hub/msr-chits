@@ -129,6 +129,24 @@ export function generateChitSchedule({
       monthDiv = 0;
       monthlyAmount = curBase;
       payoutAmount = totalChitValue;
+    } else if (dur === 20 && div === 0) {
+      // EXACT MSR CHITS 20-MONTH REFERENCE BUSINESS MODEL (Flagship ₹1L, ₹2L, ₹3L, etc.)
+      const scale = totalChitValue / 100000;
+      if (m >= 2 && m <= 16) {
+        // Months 2 to 16: Monthly Chit increases by ₹75*scale, Payout increases by ₹1,500*scale
+        const baseM = 3750 + (m - 2) * 75;
+        const baseP = 70000 + (m - 2) * 1500;
+        monthlyAmount = Math.round(baseM * scale);
+        payoutAmount = Math.round(baseP * scale);
+        monthDiv = Math.max(0, Math.round((5000 - baseM) * scale));
+      } else {
+        // Months 17 to 20: Monthly Chit increases by ₹50*scale, Payout increases by ₹1,000*scale
+        const baseM = 4850 + (m - 17) * 50;
+        const baseP = 92000 + (m - 17) * 1000;
+        monthlyAmount = Math.round(baseM * scale);
+        payoutAmount = Math.round(baseP * scale);
+        monthDiv = Math.max(0, Math.round((5000 - baseM) * scale));
+      }
     } else if (div === 0) {
       // Simple plan without dividend: exact basic installment with final-month zero-loss adjustment
       monthDiv = 0;
@@ -140,9 +158,7 @@ export function generateChitSchedule({
       monthlyAmount = Math.max(0, curBase - monthDiv);
       payoutAmount = Math.max(0, totalChitValue - (monthDiv * dur));
     } else {
-      // Month 2 to Month N progressive tapering:
-      // At month 2, dividend is max (div)
-      // At month N, dividend reaches 0 (full installment)
+      // Month 2 to Month N progressive tapering with user-specified dividend
       const ratio = (dur - m) / (dur - 2);
       monthDiv = Math.round(div * Math.max(0, ratio));
       monthlyAmount = Math.max(0, curBase - monthDiv);
