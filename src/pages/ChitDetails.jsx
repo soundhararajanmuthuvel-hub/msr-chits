@@ -19,6 +19,7 @@ import ChitTimeline from '../components/chits/ChitTimeline';
 import ChitSchedule from '../components/chits/ChitSchedule';
 import AssignChitModal from '../components/chits/AssignChitModal';
 import PayoutForm from '../components/payouts/PayoutForm';
+import ChitForm from '../components/chits/ChitForm';
 import LoadingState from '../components/common/LoadingState';
 import { useChit } from '../context/ChitContext';
 
@@ -31,6 +32,7 @@ export const ChitDetails = () => {
   const [loading, setLoading] = useState(true);
 
   // Modals for this page
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [selectedScheduleItem, setSelectedScheduleItem] = useState(null);
   const [isPayoutOpen, setIsPayoutOpen] = useState(false);
@@ -86,6 +88,10 @@ export const ChitDetails = () => {
     setIsPayoutOpen(true);
   };
 
+  const duration = Number(chit.duration || chit.durationMonths || summary?.totalMonths || 20);
+  const multiple = Number(chit.multiple) || 1;
+  const dividend = Number(chit.dividend) || 0;
+
   return (
     <div className="space-y-6">
       {/* Top Header with Back Navigation */}
@@ -109,12 +115,21 @@ export const ChitDetails = () => {
               </span>
             </div>
             <p className="text-xs text-[#5B7065] mt-0.5">
-              20-Month Schedule • Total Fund Value: {formatINR(chit.chitValue)}
+              {duration}-Month Schedule • Multiple: {multiple}× • Dividend: {formatINR(dividend)} • Total Chit Value: {formatINR(chit.chitValue || chit.totalAmount)}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsEditOpen(true)}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-[#003524] text-xs sm:text-sm font-bold rounded-xl transition-colors flex items-center gap-1.5"
+            title="Edit Chit Parameters & Recalculate"
+          >
+            <Edit3 className="w-4 h-4 text-[#174D38]" />
+            <span>Edit Plan</span>
+          </button>
           <button
             type="button"
             onClick={() => setIsRecordPaymentOpen(true)}
@@ -130,15 +145,15 @@ export const ChitDetails = () => {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
         <StatCard
           title="Chit Value"
-          value={formatINR(summary.chitValue)}
-          subtitle="20 Members Fund"
+          value={formatINR(chit.chitValue || chit.totalAmount || summary.chitValue)}
+          subtitle={`${duration} Months Scheme`}
           icon={Layers}
           accentColor="primary"
         />
 
         <StatCard
           title="Current Month"
-          value={`Month ${summary.currentMonth} / ${summary.totalMonths}`}
+          value={`Month ${summary.currentMonth} / ${duration}`}
           subtitle="In Progress"
           icon={Calendar}
           accentColor="gold"
@@ -268,6 +283,14 @@ export const ChitDetails = () => {
         isOpen={isPayoutOpen}
         onClose={() => setIsPayoutOpen(false)}
         prefilledMonth={selectedPayoutMonth}
+        onSuccess={loadChitDetails}
+      />
+
+      {/* Edit Chit Plan Modal */}
+      <ChitForm
+        isOpen={isEditOpen}
+        chitToEdit={chit}
+        onClose={() => setIsEditOpen(false)}
         onSuccess={loadChitDetails}
       />
     </div>

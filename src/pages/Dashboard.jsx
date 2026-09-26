@@ -100,7 +100,8 @@ export const Dashboard = () => {
     pending: stats?.pendingPayments || 0,
     currentPayout: 0,
     payoutAllocation: 'Not Assigned',
-    expected20M: 88825
+    expected20M: 0,
+    expectedTotal: 0
   };
 
   return (
@@ -218,9 +219,9 @@ export const Dashboard = () => {
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                <p className="text-[11px] font-semibold text-[#5B7065]">Total Expected 20M</p>
+                <p className="text-[11px] font-semibold text-[#5B7065]">Total Expected ({chit.duration || 20}M)</p>
                 <p className="text-base font-bold text-[#003524] mt-0.5">
-                  {formatINR(chit.expected20M || 88825)}
+                  {formatINR(chit.expectedTotal || chit.expected20M || 0)}
                 </p>
               </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Layers, Plus, Calendar, Users, ArrowRight, ShieldCheck, Inbox } from 'lucide-react';
+import { Layers, Plus, Calendar, Users, ArrowRight, ShieldCheck, Inbox, Edit3, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR, formatLakh } from '../utils/currency';
 import { formatDate } from '../utils/date';
@@ -13,6 +13,7 @@ export const Chits = () => {
   const [chits, setChits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedChitToEdit, setSelectedChitToEdit] = useState(null);
 
   const loadChits = async () => {
     setLoading(true);
@@ -51,13 +52,16 @@ export const Chits = () => {
             Chit Schemes & Groups
           </h2>
           <p className="text-xs sm:text-sm font-medium text-[#5B7065] mt-1">
-            Manage chit groups, 20-month duration parameters, and member quotas
+            Dynamic Chit Amount, Multiple, Duration, Dividend & Schedule Management
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setIsCreateOpen(true)}
+          onClick={() => {
+            setSelectedChitToEdit(null);
+            setIsCreateOpen(true);
+          }}
           className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors self-start sm:self-auto"
         >
           <Plus className="w-4 h-4 text-[#C9A227]" />
@@ -99,7 +103,10 @@ export const Chits = () => {
           </p>
           <button
             type="button"
-            onClick={() => setIsCreateOpen(true)}
+            onClick={() => {
+              setSelectedChitToEdit(null);
+              setIsCreateOpen(true);
+            }}
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors"
           >
             <Plus className="w-4 h-4 text-[#C9A227]" />
@@ -124,53 +131,58 @@ export const Chits = () => {
                         {chit.chitName || chit.chitId}
                       </h3>
                     </div>
-                    <p className="text-xs text-[#5B7065] mt-1">
-                      {chit.description || 'Standard 20-Month Mutual Chit Scheme'}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold text-[#003524] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                        Multiple: {chit.multiple || 1}×
+                      </span>
+                      <p className="text-xs text-[#5B7065]">
+                        {chit.description || 'Standard Mutual Chit Scheme'}
+                      </p>
+                    </div>
                   </div>
                   <StatusBadge status={chit.status || 'Active'} />
                 </div>
 
                 {/* Chit Details Grid */}
-                <div className="grid grid-cols-2 gap-3.5 py-5 text-xs">
-                  <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                    <span className="text-[#5B7065] font-semibold">Chit Value:</span>
-                    <p className="text-base font-extrabold text-[#003524] mt-0.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 py-4 text-xs">
+                  <div className="p-2.5 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
+                    <span className="text-[#5B7065] font-semibold text-[10px]">Total Chit Value:</span>
+                    <p className="text-sm font-extrabold text-[#003524] mt-0.5">
                       {formatINR(chit.chitValue || chit.totalAmount || 0)}
                     </p>
                   </div>
 
-                  <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                    <span className="text-[#5B7065] font-semibold">Duration & Month:</span>
-                    <p className="text-sm font-bold text-[#131E19] mt-0.5">
+                  <div className="p-2.5 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
+                    <span className="text-[#5B7065] font-semibold text-[10px]">Duration & Month:</span>
+                    <p className="text-xs font-bold text-[#131E19] mt-0.5">
                       Month {chit.currentMonth || 1} / {chit.duration || chit.durationMonths || 20}
                     </p>
                   </div>
 
-                  <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                    <span className="text-[#5B7065] font-semibold">Start Date:</span>
+                  <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200">
+                    <span className="text-amber-800 font-semibold text-[10px]">Entered Dividend:</span>
+                    <p className="text-xs font-extrabold text-amber-900 mt-0.5">
+                      {formatINR(chit.dividend || 0)}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
+                    <span className="text-[#5B7065] font-semibold text-[10px]">Start Date:</span>
                     <p className="text-xs font-bold text-[#131E19] mt-0.5">
                       {chit.startDate ? formatDate(chit.startDate) : 'Not Specified'}
                     </p>
                   </div>
 
-                  <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                    <span className="text-[#5B7065] font-semibold">Payment Day:</span>
+                  <div className="p-2.5 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
+                    <span className="text-[#5B7065] font-semibold text-[10px]">Payment Day:</span>
                     <p className="text-xs font-bold text-[#131E19] mt-0.5">
-                      {chit.paymentDay ? `${chit.paymentDay}th of every month` : '20th of every month'}
+                      {chit.paymentDay ? `${chit.paymentDay}th of month` : '20th of month'}
                     </p>
                   </div>
 
-                  <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                    <span className="text-[#5B7065] font-semibold">Members:</span>
-                    <p className="text-sm font-bold text-[#131E19] mt-0.5">
-                      {chit.memberCount ?? 0} Enrolled
-                    </p>
-                  </div>
-
-                  <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                    <span className="text-[#5B7065] font-semibold">Monthly Installment:</span>
-                    <p className="text-sm font-bold text-[#003524] mt-0.5">
+                  <div className="p-2.5 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
+                    <span className="text-[#5B7065] font-semibold text-[10px]">Monthly Installment:</span>
+                    <p className="text-xs font-bold text-[#003524] mt-0.5">
                       {formatINR(chit.monthlyContribution || chit.monthlyAmount || 0)}
                     </p>
                   </div>
@@ -178,22 +190,34 @@ export const Chits = () => {
 
                 {/* Next Payout Note if available */}
                 {chit.nextPayoutAllocation && (
-                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs flex items-center justify-between">
-                    <span className="text-[#5B7065] font-semibold">Next Payout:</span>
+                  <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-xl text-xs flex items-center justify-between">
+                    <span className="text-[#5B7065] font-semibold text-[11px]">Next Payout:</span>
                     <span className="font-extrabold text-[#003524]">{chit.nextPayoutAllocation}</span>
                   </div>
                 )}
               </div>
 
-              {/* Action Button */}
-              <div className="pt-5 mt-4 border-t border-[#EAF2EC]">
+              {/* Action Buttons: Edit Plan & View Details */}
+              <div className="pt-4 mt-3 border-t border-[#EAF2EC] flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedChitToEdit(chit);
+                    setIsCreateOpen(true);
+                  }}
+                  className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-[#003524] text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shrink-0"
+                  title="Edit Chit Plan & Recalculate"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-[#174D38]" />
+                  <span>Edit Plan</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => navigate(`/chits/${chit.chitId}`)}
-                  className="w-full py-2.5 px-4 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-2.5 px-3 bg-[#003524] hover:bg-[#174D38] text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2"
                 >
-                  <span>View Chit Details & 20-Month Schedule</span>
-                  <ArrowRight className="w-4 h-4 text-[#C9A227]" />
+                  <span>View Details & Schedule</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-[#C9A227]" />
                 </button>
               </div>
             </div>
@@ -201,10 +225,14 @@ export const Chits = () => {
         </div>
       )}
 
-      {/* Create Chit Modal */}
+      {/* Create / Edit Chit Modal */}
       <ChitForm
         isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
+        chitToEdit={selectedChitToEdit}
+        onClose={() => {
+          setIsCreateOpen(false);
+          setSelectedChitToEdit(null);
+        }}
         onSuccess={loadChits}
       />
     </div>

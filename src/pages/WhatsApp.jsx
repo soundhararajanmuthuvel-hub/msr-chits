@@ -550,7 +550,7 @@ export const WhatsApp = () => {
                       </span>
                     </div>
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900">
-                      {formatINR(item.payoutAmount || 70000)}
+                      {formatINR(item.payoutAmount || item.amount || 0)}
                     </span>
                   </div>
 

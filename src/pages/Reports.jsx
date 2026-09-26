@@ -17,13 +17,14 @@ import StatCard from '../components/common/StatCard';
 import StatusBadge from '../components/common/StatusBadge';
 import DataTable from '../components/common/DataTable';
 import LoadingState from '../components/common/LoadingState';
+import ExtraInvestmentTracker from '../components/investments/ExtraInvestmentTracker';
 import { useChit } from '../context/ChitContext';
 
 export const Reports = () => {
   const { showToast } = useChit();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedReport, setSelectedReport] = useState('monthly'); // 'monthly', 'members', 'payments', 'payouts', 'pending'
+  const [selectedReport, setSelectedReport] = useState('monthly'); // 'monthly', 'members', 'payments', 'payouts', 'pending', 'extraInvestment'
 
   const loadReports = async () => {
     setLoading(true);
@@ -45,36 +46,44 @@ export const Reports = () => {
     window.print();
   };
 
-  const handleExportCSV = () => {
-    if (!data) return;
-
+  const handleExportCSV = async () => {
     let filename = `MSR_Chits_${selectedReport}_report.csv`;
     let csvContent = 'data:text/csv;charset=utf-8,';
 
-    if (selectedReport === 'monthly') {
-      csvContent += 'Month,Monthly Installment,Expected Collection,Collected,Pending,Payout Amount,Beneficiary,Payout Status\n';
-      data.monthlyBreakdown.forEach((row) => {
-        csvContent += `Month ${row.month},${row.monthlyAmount},${row.expected},${row.collected},${row.pending},${row.payoutAmount},"${row.payoutBeneficiary}",${row.payoutStatus}\n`;
+    if (selectedReport === 'extraInvestment') {
+      const extraList = await api.getExtraInvestments();
+      csvContent += 'Investment ID,Date,Invested Amount,Used Amount,Beneficiary,Payout Reference,Returned Amount,Profit,Profit %\n';
+      (extraList || []).forEach((inv) => {
+        const p = (Number(inv.returnedAmount) || 0) - (Number(inv.investmentAmount) || 0);
+        const pct = (Number(inv.investmentAmount) || 0) > 0 ? ((p / Number(inv.investmentAmount)) * 100).toFixed(1) : 0;
+        csvContent += `${inv.investmentId},${inv.investmentDate || ''},${inv.investmentAmount},${inv.usedAmount || inv.investmentAmount},"${inv.beneficiary || ''}","${inv.payout || ''}",${inv.returnedAmount},${p},${pct}%\n`;
       });
-    } else if (selectedReport === 'members' || selectedReport === 'pending') {
-      csvContent += 'Member ID,Name,Mobile,Chit Count,Payout Month,Total Paid,Total Pending,Status\n';
-      const targetList = selectedReport === 'pending'
-        ? data.members.filter(m => (m.totalPending || 0) > 0)
-        : data.members;
+    } else if (data) {
+      if (selectedReport === 'monthly') {
+        csvContent += 'Month,Monthly Installment,Expected Collection,Collected,Pending,Payout Amount,Beneficiary,Payout Status\n';
+        data.monthlyBreakdown.forEach((row) => {
+          csvContent += `Month ${row.month},${row.monthlyAmount},${row.expected},${row.collected},${row.pending},${row.payoutAmount},"${row.payoutBeneficiary}",${row.payoutStatus}\n`;
+        });
+      } else if (selectedReport === 'members' || selectedReport === 'pending') {
+        csvContent += 'Member ID,Name,Mobile,Chit Count,Payout Month,Total Paid,Total Pending,Status\n';
+        const targetList = selectedReport === 'pending'
+          ? data.members.filter(m => (m.totalPending || 0) > 0)
+          : data.members;
 
-      targetList.forEach((m) => {
-        csvContent += `${m.memberId},"${m.name}",${m.mobile},${m.chitCount || 1},"${m.payoutMonth || 'Not Assigned'}",${m.totalPaid || 0},${m.totalPending || 0},${m.status}\n`;
-      });
-    } else if (selectedReport === 'payments') {
-      csvContent += 'Payment ID,Member Name,Month,Due Amount,Paid Amount,Payment Date,Payment Mode,Reference,Status\n';
-      data.payments.forEach((p) => {
-        csvContent += `${p.paymentId},"${p.memberName}",Month ${p.month},${p.dueAmount},${p.paidAmount},${p.paymentDate || ''},${p.paymentMode || ''},"${p.reference || ''}",${p.status}\n`;
-      });
-    } else if (selectedReport === 'payouts') {
-      csvContent += 'Payout ID,Month,Beneficiary Member,Amount,Disbursed Date,Payment Mode,Reference,Status\n';
-      data.payouts.forEach((po) => {
-        csvContent += `${po.payoutId},Month ${po.month},"${po.memberName}",${po.amount},${po.payoutDate || ''},${po.paymentMode || ''},"${po.reference || ''}",${po.status}\n`;
-      });
+        targetList.forEach((m) => {
+          csvContent += `${m.memberId},"${m.name}",${m.mobile},${m.chitCount || 1},"${m.payoutMonth || 'Not Assigned'}",${m.totalPaid || 0},${m.totalPending || 0},${m.status}\n`;
+        });
+      } else if (selectedReport === 'payments') {
+        csvContent += 'Payment ID,Member Name,Month,Due Amount,Paid Amount,Payment Date,Payment Mode,Reference,Status\n';
+        data.payments.forEach((p) => {
+          csvContent += `${p.paymentId},"${p.memberName}",Month ${p.month},${p.dueAmount},${p.paidAmount},${p.paymentDate || ''},${p.paymentMode || ''},"${p.reference || ''}",${p.status}\n`;
+        });
+      } else if (selectedReport === 'payouts') {
+        csvContent += 'Payout ID,Month,Beneficiary Member,Amount,Disbursed Date,Payment Mode,Reference,Status\n';
+        data.payouts.forEach((po) => {
+          csvContent += `${po.payoutId},Month ${po.month},"${po.memberName}",${po.amount},${po.payoutDate || ''},${po.paymentMode || ''},"${po.reference || ''}",${po.status}\n`;
+        });
+      }
     }
 
     const encodedUri = encodeURI(csvContent);
@@ -94,11 +103,12 @@ export const Reports = () => {
   const { summary, monthlyBreakdown, members, payments, payouts } = data;
 
   const reportTabs = [
-    { key: 'monthly', label: 'Monthly Collection & Payout', count: '20 Months' },
+    { key: 'monthly', label: 'Monthly Collection & Payout', count: `${monthlyBreakdown.length} Months` },
     { key: 'members', label: 'Member Ledger Statement', count: `${members.length} Members` },
     { key: 'payments', label: 'Payment Receipts Report', count: `${payments.length} Records` },
     { key: 'payouts', label: 'Payout Disbursements', count: `${payouts.length} Records` },
     { key: 'pending', label: 'Pending Dues Report', count: `${members.filter(m => (m.totalPending || 0) > 0).length} Pending` },
+    { key: 'extraInvestment', label: 'Extra Investments', count: 'Isolated Profit' },
   ];
 
   return (
@@ -265,6 +275,10 @@ export const Reports = () => {
           ]}
           data={payouts}
         />
+      )}
+
+      {selectedReport === 'extraInvestment' && (
+        <ExtraInvestmentTracker />
       )}
     </div>
   );

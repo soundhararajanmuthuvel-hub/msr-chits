@@ -9,6 +9,7 @@ const RAW_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim
 const API_URL = RAW_URL.replace(/\/+$/, '');
 
 import { generateChitNumber, getNextAvailableChitNumber } from '../utils/chitNumber';
+import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment } from '../utils/chitCalculations';
 
 const STORAGE_KEYS = {
   SESSION: 'msr_auth_session',
@@ -20,7 +21,8 @@ const STORAGE_KEYS = {
   CHITS_CACHE: 'msr_chits_cache',
   SCHEDULE_CACHE: 'msr_schedule_cache',
   SETTINGS_CACHE: 'msr_settings_cache',
-  WHATSAPP_LOGS_CACHE: 'msr_whatsapp_logs_cache'
+  WHATSAPP_LOGS_CACHE: 'msr_whatsapp_logs_cache',
+  EXTRA_INVESTMENTS_CACHE: 'msr_extra_investments_cache'
 };
 
 const getCache = (key) => {
@@ -443,22 +445,31 @@ export const api = {
           }
         }
         if (Array.isArray(raw)) {
-          list = raw.map(c => ({
-            ...c,
-            chitId: c.chitId || c.id,
-            chitName: c.chitName || c.name,
-            chitValue: Number(c.chitValue || c.totalAmount || 0),
-            totalAmount: Number(c.totalAmount || c.chitValue || 0),
-            duration: Number(c.duration || c.durationMonths || 20),
-            durationMonths: Number(c.durationMonths || c.duration || 20),
-            memberCount: Number(c.memberCount || 0),
-            currentMonth: Number(c.currentMonth || 1),
-            monthlyContribution: Number(c.monthlyContribution || c.monthlyAmount || 0),
-            monthlyAmount: Number(c.monthlyAmount || c.monthlyContribution || 0),
-            startDate: c.startDate || '',
-            paymentDay: Number(c.paymentDay || 20),
-            status: c.status ? String(c.status).trim() : 'Active'
-          }));
+          list = raw.map(c => {
+            const mult = Number(c.multiple) || 1;
+            const baseVal = Number(c.baseChitValue || c.chitValue || c.totalAmount || 0);
+            const totVal = Number(c.totalAmount || c.chitValue || (baseVal * mult) || 0);
+            return {
+              ...c,
+              chitId: c.chitId || c.id,
+              chitName: c.chitName || c.name,
+              baseChitValue: baseVal,
+              multiple: mult,
+              dividend: Number(c.dividend) || 0,
+              fixedPayoutMonth: c.fixedPayoutMonth ? Number(c.fixedPayoutMonth) : null,
+              chitValue: totVal,
+              totalAmount: totVal,
+              duration: Number(c.duration || c.durationMonths || 20),
+              durationMonths: Number(c.durationMonths || c.duration || 20),
+              memberCount: Number(c.memberCount || 0),
+              currentMonth: Number(c.currentMonth || 1),
+              monthlyContribution: Number(c.monthlyContribution || c.monthlyAmount || 0),
+              monthlyAmount: Number(c.monthlyAmount || c.monthlyContribution || 0),
+              startDate: c.startDate || '',
+              paymentDay: Number(c.paymentDay || 20),
+              status: c.status ? String(c.status).trim() : 'Active'
+            };
+          });
         }
         setCache(STORAGE_KEYS.CHITS_CACHE, list);
         return list;
@@ -473,69 +484,210 @@ export const api = {
   async getChit(chitId) {
     if (API_URL) {
       try {
-        return await getApi('getChit', { chitId });
+        const res = await getApi('getChit', { chitId });
+        if (res && res.chit) return res;
       } catch (e) {
         console.warn('getChit error:', e.message);
       }
     }
     const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
     const chit = chits.find(c => String(c.chitId) === String(chitId)) || chits[0] || null;
+    let schedule = (getCache(STORAGE_KEYS.SCHEDULE_CACHE) || []).filter(s => !chit || String(s.chitId) === String(chit.chitId));
+    if (schedule.length === 0 && chit) {
+      schedule = generateChitSchedule({
+        chitId: chit.chitId,
+        chitValue: chit.baseChitValue || chit.chitValue,
+        multiple: chit.multiple || 1,
+        duration: chit.duration || chit.durationMonths || 20,
+        dividend: chit.dividend || 0,
+        startDate: chit.startDate
+      });
+    }
+    const payments = (getCache(STORAGE_KEYS.PAYMENTS_CACHE) || []).filter(p => !chit || String(p.chitId) === String(chit.chitId));
+    const totalCollected = payments.reduce((sum, p) => sum + (Number(p.paidAmount || p.amount) || 0), 0);
+    const currentItem = schedule.find(s => s.month === Number(chit?.currentMonth || 1)) || {};
+    const totalPayable = schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount || item.amount) || 0), 0);
+
     return {
       chit,
-      schedule: getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [],
+      schedule,
       summary: {
         chitValue: chit ? Number(chit.chitValue || chit.totalAmount) : 0,
         currentMonth: chit ? Number(chit.currentMonth) : 1,
         totalMonths: chit ? Number(chit.duration || chit.durationMonths) : 0,
-        totalCollected: 0,
-        totalPending: 0,
-        currentMonthPayout: 0,
-        totalContributions20M: 0
+        totalCollected,
+        totalPending: Math.max(0, (Number(currentItem.monthlyAmount || 0) * (Number(chit?.memberCount) || 20)) - totalCollected),
+        currentMonthPayout: Number(currentItem.payoutAmount) || 0,
+        totalContributions20M: totalPayable
       }
     };
   },
 
   async createChit(chitData) {
+    const multiple = Number(chitData.multiple) || 1;
+    const baseChitValue = Number(chitData.baseChitValue || chitData.chitValue) || 100000;
+    const totalChitValue = Number(chitData.chitValue || (baseChitValue * multiple)) || (baseChitValue * multiple);
+    const duration = Number(chitData.duration || chitData.durationMonths) || 20;
+    const dividend = Number(chitData.dividend) || 0;
+    const fixedPayoutMonth = chitData.fixedPayoutMonth ? Number(chitData.fixedPayoutMonth) : null;
+    const startDate = chitData.startDate || new Date().toISOString().split('T')[0];
+
+    const calcParams = calculateChitParameters({
+      chitValue: baseChitValue,
+      multiple,
+      duration,
+      dividend,
+      startMonth: 1
+    });
+
     const payload = {
       chitName: chitData.chitName,
-      chitValue: Number(chitData.chitValue || chitData.totalAmount) || 0,
-      duration: Number(chitData.duration || chitData.durationMonths) || 0,
-      totalMembers: Number(chitData.totalMembers || chitData.memberCount) || 0,
+      chitValue: totalChitValue,
+      totalAmount: totalChitValue,
+      baseChitValue,
+      multiple,
+      dividend,
+      fixedPayoutMonth,
+      duration,
+      durationMonths: duration,
+      totalMembers: Number(chitData.totalMembers || chitData.memberCount) || duration,
       paymentDay: Number(chitData.paymentDay) || 20,
-      startDate: chitData.startDate || new Date().toISOString().split('T')[0],
-      monthlyContribution: Number(chitData.monthlyContribution || chitData.monthlyAmount) || 0,
+      startDate,
+      monthlyContribution: calcParams.monthlyAmount || Number(chitData.monthlyContribution || chitData.monthlyAmount) || 0,
+      monthlyAmount: calcParams.monthlyAmount || 0,
+      expectedTotal: calcParams.totalPayable,
+      notes: chitData.description || chitData.notes || ''
+    };
+
+    let newChit;
+    if (API_URL) {
+      try {
+        newChit = await postApi('createChit', payload);
+      } catch (err) {
+        console.warn('createChit API error, saving locally:', err.message);
+      }
+    }
+
+    if (!newChit || !newChit.chitId) {
+      newChit = {
+        chitId: `CHIT-${Date.now().toString().slice(-6)}`,
+        ...payload,
+        currentMonth: 1,
+        status: 'Active'
+      };
+    } else {
+      newChit = { ...payload, ...newChit };
+    }
+
+    const cached = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
+    setCache(STORAGE_KEYS.CHITS_CACHE, [...cached, newChit]);
+
+    // Generate dynamic schedule for this chit
+    const initialSchedule = generateChitSchedule({
+      chitId: newChit.chitId,
+      chitValue: baseChitValue,
+      multiple,
+      duration,
+      dividend,
+      startDate
+    });
+    const currentSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const mergedSchedule = [...currentSchedule.filter(s => s.chitId !== newChit.chitId), ...initialSchedule];
+    setCache(STORAGE_KEYS.SCHEDULE_CACHE, mergedSchedule);
+
+    return newChit;
+  },
+
+  async updateChit(chitId, chitData) {
+    const multiple = Number(chitData.multiple) || 1;
+    const baseChitValue = Number(chitData.baseChitValue || chitData.chitValue) || 100000;
+    const totalChitValue = Number(chitData.totalChitValue || (baseChitValue * multiple)) || (baseChitValue * multiple);
+    const duration = Number(chitData.duration || chitData.durationMonths) || 20;
+    const dividend = Number(chitData.dividend) || 0;
+    const fixedPayoutMonth = chitData.fixedPayoutMonth ? Number(chitData.fixedPayoutMonth) : null;
+    const startDate = chitData.startDate || new Date().toISOString().split('T')[0];
+
+    const calcParams = calculateChitParameters({
+      chitValue: baseChitValue,
+      multiple,
+      duration,
+      dividend,
+      startMonth: 1
+    });
+
+    const payload = {
+      chitId,
+      chitName: chitData.chitName,
+      chitValue: totalChitValue,
+      totalAmount: totalChitValue,
+      baseChitValue,
+      multiple,
+      dividend,
+      fixedPayoutMonth,
+      duration,
+      durationMonths: duration,
+      totalMembers: Number(chitData.totalMembers || chitData.memberCount) || duration,
+      paymentDay: Number(chitData.paymentDay) || 20,
+      startDate,
+      monthlyContribution: calcParams.monthlyAmount || Number(chitData.monthlyContribution || chitData.monthlyAmount) || 0,
+      monthlyAmount: calcParams.monthlyAmount || 0,
+      expectedTotal: calcParams.totalPayable,
       notes: chitData.description || chitData.notes || ''
     };
 
     if (API_URL) {
-      const newChit = await postApi('createChit', payload);
-      const cached = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
-      setCache(STORAGE_KEYS.CHITS_CACHE, [...cached, newChit]);
-      return newChit;
+      try {
+        await postApi('updateChit', payload);
+      } catch (err) {
+        console.warn('updateChit API error:', err.message);
+      }
     }
 
     const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
-    const newChit = {
-      chitId: `CHIT-${Date.now().toString().slice(-6)}`,
-      ...payload,
-      currentMonth: 1,
-      status: 'Active'
-    };
-    setCache(STORAGE_KEYS.CHITS_CACHE, [...chits, newChit]);
-    return newChit;
+    const updatedChits = chits.map(c => String(c.chitId) === String(chitId) ? { ...c, ...payload } : c);
+    setCache(STORAGE_KEYS.CHITS_CACHE, updatedChits);
+
+    // Regenerate affected schedule, carefully preserving completed payments and member assignments
+    const currentSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const existingChitSchedule = currentSchedule.filter(s => String(s.chitId) === String(chitId));
+    const otherSchedule = currentSchedule.filter(s => String(s.chitId) !== String(chitId));
+
+    const regeneratedSchedule = generateChitSchedule({
+      chitId,
+      chitValue: baseChitValue,
+      multiple,
+      duration,
+      dividend,
+      startDate,
+      existingSchedule: existingChitSchedule
+    });
+
+    setCache(STORAGE_KEYS.SCHEDULE_CACHE, [...otherSchedule, ...regeneratedSchedule]);
+
+    return { success: true, chit: payload, schedule: regeneratedSchedule };
   },
 
   // Monthly Schedule & Chit Assignment
   async getMonthlySchedule(chitId = 'CHIT-100K-01') {
     if (API_URL) {
       try {
-        return await getApi('getMonthlySchedule', { chitId });
+        const schedule = await getApi('getMonthlySchedule', { chitId });
+        if (schedule && Array.isArray(schedule) && schedule.length > 0) {
+          setCache(STORAGE_KEYS.SCHEDULE_CACHE, schedule);
+          return schedule;
+        }
       } catch (e) {
         console.warn('getMonthlySchedule error:', e.message);
       }
     }
-    return getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const cached = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    if (chitId) {
+      const filtered = cached.filter(s => String(s.chitId) === String(chitId));
+      if (filtered.length > 0) return filtered;
+    }
+    return cached;
   },
+
 
   async assignChit(payload) {
     if (API_URL) {
@@ -600,11 +752,16 @@ export const api = {
   },
 
   async recordPayout(payoutData) {
+    const payload = {
+      ...payoutData,
+      fundingSource: payoutData.fundingSource || 'Chit Fund Collections'
+    };
     if (API_URL) {
-      const newPayout = await postApi('recordPayout', payoutData);
+      const newPayout = await postApi('recordPayout', payload);
       const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
-      setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...payouts]);
-      return newPayout;
+      const enriched = { ...payload, ...newPayout };
+      setCache(STORAGE_KEYS.PAYOUTS_CACHE, [enriched, ...payouts]);
+      return enriched;
     }
     const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
     const newPayout = {
@@ -616,6 +773,7 @@ export const api = {
       memberId: payoutData.memberId || '',
       memberName: payoutData.memberName,
       amount: Number(payoutData.amount),
+      fundingSource: payoutData.fundingSource || 'Chit Fund Collections',
       payoutDate: payoutData.payoutDate || new Date().toISOString().split('T')[0],
       paymentMode: payoutData.paymentMode || 'Bank Transfer',
       reference: payoutData.reference || '',
@@ -808,6 +966,102 @@ export const api = {
     const cached = getCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE) || [];
     const updated = cached.map(l => String(l.messageId) === String(messageId) ? { ...l, status } : l);
     setCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE, updated);
+    return { success: true };
+  },
+
+  // Extra Investment System (Completely Isolated from Normal Chit Calculations)
+  async getExtraInvestments() {
+    if (API_URL) {
+      try {
+        const data = await getApi('getExtraInvestments');
+        if (data && Array.isArray(data)) {
+          setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, data);
+          return data;
+        }
+      } catch (e) {
+        if (!e.message?.includes('Unknown API action')) {
+          console.warn('getExtraInvestments error:', e.message);
+        }
+      }
+    }
+    return getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+  },
+
+  async createExtraInvestment(investmentData) {
+    const investAmt = Number(investmentData.investmentAmount) || 0;
+    const retAmt = Number(investmentData.returnedAmount) || 0;
+    const calc = calculateExtraInvestment({ investmentAmount: investAmt, returnedAmount: retAmt });
+
+    const newInvestment = {
+      investmentId: `INV-${Date.now().toString().slice(-6)}`,
+      investmentAmount: investAmt,
+      investmentDate: investmentData.investmentDate || new Date().toISOString().split('T')[0],
+      usedAmount: Number(investmentData.usedAmount) || 0,
+      beneficiary: investmentData.beneficiary || '',
+      payout: Number(investmentData.payout) || 0,
+      returnedAmount: retAmt,
+      profit: calc.profit,
+      profitPercent: calc.profitPercent,
+      notes: investmentData.notes || '',
+      status: investmentData.status || (retAmt >= investAmt ? 'Closed' : 'Active'),
+      createdAt: new Date().toISOString()
+    };
+
+    if (API_URL) {
+      try {
+        const saved = await postApi('createExtraInvestment', newInvestment);
+        if (saved && saved.investmentId) {
+          newInvestment.investmentId = saved.investmentId;
+        }
+      } catch (e) {
+        console.warn('createExtraInvestment API error, using local fallback:', e.message);
+      }
+    }
+
+    const cached = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+    setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, [newInvestment, ...cached]);
+    return newInvestment;
+  },
+
+  async updateExtraInvestment(investmentId, investmentData) {
+    const investAmt = Number(investmentData.investmentAmount) || 0;
+    const retAmt = Number(investmentData.returnedAmount) || 0;
+    const calc = calculateExtraInvestment({ investmentAmount: investAmt, returnedAmount: retAmt });
+
+    const updateObj = {
+      ...investmentData,
+      investmentAmount: investAmt,
+      returnedAmount: retAmt,
+      profit: calc.profit,
+      profitPercent: calc.profitPercent,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (API_URL) {
+      try {
+        await postApi('updateExtraInvestment', { investmentId, ...updateObj });
+      } catch (e) {
+        console.warn('updateExtraInvestment API error:', e.message);
+      }
+    }
+
+    const cached = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+    const updated = cached.map(inv => String(inv.investmentId) === String(investmentId) ? { ...inv, ...updateObj } : inv);
+    setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, updated);
+    return updateObj;
+  },
+
+  async deleteExtraInvestment(investmentId) {
+    if (API_URL) {
+      try {
+        await postApi('deleteExtraInvestment', { investmentId });
+      } catch (e) {
+        console.warn('deleteExtraInvestment API error:', e.message);
+      }
+    }
+    const cached = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+    const updated = cached.filter(inv => String(inv.investmentId) !== String(investmentId));
+    setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, updated);
     return { success: true };
   },
 

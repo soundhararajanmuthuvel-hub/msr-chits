@@ -53,10 +53,21 @@ export const Payouts = () => {
   }, []);
 
   const totalPayoutAmount = payouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
-  const thisMonthPayout = payouts.find(po => po.month === (activeChit?.currentMonth || 2))?.amount || 70000;
+  const thisMonthPayout = payouts
+    .filter(po => Number(po.month) === Number(activeChit?.currentMonth || 1))
+    .reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
   const completedCount = payouts.filter(po => po.status === 'Completed').length;
 
   const columns = [
+    {
+      header: 'Payout ID',
+      accessor: 'payoutId',
+      render: (row) => (
+        <span className="font-mono text-xs font-bold text-[#5B7065]">
+          {row.payoutId || `PAY-${row.month}`}
+        </span>
+      )
+    },
     {
       header: 'Month',
       accessor: 'month',
@@ -101,6 +112,15 @@ export const Payouts = () => {
       render: (row) => (
         <span className="font-extrabold text-[#003524] text-base">
           {formatINR(row.amount)}
+        </span>
+      )
+    },
+    {
+      header: 'Funding Source',
+      accessor: 'fundingSource',
+      render: (row) => (
+        <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold">
+          {row.fundingSource || 'Chit Fund Collections'}
         </span>
       )
     },

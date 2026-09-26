@@ -25,13 +25,14 @@ export const PayoutForm = ({
 
   const [formData, setFormData] = useState({
     chitId: activeChit?.chitId || 'CHIT-100K-01',
-    month: activeChit?.currentMonth || 2,
-    memberId: 'MEM-001,MEM-003',
-    memberName: 'Amma + MU',
-    chitNo: 'MSR261L02',
-    amount: 70000,
+    month: activeChit?.currentMonth || 1,
+    memberId: '',
+    memberName: '',
+    chitNo: '',
+    amount: 0,
     payoutDate: getTodayDateInput(),
     paymentMode: 'Bank Transfer',
+    fundingSource: 'Chit Fund Collections',
     reference: '',
     notes: ''
   });
@@ -48,22 +49,25 @@ export const PayoutForm = ({
           setMembers(mems || []);
 
           const chitData = await api.getChit(activeChit?.chitId || 'CHIT-100K-01');
-          const sch = chitData.schedule || INITIAL_SCHEDULE;
+          const sch = chitData.schedule || [];
           setSchedule(sch);
 
-          const targetMonth = Number(prefilledMonth || activeChit?.currentMonth || 2);
-          const schItem = sch.find(s => s.month === targetMonth) || sch[1];
-          const chitNo = generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: targetMonth });
+          const targetMonth = Number(prefilledMonth || activeChit?.currentMonth || 1);
+          const schItem = sch.find(s => s.month === targetMonth) || sch[0];
+          const chitValue = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
+          const chitNo = generateChitNumber({ year: 2026, chitValue, sequenceNumber: targetMonth });
+          const payoutAmt = schItem ? Number(schItem.payoutAmount || schItem.amount) : chitValue;
 
           setFormData({
             chitId: activeChit?.chitId || 'CHIT-100K-01',
             month: targetMonth,
-            memberId: schItem?.assignedMemberId || 'MEM-001,MEM-003',
-            memberName: schItem?.assignedMemberName || 'Amma + MU',
+            memberId: schItem?.assignedMemberId || '',
+            memberName: schItem?.assignedMemberName || '',
             chitNo: chitNo,
-            amount: schItem ? schItem.payoutAmount : 70000,
+            amount: payoutAmt,
             payoutDate: getTodayDateInput(),
             paymentMode: 'Bank Transfer',
+            fundingSource: 'Chit Fund Collections',
             reference: `NEFT-MSR-${Date.now().toString().slice(-4)}`,
             notes: `Month ${targetMonth} Chit Dividend Payout`
           });
@@ -78,15 +82,17 @@ export const PayoutForm = ({
   const handleMonthChange = (monthVal) => {
     const monthNum = Number(monthVal);
     const schItem = schedule.find(s => s.month === monthNum);
-    const chitNo = generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: monthNum });
+    const chitValue = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
+    const chitNo = generateChitNumber({ year: 2026, chitValue, sequenceNumber: monthNum });
+    const payoutAmt = schItem ? Number(schItem.payoutAmount || schItem.amount) : chitValue;
 
     setFormData(prev => ({
       ...prev,
       month: monthNum,
       chitNo: chitNo,
-      amount: schItem ? schItem.payoutAmount : 70000,
-      memberId: schItem ? schItem.assignedMemberId : prev.memberId,
-      memberName: schItem ? schItem.assignedMemberName : prev.memberName
+      amount: payoutAmt,
+      memberId: schItem?.assignedMemberId || prev.memberId,
+      memberName: schItem?.assignedMemberName || prev.memberName
     }));
   };
 
@@ -219,9 +225,9 @@ export const PayoutForm = ({
                   onChange={(e) => handleMonthChange(e.target.value)}
                   className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-semibold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
                 >
-                  {Array.from({ length: 20 }, (_, i) => i + 1).map((m) => (
+                  {Array.from({ length: activeChit?.duration || activeChit?.durationMonths || 20 }, (_, i) => i + 1).map((m) => (
                     <option key={m} value={m}>
-                      Month {m} {m === 2 ? '(Amma + MU)' : m === 1 ? '(MU - NIL)' : ''}
+                      Month {m}
                     </option>
                   ))}
                 </select>
@@ -270,7 +276,7 @@ export const PayoutForm = ({
                 required
               />
               <p className="text-[10px] text-[#5B7065] mt-1">
-                For shared payouts, use multi-member names (e.g. Amma + MU).
+                Supports multiple payouts in the same month for individual or shared allocations.
               </p>
             </div>
 
@@ -305,17 +311,36 @@ export const PayoutForm = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-[#003524] mb-1">
-                UTR / Reference No
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. UTR / NEFT Reference Number"
-                value={formData.reference}
-                onChange={(e) => setFormData({ ...formData, reference: e.target.value })}
-                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-[#003524] mb-1">
+                  Funding Source *
+                </label>
+                <select
+                  value={formData.fundingSource}
+                  onChange={(e) => setFormData({ ...formData, fundingSource: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-semibold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+                >
+                  <option value="Chit Fund Collections">Chit Fund Collections</option>
+                  <option value="Bank Account">Bank Account Balance</option>
+                  <option value="Extra Investment">Extra Investment Capital</option>
+                  <option value="Cash Reserve">Cash Reserve</option>
+                  <option value="Special Fund">Special Contingency Fund</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#003524] mb-1">
+                  UTR / Reference No
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. UTR / NEFT Reference Number"
+                  value={formData.reference}
+                  onChange={(e) => setFormData({ ...formData, reference: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+                />
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#EAF2EC]">

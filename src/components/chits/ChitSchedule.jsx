@@ -15,16 +15,16 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
       <div className="p-4 sm:p-5 border-b border-[#DCE8E0] bg-[#F0FCF4]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-bold text-[#003524]">
-            Master 20-Month Chit Schedule
+            Master {schedule.length || 20}-Month Chit Schedule
           </h3>
           <p className="text-xs text-[#5B7065]">
-            Complete installment amounts, payout dividends, and member assignments
+            Complete installment amounts, auction dividends, and member assignments
           </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="text-xs bg-white px-3 py-1.5 rounded-lg border border-[#DCE8E0] shadow-xs">
-            <span className="text-[#5B7065]">Total 20M Contribution: </span>
-            <span className="font-extrabold text-[#003524]">{formatINR(totalMonthlyAmount || 88825)}</span>
+            <span className="text-[#5B7065]">Total {schedule.length || 20}M Contribution: </span>
+            <span className="font-extrabold text-[#003524]">{formatINR(totalMonthlyAmount)}</span>
           </div>
         </div>
       </div>
@@ -35,6 +35,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
             <tr className="bg-[#F0FCF4] border-b border-[#DCE8E0] text-[11px] font-bold uppercase tracking-wider text-[#174D38]">
               <th className="py-3.5 px-4">Month</th>
               <th className="py-3.5 px-4">Monthly Chit</th>
+              <th className="py-3.5 px-4">Dividend</th>
               <th className="py-3.5 px-4">Payout</th>
               <th className="py-3.5 px-4">Chit No</th>
               <th className="py-3.5 px-4">Status</th>
@@ -79,6 +80,11 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                   {/* Monthly Chit Amount */}
                   <td className="py-3.5 px-4 font-bold text-[#003524]">
                     {formatINR(item.monthlyAmount)}
+                  </td>
+
+                  {/* Dividend Amount */}
+                  <td className="py-3.5 px-4 font-semibold text-amber-800">
+                    {item.dividend ? formatINR(item.dividend) : '—'}
                   </td>
 
                   {/* Payout */}
@@ -161,14 +167,14 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
           <tfoot>
             <tr className="bg-[#F0FCF4] border-t-2 border-[#DCE8E0] text-xs sm:text-sm font-bold text-[#003524]">
               <td className="py-4 px-4 uppercase tracking-wider">
-                Total (20 Months)
+                Total ({schedule.length || 20} Months)
               </td>
               <td className="py-4 px-4 text-base font-extrabold text-[#003524]">
-                {formatINR(totalMonthlyAmount || 88825)}
+                {formatINR(totalMonthlyAmount || 0)}
               </td>
               <td className="py-4 px-4" colSpan={5}>
                 <span className="text-xs font-normal text-[#5B7065]">
-                  Full 20-month contribution sum across all members
+                  Full {schedule.length || 20}-month contribution sum across all members
                 </span>
               </td>
             </tr>

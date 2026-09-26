@@ -30,7 +30,8 @@ const SHEET_NAMES = {
   PAYOUTS: 'Payouts',
   WHATSAPP_LOG: 'WhatsAppLog',
   ACTIVITY_LOG: 'ActivityLog',
-  SETTINGS: 'Settings'
+  SETTINGS: 'Settings',
+  EXTRA_INVESTMENT: 'ExtraInvestment'
 };
 
 // ============================================================================
@@ -355,7 +356,12 @@ function setupDatabase() {
     defaultSettings.forEach(row => settingsSheet.appendRow(row));
   }
 
-  Logger.log('MSR CHITS Database Setup Complete: All 8 sheets formatted with distinct column headers.');
+  // 10. ExtraInvestment (investmentId, investmentAmount, investmentDate, usedAmount, beneficiary, payout, returnedAmount, profit, profitPercent, status, notes, createdAt, updatedAt)
+  ensureSheetWithHeaders(ss, SHEET_NAMES.EXTRA_INVESTMENT, [
+    'investmentId', 'investmentAmount', 'investmentDate', 'usedAmount', 'beneficiary', 'payout', 'returnedAmount', 'profit', 'profitPercent', 'status', 'notes', 'createdAt', 'updatedAt'
+  ]);
+
+  Logger.log('MSR CHITS Database Setup Complete: All sheets formatted with distinct column headers.');
   return { success: true, message: 'Database Initialized & Headers Verified' };
 }
 
@@ -461,22 +467,31 @@ function getDashboardData() {
 
 function getAllChits() {
   const chits = getSheetData(SHEET_NAMES.CHITS);
-  return chits.map(c => ({
-    chitId: c.chitId,
-    chitName: c.chitName,
-    chitValue: Number(c.totalAmount || c.chitValue) || 0,
-    totalAmount: Number(c.totalAmount || c.chitValue) || 0,
-    duration: Number(c.durationMonths || c.duration) || 0,
-    durationMonths: Number(c.durationMonths || c.duration) || 0,
-    memberCount: Number(c.memberCount) || 0,
-    currentMonth: Number(c.currentMonth) || 1,
-    monthlyContribution: Number(c.monthlyAmount) || 0,
-    monthlyAmount: Number(c.monthlyAmount) || 0,
-    expected20M: 88825,
-    startDate: c.startDate || '',
-    paymentDay: Number(c.paymentDay) || 20,
-    status: c.status || 'Active'
-  }));
+  return chits.map(c => {
+    const mult = Number(c.multiple) || 1;
+    const baseVal = Number(c.baseChitValue || c.chitValue || c.totalAmount || 0);
+    const totVal = Number(c.totalAmount || c.chitValue || (baseVal * mult) || 0);
+    return {
+      chitId: c.chitId,
+      chitName: c.chitName,
+      chitValue: totVal,
+      totalAmount: totVal,
+      baseChitValue: baseVal,
+      multiple: mult,
+      dividend: Number(c.dividend) || 0,
+      fixedPayoutMonth: c.fixedPayoutMonth ? Number(c.fixedPayoutMonth) : null,
+      duration: Number(c.durationMonths || c.duration) || 0,
+      durationMonths: Number(c.durationMonths || c.duration) || 0,
+      memberCount: Number(c.memberCount) || 0,
+      currentMonth: Number(c.currentMonth) || 1,
+      monthlyContribution: Number(c.monthlyAmount) || 0,
+      monthlyAmount: Number(c.monthlyAmount) || 0,
+      expected20M: Number(c.expectedTotal) || 0,
+      startDate: c.startDate || '',
+      paymentDay: Number(c.paymentDay) || 20,
+      status: c.status || 'Active'
+    };
+  });
 }
 
 function getChitDetails(chitId) {
@@ -543,12 +558,22 @@ function getChitDetails(chitId) {
 
 function createNewChit(data) {
   const chitId = generateSequentialId(SHEET_NAMES.CHITS, 'CHIT', 'chitId');
+  const mult = Number(data.multiple) || 1;
+  const baseVal = Number(data.baseChitValue || data.chitValue || data.totalAmount) || 100000;
+  const totVal = Number(data.chitValue || data.totalAmount || (baseVal * mult)) || (baseVal * mult);
+  const dur = Number(data.duration || data.durationMonths) || 20;
+
   const newChit = {
     chitId: chitId,
-    chitName: data.chitName,
-    totalAmount: Number(data.chitValue || data.totalAmount) || 0,
-    durationMonths: Number(data.duration || data.durationMonths) || 0,
+    chitName: data.chitName || ('MSR Chit — ₹' + totVal.toLocaleString('en-IN')),
+    totalAmount: totVal,
+    baseChitValue: baseVal,
+    multiple: mult,
+    dividend: Number(data.dividend) || 0,
+    fixedPayoutMonth: data.fixedPayoutMonth ? Number(data.fixedPayoutMonth) : '',
+    durationMonths: dur,
     monthlyAmount: Number(data.monthlyContribution || data.monthlyAmount) || 0,
+    expectedTotal: Number(data.expectedTotal) || 0,
     startDate: data.startDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
     currentMonth: 1,
     status: 'Active',
@@ -557,14 +582,14 @@ function createNewChit(data) {
   };
 
   appendRow(SHEET_NAMES.CHITS, newChit);
-  logActivity('Chit Created', 'Created chit group ' + newChit.chitName, 'Admin');
+  logActivity('Chit Created', 'Created chit ' + newChit.chitName + ' (Multiple: ' + mult + 'x, Dividend: ₹' + (Number(data.dividend) || 0) + ')', 'Admin');
   return newChit;
 }
 
 function updateChitDetails(chitId, data) {
   const updateObj = { ...data, updatedAt: new Date().toISOString() };
   updateRow(SHEET_NAMES.CHITS, 'chitId', chitId, updateObj);
-  logActivity('Chit Updated', 'Updated chit ' + (data.chitName || chitId), 'Admin');
+  logActivity('Chit Updated', 'Updated chit ' + (data.chitName || chitId) + (data.dividend !== undefined ? ' with Dividend: ₹' + data.dividend : ''), 'Admin');
   return { success: true };
 }
 
@@ -1066,6 +1091,7 @@ function getAllPayouts() {
     memberId: po.memberId,
     memberName: po.memberName,
     amount: Number(po.amount) || 0,
+    fundingSource: po.fundingSource || 'Chit Fund Collections',
     payoutDate: po.payoutDate,
     paymentMode: po.paymentMethod || po.paymentMode || 'Bank Transfer',
     paymentMethod: po.paymentMethod || po.paymentMode || 'Bank Transfer',
@@ -1095,6 +1121,7 @@ function recordChitPayout(data) {
     memberId: data.memberId || '',
     memberName: data.memberName,
     amount: amount,
+    fundingSource: data.fundingSource || 'Chit Fund Collections',
     payoutDate: data.payoutDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
     paymentMethod: data.paymentMode || data.paymentMethod || 'Bank Transfer',
     referenceNumber: data.reference || data.referenceNumber || '',
@@ -1104,7 +1131,7 @@ function recordChitPayout(data) {
   };
 
   appendRow(SHEET_NAMES.PAYOUTS, newPayout);
-  logActivity('Payout Recorded', 'Disbursed ₹' + amount + ' to ' + newPayout.memberName + ' (Month ' + newPayout.monthNumber + (chitNo ? ', ' + chitNo : '') + ')', 'Admin');
+  logActivity('Payout Recorded', 'Disbursed ₹' + amount + ' to ' + newPayout.memberName + ' (Month ' + newPayout.monthNumber + (chitNo ? ', ' + chitNo : '') + ', Funding: ' + newPayout.fundingSource + ')', 'Admin');
   return newPayout;
 }
 
@@ -1216,6 +1243,108 @@ function logActivity(action, description, user) {
 
 function getActivityLogs() {
   return getSheetData(SHEET_NAMES.ACTIVITY_LOG);
+}
+
+// ============================================================================
+// EXTRA INVESTMENT SYSTEM (Completely Isolated from Normal Chit Calculations)
+// ============================================================================
+
+function getExtraInvestments() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName(SHEET_NAMES.EXTRA_INVESTMENT);
+    if (!sheet) return [];
+    return getSheetData(SHEET_NAMES.EXTRA_INVESTMENT).map(inv => {
+      const investAmt = Number(inv.investmentAmount) || 0;
+      const retAmt = Number(inv.returnedAmount) || 0;
+      const profit = retAmt - investAmt;
+      const profitPercent = investAmt > 0 ? Math.round((profit / investAmt) * 1000) / 10 : 0;
+      return {
+        investmentId: inv.investmentId,
+        investmentAmount: investAmt,
+        investmentDate: inv.investmentDate || '',
+        usedAmount: Number(inv.usedAmount) || 0,
+        beneficiary: inv.beneficiary || '',
+        payout: Number(inv.payout) || 0,
+        returnedAmount: retAmt,
+        profit: profit,
+        profitPercent: profitPercent,
+        status: inv.status || 'Active',
+        notes: inv.notes || '',
+        createdAt: inv.createdAt || ''
+      };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+function createExtraInvestment(data) {
+  const ss = getSpreadsheet();
+  ensureSheetWithHeaders(ss, SHEET_NAMES.EXTRA_INVESTMENT, [
+    'investmentId', 'investmentAmount', 'investmentDate', 'usedAmount', 'beneficiary', 'payout', 'returnedAmount', 'profit', 'profitPercent', 'status', 'notes', 'createdAt', 'updatedAt'
+  ]);
+  const investmentId = generateSequentialId(SHEET_NAMES.EXTRA_INVESTMENT, 'INV', 'investmentId');
+  const investAmt = Number(data.investmentAmount) || 0;
+  const retAmt = Number(data.returnedAmount) || 0;
+  const profit = retAmt - investAmt;
+  const profitPercent = investAmt > 0 ? Math.round((profit / investAmt) * 1000) / 10 : 0;
+
+  const newInv = {
+    investmentId: investmentId,
+    investmentAmount: investAmt,
+    investmentDate: data.investmentDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
+    usedAmount: Number(data.usedAmount) || 0,
+    beneficiary: data.beneficiary || '',
+    payout: Number(data.payout) || 0,
+    returnedAmount: retAmt,
+    profit: profit,
+    profitPercent: profitPercent,
+    status: data.status || (retAmt >= investAmt ? 'Closed' : 'Active'),
+    notes: data.notes || '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  appendRow(SHEET_NAMES.EXTRA_INVESTMENT, newInv);
+  logActivity('Extra Investment Created', 'Created investment ' + investmentId + ' of ₹' + investAmt + ' for ' + (newInv.beneficiary || 'N/A'), 'Admin');
+  return newInv;
+}
+
+function updateExtraInvestment(investmentId, data) {
+  const investAmt = Number(data.investmentAmount) || 0;
+  const retAmt = Number(data.returnedAmount) || 0;
+  const profit = retAmt - investAmt;
+  const profitPercent = investAmt > 0 ? Math.round((profit / investAmt) * 1000) / 10 : 0;
+
+  const updateObj = {
+    ...data,
+    investmentAmount: investAmt,
+    returnedAmount: retAmt,
+    profit: profit,
+    profitPercent: profitPercent,
+    updatedAt: new Date().toISOString()
+  };
+
+  updateRow(SHEET_NAMES.EXTRA_INVESTMENT, 'investmentId', investmentId, updateObj);
+  logActivity('Extra Investment Updated', 'Updated extra investment ' + investmentId, 'Admin');
+  return { success: true };
+}
+
+function deleteExtraInvestment(investmentId) {
+  const sheet = getSheet(SHEET_NAMES.EXTRA_INVESTMENT);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: false };
+
+  const data = sheet.getDataRange().getValues();
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][0]) === String(investmentId)) {
+      sheet.deleteRow(r + 1);
+      logActivity('Extra Investment Removed', 'Deleted extra investment ' + investmentId, 'Admin');
+      return { success: true };
+    }
+  }
+  return { success: false };
 }
 
 // ============================================================================
@@ -1364,6 +1493,22 @@ function handleRequest(e, method) {
 
       case 'getActivityLog':
         result = getActivityLogs();
+        break;
+
+      case 'getExtraInvestments':
+        result = getExtraInvestments();
+        break;
+
+      case 'createExtraInvestment':
+        result = createExtraInvestment(payload);
+        break;
+
+      case 'updateExtraInvestment':
+        result = updateExtraInvestment(payload.investmentId, payload);
+        break;
+
+      case 'deleteExtraInvestment':
+        result = deleteExtraInvestment(payload.investmentId);
         break;
 
       default:
