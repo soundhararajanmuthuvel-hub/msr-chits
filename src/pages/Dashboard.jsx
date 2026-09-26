@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Layers,
@@ -71,6 +71,22 @@ export const Dashboard = () => {
   useEffect(() => {
     loadData();
   }, [activeChit]);
+
+  const upcomingChits = useMemo(() => {
+    return (chits || [])
+      .filter(c => {
+        const s = String(c.status || '').toLowerCase();
+        return s === 'upcoming' || s === 'filling' || s === 'full' || s === 'enrolling';
+      })
+      .map(c => {
+        const capacityStats = getChitCapacityStats(c, memberships);
+        return {
+          ...c,
+          capacityStats,
+          lifecycleStatus: capacityStats.status
+        };
+      });
+  }, [chits, memberships]);
 
   if (loading) {
     return <LoadingState message="Loading MSR Chits Dashboard..." />;

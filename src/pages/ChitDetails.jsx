@@ -72,11 +72,59 @@ export const ChitDetails = () => {
     loadChitDetails();
   }, [chitId]);
 
+  const chit = data?.chit;
+  const schedule = data?.schedule || [];
+  const summary = data?.summary || {};
+
+  const duration = Number(chit?.duration || chit?.durationMonths || summary?.totalMonths || 20);
+  const multiple = Number(chit?.multiple) || 1;
+  const dividend = Number(chit?.dividend) || 0;
+
+  // Capacity stats - unconditional hook at top level
+  const capacityStats = useMemo(() => {
+    if (!chit) {
+      return {
+        requiredMembers: 20,
+        joinedMembers: 0,
+        remainingSlots: 20,
+        fillPercentage: 0,
+        status: 'Upcoming',
+        isFull: false
+      };
+    }
+    return getChitCapacityStats(chit, memberships);
+  }, [chit, memberships]);
+
+  // Payout Month Map - unconditional hook at top level
+  const payoutMonthMap = useMemo(() => {
+    const map = {};
+    (memberships || []).forEach(m => {
+      const pMonth = Number(m.payoutMonth);
+      if (pMonth) {
+        if (!map[pMonth]) map[pMonth] = [];
+        const memObj = (members || []).find(mem => String(mem.memberId) === String(m.memberId));
+        map[pMonth].push({
+          ...m,
+          memberName: memObj ? memObj.name : (m.memberName || 'Member')
+        });
+      }
+    });
+    return map;
+  }, [memberships, members]);
+
+  const handleOpenAssign = (schItem) => {
+    setSelectedScheduleItem(schItem);
+    setIsAssignOpen(true);
+  };
+
+  const handleOpenPayout = (schItem) => {
+    setSelectedPayoutMonth(schItem.month);
+    setIsPayoutOpen(true);
+  };
+
   if (loading || !data) {
     return <LoadingState message="Loading Chit Details & Master Schedule..." />;
   }
-
-  const { chit, schedule, summary } = data;
 
   if (!chit) {
     return (
@@ -95,42 +143,6 @@ export const ChitDetails = () => {
       </div>
     );
   }
-
-  const handleOpenAssign = (schItem) => {
-    setSelectedScheduleItem(schItem);
-    setIsAssignOpen(true);
-  };
-
-  const handleOpenPayout = (schItem) => {
-    setSelectedPayoutMonth(schItem.month);
-    setIsPayoutOpen(true);
-  };
-
-  const duration = Number(chit.duration || chit.durationMonths || summary?.totalMonths || 20);
-  const multiple = Number(chit.multiple) || 1;
-  const dividend = Number(chit.dividend) || 0;
-
-  // Capacity stats
-  const capacityStats = useMemo(() => {
-    return getChitCapacityStats(chit, memberships);
-  }, [chit, memberships]);
-
-  // Payout Month Map
-  const payoutMonthMap = useMemo(() => {
-    const map = {};
-    (memberships || []).forEach(m => {
-      const pMonth = Number(m.payoutMonth);
-      if (pMonth) {
-        if (!map[pMonth]) map[pMonth] = [];
-        const memObj = members.find(mem => String(mem.memberId) === String(m.memberId));
-        map[pMonth].push({
-          ...m,
-          memberName: memObj ? memObj.name : (m.memberName || 'Member')
-        });
-      }
-    });
-    return map;
-  }, [memberships, members]);
 
   const handleSendWhatsAppWelcome = (membership) => {
     const memObj = members.find(mem => String(mem.memberId) === String(membership.memberId));
