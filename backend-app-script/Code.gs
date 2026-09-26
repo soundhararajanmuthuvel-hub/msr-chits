@@ -833,6 +833,49 @@ function deleteMembershipRecord(membershipId) {
   return { success: false };
 }
 
+function cancelMembershipRecord(membershipId) {
+  if (!membershipId) throw new Error('membershipId is required');
+
+  const sheet = getSheet(SHEET_NAMES.MEMBERSHIPS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: false, message: 'No memberships found' };
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const idColIndex = headers.indexOf('membershipId');
+  if (idColIndex === -1) throw new Error('membershipId column not found');
+
+  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  let matched = null;
+  let targetRow = -1;
+
+  for (let r = 0; r < data.length; r++) {
+    if (String(data[r][idColIndex]) === String(membershipId)) {
+      matched = {};
+      for (let c = 0; c < headers.length; c++) {
+        matched[headers[c]] = data[r][c];
+      }
+      targetRow = r + 2;
+      break;
+    }
+  }
+
+  if (!matched) return { success: false, message: 'Membership not found' };
+
+  // Set status = 'Cancelled', preserving Membership ID & Chit No (Prompt Section 12)
+  const statusColIndex = headers.indexOf('status');
+  if (statusColIndex !== -1) {
+    sheet.getRange(targetRow, statusColIndex + 1).setValue('Cancelled');
+  }
+
+  const updatedAtColIndex = headers.indexOf('updatedAt');
+  if (updatedAtColIndex !== -1) {
+    sheet.getRange(targetRow, updatedAtColIndex + 1).setValue(new Date().toISOString());
+  }
+
+  logActivity('CANCEL_MEMBERSHIP', 'Cancelled membership ' + membershipId + ' (' + (matched.chitNo || '') + ', Member: ' + (matched.memberId || '') + ')', 'Admin');
+  return { success: true, membershipId: membershipId, status: 'Cancelled', chitNo: matched.chitNo };
+}
+
 // ============================================================================
 // WHATSAPP LOG HELPERS
 // ============================================================================
@@ -974,19 +1017,139 @@ function createNewMember(data) {
 }
 
 function updateMemberDetails(memberId, data) {
+  const members = getSheetData(SHEET_NAMES.MEMBERS);
+  const existing = members.find(m => String(m.memberId) === String(memberId));
+  if (!existing) {
+    throw new Error('Member not found: ' + memberId);
+  }
+
   const updateObj = {
-    name: data.name,
-    phone: data.mobile || data.phone,
-    address: data.address,
-    notes: data.notes,
-    assignedChits: data.payoutMonth || data.assignedChits,
-    status: data.status,
+    updatedAt: new Date().toISOString()
+  };
+
+  const changedFields = [];
+
+  if (data.name !== undefined && String(data.name).trim()) {
+    updateObj.name = String(data.name).trim();
+    if (updateObj.name !== String(existing.name)) changedFields.push('name');
+  }
+  if (data.mobile !== undefined || data.phone !== undefined) {
+    const newPhone = String(data.mobile !== undefined ? data.mobile : data.phone).trim();
+    updateObj.phone = newPhone;
+    if (newPhone !== String(existing.phone || existing.mobile || '')) changedFields.push('phone');
+  }
+  if (data.email !== undefined) {
+    updateObj.email = String(data.email).trim();
+    if (updateObj.email !== String(existing.email || '')) changedFields.push('email');
+  }
+  if (data.address !== undefined) {
+    updateObj.address = String(data.address).trim();
+    if (updateObj.address !== String(existing.address || '')) changedFields.push('address');
+  }
+  if (data.notes !== undefined) {
+    updateObj.notes = String(data.notes).trim();
+    if (updateObj.notes !== String(existing.notes || '')) changedFields.push('notes');
+  }
+  if (data.status !== undefined && String(data.status).trim()) {
+    updateObj.status = String(data.status).trim();
+    if (updateObj.status !== String(existing.status || 'Active')) changedFields.push('status');
+  }
+  if (data.assignedChits !== undefined) {
+    updateObj.assignedChits = data.assignedChits;
+  }
+
+  updateRow(SHEET_NAMES.MEMBERS, 'memberId', memberId, updateObj);
+  logActivity('UPDATE_MEMBER', 'Updated member ' + (existing.name || memberId) + ' (' + memberId + (changedFields.length > 0 ? ', fields: ' + changedFields.join(', ') : '') + ')', 'Admin');
+  return { success: true, memberId: memberId, updatedFields: changedFields };
+}
+
+function deactivateMemberRecord(memberId) {
+  const members = getSheetData(SHEET_NAMES.MEMBERS);
+  const existing = members.find(m => String(m.memberId) === String(memberId));
+  if (!existing) {
+    throw new Error('Member not found: ' + memberId);
+  }
+
+  const updateObj = {
+    status: 'Inactive',
     updatedAt: new Date().toISOString()
   };
 
   updateRow(SHEET_NAMES.MEMBERS, 'memberId', memberId, updateObj);
-  logActivity('Member Updated', 'Updated profile for ' + (data.name || memberId), 'Admin');
-  return { success: true };
+  logActivity('DEACTIVATE_MEMBER', 'Deactivated member ' + (existing.name || memberId) + ' (' + memberId + ')', 'Admin');
+  return { success: true, memberId: memberId, status: 'Inactive' };
+}
+
+function reactivateMemberRecord(memberId) {
+  const members = getSheetData(SHEET_NAMES.MEMBERS);
+  const existing = members.find(m => String(m.memberId) === String(memberId));
+  if (!existing) {
+    throw new Error('Member not found: ' + memberId);
+  }
+
+  const updateObj = {
+    status: 'Active',
+    updatedAt: new Date().toISOString()
+  };
+
+  updateRow(SHEET_NAMES.MEMBERS, 'memberId', memberId, updateObj);
+  logActivity('REACTIVATE_MEMBER', 'Reactivated member ' + (existing.name || memberId) + ' (' + memberId + ')', 'Admin');
+  return { success: true, memberId: memberId, status: 'Active' };
+}
+
+function deleteMemberSafely(memberId) {
+  if (!memberId) throw new Error('memberId is required for deletion');
+
+  // Verify financial relationships (Prompt Sections 6, 8, 13)
+  const payments = getAllPayments().filter(p => String(p.memberId) === String(memberId));
+  if (payments.length > 0) {
+    throw new Error('Cannot delete this member because financial records (' + payments.length + ' payments) are linked to this member. Please deactivate the member instead.');
+  }
+
+  const payouts = getAllPayouts().filter(po => String(po.memberId) === String(memberId));
+  if (payouts.length > 0) {
+    throw new Error('Cannot delete this member because financial records (' + payouts.length + ' payouts) are linked to this member. Please deactivate the member instead.');
+  }
+
+  const memberships = getMembershipsSafe(memberId);
+  const activeMemberships = memberships.filter(m => m.status !== 'Cancelled');
+  if (activeMemberships.length > 0) {
+    throw new Error('Cannot delete this member because active chit memberships (' + activeMemberships.length + ') are linked to this member. Please cancel memberships or deactivate the member instead.');
+  }
+
+  const schedule = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE).filter(s => String(s.memberId || s.assignedMemberId) === String(memberId));
+  if (schedule.length > 0) {
+    throw new Error('Cannot delete this member because monthly schedule slots are assigned to this member. Please unassign or deactivate the member instead.');
+  }
+
+  // Safe to permanently delete row
+  const sheet = getSheet(SHEET_NAMES.MEMBERS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) throw new Error('Members sheet is empty');
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const idColIndex = headers.indexOf('memberId');
+  if (idColIndex === -1) throw new Error('memberId column not found');
+
+  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  let deleted = false;
+  let memberName = memberId;
+
+  for (let r = 0; r < data.length; r++) {
+    if (String(data[r][idColIndex]) === String(memberId)) {
+      memberName = data[r][headers.indexOf('name')] || memberId;
+      sheet.deleteRow(r + 2);
+      deleted = true;
+      break;
+    }
+  }
+
+  if (!deleted) {
+    throw new Error('Member ' + memberId + ' not found for deletion');
+  }
+
+  logActivity('DELETE_MEMBER', 'Permanently deleted isolated member ' + memberName + ' (' + memberId + ')', 'Admin');
+  return { success: true, message: 'Member deleted permanently', memberId: memberId };
 }
 
 // ============================================================================
@@ -1482,6 +1645,18 @@ function handleRequest(e, method) {
         result = updateMemberDetails(payload.memberId, payload);
         break;
 
+      case 'deactivateMember':
+        result = deactivateMemberRecord(payload.memberId);
+        break;
+
+      case 'reactivateMember':
+        result = reactivateMemberRecord(payload.memberId);
+        break;
+
+      case 'deleteMember':
+        result = deleteMemberSafely(payload.memberId);
+        break;
+
       case 'getMonthlySchedule':
         result = getMonthlySchedule(payload.chitId);
         break;
@@ -1501,6 +1676,10 @@ function handleRequest(e, method) {
 
       case 'deleteMembership':
         result = deleteMembershipRecord(payload.membershipId);
+        break;
+
+      case 'cancelMembership':
+        result = cancelMembershipRecord(payload.membershipId);
         break;
 
       case 'getWhatsAppLogs':

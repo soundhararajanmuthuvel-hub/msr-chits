@@ -427,6 +427,36 @@ export const api = {
     return updated.find(m => String(m.memberId) === String(memberId));
   },
 
+  async deactivateMember(memberId) {
+    if (API_URL) {
+      await postApi('deactivateMember', { memberId });
+    }
+    const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+    const updated = members.map(m => String(m.memberId) === String(memberId) ? { ...m, status: 'Inactive' } : m);
+    setCache(STORAGE_KEYS.MEMBERS_CACHE, updated);
+    return { success: true, memberId, status: 'Inactive' };
+  },
+
+  async reactivateMember(memberId) {
+    if (API_URL) {
+      await postApi('reactivateMember', { memberId });
+    }
+    const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+    const updated = members.map(m => String(m.memberId) === String(memberId) ? { ...m, status: 'Active' } : m);
+    setCache(STORAGE_KEYS.MEMBERS_CACHE, updated);
+    return { success: true, memberId, status: 'Active' };
+  },
+
+  async deleteMember(memberId) {
+    if (API_URL) {
+      await postApi('deleteMember', { memberId });
+    }
+    const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+    const updated = members.filter(m => String(m.memberId) !== String(memberId));
+    setCache(STORAGE_KEYS.MEMBERS_CACHE, updated);
+    return { success: true, memberId };
+  },
+
   // Chits
   async getChits() {
     let list = [];
@@ -904,6 +934,16 @@ export const api = {
     const updated = cached.filter(m => String(m.membershipId) !== String(membershipId));
     setCache(STORAGE_KEYS.MEMBERSHIPS_CACHE, updated);
     return { success: true };
+  },
+
+  async cancelMembership(membershipId) {
+    if (API_URL) {
+      await postApi('cancelMembership', { membershipId });
+    }
+    const cached = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+    const updated = cached.map(m => String(m.membershipId) === String(membershipId) ? { ...m, status: 'Cancelled' } : m);
+    setCache(STORAGE_KEYS.MEMBERSHIPS_CACHE, updated);
+    return { success: true, membershipId, status: 'Cancelled' };
   },
 
   // WhatsApp Logging & Status

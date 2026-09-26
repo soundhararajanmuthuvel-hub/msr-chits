@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -19,7 +19,12 @@ import {
   Bell,
   Eye,
   ShieldCheck,
-  Send
+  Send,
+  MoreVertical,
+  UserX,
+  UserCheck,
+  Trash2,
+  Ban
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
@@ -29,6 +34,8 @@ import StatusBadge from '../components/common/StatusBadge';
 import DataTable from '../components/common/DataTable';
 import MemberForm from '../components/members/MemberForm';
 import PaymentForm from '../components/payments/PaymentForm';
+import DeleteMemberModal from '../components/members/DeleteMemberModal';
+import CancelMembershipModal from '../components/members/CancelMembershipModal';
 import LoadingState from '../components/common/LoadingState';
 import WhatsAppComposerModal from '../components/whatsapp/WhatsAppComposerModal';
 import AssignChitModal from '../components/chits/AssignChitModal';
@@ -37,15 +44,20 @@ import { useChit } from '../context/ChitContext';
 export const MemberDetails = () => {
   const { memberId } = useParams();
   const navigate = useNavigate();
-  const { activeChit } = useChit();
+  const { activeChit, showToast } = useChit();
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Modals
+  // Modals & Menu States
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isAssignChitOpen, setIsAssignChitOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [cancellingMembership, setCancellingMembership] = useState(null);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef(null);
+
   const [whatsAppConfig, setWhatsAppConfig] = useState({
     isOpen: false,
     messageType: 'welcome',
@@ -67,6 +79,30 @@ export const MemberDetails = () => {
   useEffect(() => {
     loadMemberData();
   }, [memberId]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target)) {
+        setIsMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleReactivateMember = async () => {
+    if (!data?.member) return;
+    setLoading(true);
+    try {
+      await api.reactivateMember(data.member.memberId);
+      showToast(`Member ${data.member.name} has been reactivated successfully!`, 'success');
+      await loadMemberData();
+    } catch (err) {
+      console.error('Reactivate member error:', err);
+      showToast(err.message || 'Failed to reactivate member', 'error');
+      setLoading(false);
+    }
+  };
 
   if (loading || !data) {
     return <LoadingState message="Loading Member Account & Ledger..." />;
@@ -265,6 +301,75 @@ export const MemberDetails = () => {
             <CreditCard className="w-4 h-4 text-[#C9A227]" />
             <span>Record Payment</span>
           </button>
+
+          {/* More Action Menu (...) */}
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+              className="p-2.5 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center min-h-[44px] min-w-[44px]"
+              title="More Actions"
+              aria-label="More Actions"
+            >
+              <MoreVertical className="w-4 h-4 text-[#174D38]" />
+            </button>
+
+            {isMoreMenuOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-[#DCE8E0] rounded-2xl shadow-xl z-30 py-1.5 animate-scale-up">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    setIsEditOpen(true);
+                  }}
+                  className="w-full px-4 py-2.5 text-left text-xs font-semibold text-[#003524] hover:bg-[#F0FCF4] flex items-center gap-2.5 transition-colors"
+                >
+                  <Edit2 className="w-4 h-4 text-[#174D38]" />
+                  <span>Edit Member</span>
+                </button>
+
+                {member.status === 'Inactive' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      handleReactivateMember();
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-semibold text-emerald-800 hover:bg-emerald-50 flex items-center gap-2.5 transition-colors"
+                  >
+                    <UserCheck className="w-4 h-4 text-emerald-700" />
+                    <span>Reactivate Member</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      setIsDeleteOpen(true);
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-semibold text-amber-800 hover:bg-amber-50 flex items-center gap-2.5 transition-colors"
+                  >
+                    <UserX className="w-4 h-4 text-amber-700" />
+                    <span>Deactivate Member</span>
+                  </button>
+                )}
+
+                <div className="h-px bg-[#EAF2EC] my-1" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    setIsDeleteOpen(true);
+                  }}
+                  className="w-full px-4 py-2.5 text-left text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2.5 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4 text-red-600" />
+                  <span>Delete Member</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -481,6 +586,18 @@ export const MemberDetails = () => {
                       <span>No Phone</span>
                     </button>
                   )}
+
+                  {chit.status !== 'Cancelled' && (
+                    <button
+                      type="button"
+                      onClick={() => setCancellingMembership(chit)}
+                      className="py-2 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1 min-h-[44px]"
+                      title="Cancel this chit membership"
+                    >
+                      <Ban className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Cancel</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -534,6 +651,22 @@ export const MemberDetails = () => {
         onClose={() => setWhatsAppConfig({ ...whatsAppConfig, isOpen: false })}
         member={member}
         initialMessageType={whatsAppConfig.messageType}
+      />
+
+      <DeleteMemberModal
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        member={member}
+        payments={payments}
+        onSuccess={loadMemberData}
+      />
+
+      <CancelMembershipModal
+        isOpen={Boolean(cancellingMembership)}
+        onClose={() => setCancellingMembership(null)}
+        membership={cancellingMembership}
+        memberName={member.name}
+        onSuccess={loadMemberData}
       />
     </div>
   );

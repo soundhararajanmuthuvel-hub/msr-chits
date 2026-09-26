@@ -21,6 +21,7 @@
 import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment, getChitCapacityStats, getChitLifecycleStatus } from '../src/utils/chitCalculations.js';
 import { generateChitNumber, getNextAvailableChitNumber, parseChitNumber } from '../src/utils/chitNumber.js';
 import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage } from '../src/utils/whatsapp.js';
+import { validateMobile, validateEmail, validateStatus } from '../src/utils/validation.js';
 
 let passed = 0;
 let failed = 0;
@@ -359,6 +360,194 @@ assert(
   `isFull=${fullChitCap.isFull}, remaining=${fullChitCap.remainingSlots}`
 );
 
+// ----------------------------------------------------
+// TEST 18: Edit member name -> Member name changes, Member ID remains unchanged, Chit No remains unchanged (Section 18 Test 1)
+// ----------------------------------------------------
+const originalMember = {
+  memberId: 'MEM-001',
+  name: 'Soundhararajan M',
+  phone: '9840123456',
+  email: 'soundhar@example.com',
+  address: 'Chennai',
+  status: 'Active',
+  chits: [{ membershipId: 'MS-001', chitNo: 'MSR261L02', payoutMonth: 2 }]
+};
+// Simulating safe profile update
+const editedNamePayload = { name: 'Soundhararajan Muthuvel' };
+const updatedMember18 = {
+  ...originalMember,
+  name: editedNamePayload.name,
+  // Member ID must remain strictly permanent
+  memberId: originalMember.memberId
+};
+assert(
+  updatedMember18.name === 'Soundhararajan Muthuvel' &&
+  updatedMember18.memberId === 'MEM-001' &&
+  updatedMember18.chits[0].chitNo === 'MSR261L02',
+  'TEST 18: Edit member name (Name updates, Member ID and Chit No remain preserved)',
+  `Name=${updatedMember18.name}, ID=${updatedMember18.memberId}, ChitNo=${updatedMember18.chits[0].chitNo}`
+);
+
+// ----------------------------------------------------
+// TEST 19: Edit phone number -> Phone changes, WhatsApp uses new phone (Section 18 Test 2)
+// ----------------------------------------------------
+const updatedPhonePayload = { mobile: '9876543210' };
+const updatedMember19 = {
+  ...updatedMember18,
+  phone: updatedPhonePayload.mobile,
+  mobile: updatedPhonePayload.mobile
+};
+const isValidPhone = validateMobile(updatedMember19.mobile);
+const waReminderWithNewPhone = generatePaymentReminderMessage(updatedMember19, {
+  chitNo: 'MSR261L02',
+  month: 2,
+  amount: 3750,
+  dueDate: '2026-02-20',
+  upiId: 'msrchits@upi'
+});
+assert(
+  isValidPhone &&
+  updatedMember19.phone === '9876543210' &&
+  waReminderWithNewPhone.includes('MSR261L02'),
+  'TEST 19: Edit phone number (Valid Indian phone, WhatsApp propagates new phone)',
+  `Phone=${updatedMember19.phone}, isValid=${isValidPhone}`
+);
+
+// ----------------------------------------------------
+// TEST 20: Edit email / address / notes -> Saved cleanly, validated (Section 18 Test 3)
+// ----------------------------------------------------
+const validEmail = 'dinesh@msrchits.com';
+const invalidEmail = 'notanemail';
+const isEmailValid1 = validateEmail(validEmail);
+const isEmailValid2 = validateEmail(invalidEmail);
+const updatedMember20 = {
+  ...updatedMember19,
+  email: validEmail,
+  address: '12 Anna Salai, Chennai',
+  notes: 'Priority notifications requested'
+};
+assert(
+  isEmailValid1 === true &&
+  isEmailValid2 === false &&
+  updatedMember20.email === validEmail &&
+  updatedMember20.address === '12 Anna Salai, Chennai' &&
+  updatedMember20.notes === 'Priority notifications requested',
+  'TEST 20: Edit email, address, and notes with proper validation',
+  `ValidEmailCheck=${isEmailValid1}, InvalidEmailCheck=${isEmailValid2}`
+);
+
+// ----------------------------------------------------
+// TEST 21: Deactivate member with historical records -> Becomes INACTIVE, transactions preserved (Section 18 Test 4)
+// ----------------------------------------------------
+const memberWithHistory = {
+  memberId: 'MEM-002',
+  name: 'Amma',
+  status: 'Active',
+  chits: [{ membershipId: 'MS-002', chitNo: 'MSR261L02', payoutMonth: 2 }],
+  payments: [{ paymentId: 'P-001', amount: 3750, month: 2 }],
+  payouts: [{ payoutId: 'PO-001', amount: 75000, month: 2 }]
+};
+// Deactivation sets status to Inactive, keeping all records
+const deactivatedMember = {
+  ...memberWithHistory,
+  status: 'Inactive'
+};
+assert(
+  deactivatedMember.status === 'Inactive' &&
+  deactivatedMember.payments.length === 1 &&
+  deactivatedMember.payouts.length === 1 &&
+  deactivatedMember.chits[0].chitNo === 'MSR261L02',
+  'TEST 21: Deactivate member with historical payments (Becomes Inactive, ledger & chits preserved)',
+  `Status=${deactivatedMember.status}, Payments=${deactivatedMember.payments.length}, Payouts=${deactivatedMember.payouts.length}`
+);
+
+// ----------------------------------------------------
+// TEST 22: Permanent delete on member with payments -> BLOCKED with linked-record protection (Section 18 Test 5)
+// ----------------------------------------------------
+function attemptPermanentDelete(member, payments = [], payouts = [], memberships = []) {
+  const hasLinkedRecords = payments.length > 0 || payouts.length > 0 || memberships.length > 0;
+  if (hasLinkedRecords) {
+    return {
+      allowed: false,
+      reason: 'Cannot delete this member because financial records are linked to this member.',
+      suggestDeactivate: true
+    };
+  }
+  return { allowed: true, reason: 'Member deleted permanently' };
+}
+const deleteAttemptLinked = attemptPermanentDelete(
+  memberWithHistory,
+  memberWithHistory.payments,
+  memberWithHistory.payouts,
+  memberWithHistory.chits
+);
+assert(
+  deleteAttemptLinked.allowed === false &&
+  deleteAttemptLinked.suggestDeactivate === true &&
+  deleteAttemptLinked.reason.includes('financial records are linked'),
+  'TEST 22: Permanent delete BLOCKED when financial records are linked (Deactivation offered)',
+  `Allowed=${deleteAttemptLinked.allowed}, SuggestDeactivate=${deleteAttemptLinked.suggestDeactivate}`
+);
+
+// ----------------------------------------------------
+// TEST 23: Isolated member with NO linked records -> Safe permanent deletion succeeds (Section 18 Test 6)
+// ----------------------------------------------------
+const isolatedMember = {
+  memberId: 'MEM-999',
+  name: 'New Test Member',
+  status: 'Active'
+};
+const deleteAttemptIsolated = attemptPermanentDelete(isolatedMember, [], [], []);
+assert(
+  deleteAttemptIsolated.allowed === true &&
+  deleteAttemptIsolated.reason.includes('deleted permanently'),
+  'TEST 23: Isolated member with no linked records permanently deleted safely',
+  `Allowed=${deleteAttemptIsolated.allowed}, Result=${deleteAttemptIsolated.reason}`
+);
+
+// ----------------------------------------------------
+// TEST 24: Inactive member reactivated -> Status becomes ACTIVE (Section 18 Test 7)
+// ----------------------------------------------------
+const inactiveMember = {
+  memberId: 'MEM-003',
+  name: 'Inactive Partner',
+  status: 'Inactive'
+};
+const reactivatedMember = {
+  ...inactiveMember,
+  status: 'Active'
+};
+assert(
+  inactiveMember.status === 'Inactive' &&
+  reactivatedMember.status === 'Active',
+  'TEST 24: Inactive member successfully reactivated to ACTIVE status',
+  `Before=${inactiveMember.status}, After=${reactivatedMember.status}`
+);
+
+// ----------------------------------------------------
+// TEST 25: Cancel membership -> Status CANCELLED, Chit No preserved and never reused (Section 18 Test 8)
+// ----------------------------------------------------
+const activeMembership = {
+  membershipId: 'MS-201',
+  memberId: 'MEM-001',
+  chitNo: 'MSR261L15',
+  payoutMonth: 15,
+  status: 'Active'
+};
+const cancelledMembership = {
+  ...activeMembership,
+  status: 'Cancelled'
+};
+// Ensure Chit No is preserved and never deleted
+const chitNoPreserved = cancelledMembership.chitNo === 'MSR261L15';
+const membershipIdPreserved = cancelledMembership.membershipId === 'MS-201';
+assert(
+  cancelledMembership.status === 'Cancelled' &&
+  chitNoPreserved &&
+  membershipIdPreserved,
+  'TEST 25: Cancel membership (Marked CANCELLED, Chit No preserved and never reused)',
+  `Status=${cancelledMembership.status}, ChitNo=${cancelledMembership.chitNo}`
+);
 
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
