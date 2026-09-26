@@ -58,6 +58,24 @@ export const ChitDetails = () => {
 
   const { chit, schedule, summary } = data;
 
+  if (!chit) {
+    return (
+      <div className="bg-white rounded-2xl p-8 border border-[#DCE8E0] shadow-sm text-center max-w-xl mx-auto my-12 space-y-4">
+        <h3 className="text-lg font-bold text-[#003524]">Chit Scheme Not Found</h3>
+        <p className="text-xs text-[#5B7065]">
+          The requested chit scheme was not found in your Google Sheets database.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/chits')}
+          className="px-5 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs font-bold rounded-xl"
+        >
+          Back to Chits List
+        </button>
+      </div>
+    );
+  }
+
   const handleOpenAssign = (schItem) => {
     setSelectedScheduleItem(schItem);
     setIsAssignOpen(true);

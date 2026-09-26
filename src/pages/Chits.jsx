@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Layers, Plus, Calendar, Users, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Layers, Plus, Calendar, Users, ArrowRight, ShieldCheck, Inbox } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR, formatLakh } from '../utils/currency';
 import { formatDate } from '../utils/date';
@@ -18,9 +18,15 @@ export const Chits = () => {
     setLoading(true);
     try {
       const data = await api.getChits();
-      setChits(data || []);
+      let normalized = data;
+      if (normalized && typeof normalized === 'object' && !Array.isArray(normalized)) {
+        if (Array.isArray(normalized.data)) normalized = normalized.data;
+        else if (Array.isArray(normalized.chits)) normalized = normalized.chits;
+      }
+      setChits(Array.isArray(normalized) ? normalized : []);
     } catch (e) {
-      console.error(e);
+      console.error('Failed to load chits:', e);
+      setChits([]);
     } finally {
       setLoading(false);
     }
@@ -30,10 +36,11 @@ export const Chits = () => {
     loadChits();
   }, []);
 
+  const getStatus = (c) => (c?.status ? String(c.status).trim().toLowerCase() : 'active');
   const totalCount = chits.length;
-  const activeCount = chits.filter(c => c.status === 'Active').length;
-  const enrollingCount = chits.filter(c => c.status === 'Enrolling').length;
-  const completedCount = chits.filter(c => c.status === 'Completed').length;
+  const activeCount = chits.filter(c => getStatus(c) === 'active').length;
+  const enrollingCount = chits.filter(c => getStatus(c) === 'enrolling').length;
+  const completedCount = chits.filter(c => getStatus(c) === 'completed').length;
 
   return (
     <div className="space-y-6">
@@ -78,9 +85,27 @@ export const Chits = () => {
         </div>
       </div>
 
-      {/* Chit Groups Grid */}
+      {/* Chit Groups Grid or Genuine Empty State */}
       {loading ? (
         <LoadingState message="Loading chit groups..." />
+      ) : chits.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-dashed border-[#DCE8E0] p-12 text-center shadow-xs">
+          <div className="w-16 h-16 rounded-2xl bg-[#F0FCF4] border border-[#DCE8E0] flex items-center justify-center mx-auto text-[#003524] mb-4">
+            <Inbox className="w-8 h-8 stroke-[1.8] text-[#174D38]" />
+          </div>
+          <h3 className="text-lg font-bold text-[#003524]">No Chit Schemes Found</h3>
+          <p className="text-xs sm:text-sm text-[#5B7065] max-w-md mx-auto mt-1 mb-6">
+            There are currently no chit groups in your Google Sheets database. Click below to create your first chit group.
+          </p>
+          <button
+            type="button"
+            onClick={() => setIsCreateOpen(true)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors"
+          >
+            <Plus className="w-4 h-4 text-[#C9A227]" />
+            <span>Create First Chit Group</span>
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {chits.map((chit) => (
@@ -96,7 +121,7 @@ export const Chits = () => {
                         <Layers className="w-4 h-4" />
                       </span>
                       <h3 className="text-lg font-bold text-[#003524]">
-                        {chit.chitName}
+                        {chit.chitName || chit.chitId}
                       </h3>
                     </div>
                     <p className="text-xs text-[#5B7065] mt-1">
@@ -111,51 +136,53 @@ export const Chits = () => {
                   <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                     <span className="text-[#5B7065] font-semibold">Chit Value:</span>
                     <p className="text-base font-extrabold text-[#003524] mt-0.5">
-                      {formatINR(chit.chitValue)}
+                      {formatINR(chit.chitValue || chit.totalAmount || 0)}
                     </p>
                   </div>
 
                   <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                     <span className="text-[#5B7065] font-semibold">Duration & Month:</span>
                     <p className="text-sm font-bold text-[#131E19] mt-0.5">
-                      Month {chit.currentMonth || 2} / {chit.duration || 20}
+                      Month {chit.currentMonth || 1} / {chit.duration || chit.durationMonths || 20}
                     </p>
                   </div>
 
                   <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                     <span className="text-[#5B7065] font-semibold">Start Date:</span>
                     <p className="text-xs font-bold text-[#131E19] mt-0.5">
-                      {formatDate(chit.startDate || '2026-01-01')}
+                      {chit.startDate ? formatDate(chit.startDate) : 'Not Specified'}
                     </p>
                   </div>
 
                   <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                     <span className="text-[#5B7065] font-semibold">Payment Day:</span>
                     <p className="text-xs font-bold text-[#131E19] mt-0.5">
-                      {chit.paymentDay || 20}th of every month
+                      {chit.paymentDay ? `${chit.paymentDay}th of every month` : '20th of every month'}
                     </p>
                   </div>
 
                   <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                     <span className="text-[#5B7065] font-semibold">Members:</span>
                     <p className="text-sm font-bold text-[#131E19] mt-0.5">
-                      {chit.memberCount || 20} / 20 Enrolled
+                      {chit.memberCount ?? 0} Enrolled
                     </p>
                   </div>
 
                   <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
                     <span className="text-[#5B7065] font-semibold">Monthly Installment:</span>
                     <p className="text-sm font-bold text-[#003524] mt-0.5">
-                      {formatINR(chit.monthlyContribution || 3750)}
+                      {formatINR(chit.monthlyContribution || chit.monthlyAmount || 0)}
                     </p>
                   </div>
                 </div>
 
-                {/* Next Payout Note */}
-                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs flex items-center justify-between">
-                  <span className="text-[#5B7065] font-semibold">Next Payout (Month 2):</span>
-                  <span className="font-extrabold text-[#003524]">Amma + MU (₹70,000)</span>
-                </div>
+                {/* Next Payout Note if available */}
+                {chit.nextPayoutAllocation && (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs flex items-center justify-between">
+                    <span className="text-[#5B7065] font-semibold">Next Payout:</span>
+                    <span className="font-extrabold text-[#003524]">{chit.nextPayoutAllocation}</span>
+                  </div>
+                )}
               </div>
 
               {/* Action Button */}

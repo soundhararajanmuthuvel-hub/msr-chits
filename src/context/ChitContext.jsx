@@ -18,9 +18,11 @@ export const ChitProvider = ({ children }) => {
   const [chitsList, setChitsList] = useState([]);
   const [syncStatus, setSyncStatus] = useState({
     connected: false,
-    checking: false,
+    checking: true,
+    error: null,
+    sheetName: '',
     lastSyncTime: null,
-    relativeSync: 'Checking...'
+    relativeSync: ''
   });
 
   const [toasts, setToasts] = useState([]);
@@ -47,22 +49,38 @@ export const ChitProvider = ({ children }) => {
 
   // Check health and sync with backend
   const checkHealth = useCallback(async () => {
-    setSyncStatus((prev) => ({ ...prev, checking: true }));
+    setSyncStatus((prev) => ({ ...prev, checking: true, error: null }));
     try {
       const res = await api.healthCheck();
+      if (res && res.connected && res.status === 'ONLINE') {
+        const now = res.lastSync || new Date().toISOString();
+        setSyncStatus({
+          connected: true,
+          checking: false,
+          error: null,
+          sheetName: res.sheetName || 'MSR CHITS',
+          lastSyncTime: now,
+          relativeSync: 'Just now'
+        });
+      } else {
+        setSyncStatus({
+          connected: false,
+          checking: false,
+          error: res?.error || 'Connection Error',
+          sheetName: '',
+          lastSyncTime: null,
+          relativeSync: 'Offline'
+        });
+      }
+    } catch (err) {
       setSyncStatus({
-        connected: res.connected,
-        checking: false,
-        lastSyncTime: res.lastSync || new Date().toISOString(),
-        relativeSync: getRelativeTime(res.lastSync || new Date().toISOString())
-      });
-    } catch {
-      setSyncStatus((prev) => ({
-        ...prev,
         connected: false,
         checking: false,
+        error: err.message || 'Connection Error',
+        sheetName: '',
+        lastSyncTime: null,
         relativeSync: 'Offline'
-      }));
+      });
     }
   }, []);
 
@@ -70,33 +88,38 @@ export const ChitProvider = ({ children }) => {
   const refreshChits = useCallback(async () => {
     try {
       const list = await api.getChits();
-      if (list && list.length > 0) {
+      if (Array.isArray(list) && list.length > 0) {
         setChitsList(list);
-        // Sync active chit if needed
-        const found = list.find(c => c.chitId === activeChit.chitId) || list[0];
-        setActiveChit(found);
+        setActiveChit((prev) => {
+          const found = list.find((c) => c.chitId === prev?.chitId);
+          return found || list[0];
+        });
       }
     } catch (e) {
       console.warn('Could not refresh chits', e);
     }
-  }, [activeChit.chitId]);
+  }, []);
 
+  // Initial load - run ONCE on mount
   useEffect(() => {
     checkHealth();
     refreshChits();
+  }, [checkHealth, refreshChits]);
 
-    // Timer to update relative sync time text every 10 seconds
+  // Periodic relative time updater (does NOT trigger health checks or API calls)
+  useEffect(() => {
     const interval = setInterval(() => {
-      if (syncStatus.lastSyncTime) {
-        setSyncStatus((prev) => ({
+      setSyncStatus((prev) => {
+        if (!prev.lastSyncTime) return prev;
+        return {
           ...prev,
           relativeSync: getRelativeTime(prev.lastSyncTime)
-        }));
-      }
-    }, 10000);
+        };
+      });
+    }, 15000);
 
     return () => clearInterval(interval);
-  }, [checkHealth, refreshChits, syncStatus.lastSyncTime]);
+  }, []);
 
   return (
     <ChitContext.Provider

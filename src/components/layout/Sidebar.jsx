@@ -106,15 +106,27 @@ export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
             <div className="flex items-center gap-2">
               <span
                 className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                  syncStatus.connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                  syncStatus.checking
+                    ? 'bg-amber-400 animate-pulse'
+                    : syncStatus.connected
+                    ? 'bg-emerald-400'
+                    : 'bg-rose-400'
                 }`}
               />
               <div className="text-left">
                 <p className="text-xs font-semibold text-white leading-none">
-                  {syncStatus.connected ? 'Sheets Connected' : 'Sheets Offline'}
+                  {syncStatus.checking
+                    ? 'Checking...'
+                    : syncStatus.connected
+                    ? 'Sheets Connected'
+                    : 'Connection Error'}
                 </p>
                 <p className="text-[10px] text-[#A2C2B1] mt-0.5">
-                  {syncStatus.checking ? 'Checking...' : `Synced ${syncStatus.relativeSync}`}
+                  {syncStatus.checking
+                    ? 'Connecting to Sheets...'
+                    : syncStatus.connected
+                    ? (syncStatus.relativeSync ? `Synced ${syncStatus.relativeSync}` : 'Online')
+                    : (syncStatus.error || 'Connection Error')}
                 </p>
               </div>
             </div>

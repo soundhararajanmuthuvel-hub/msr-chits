@@ -239,13 +239,31 @@ export const api = {
   // Health Check
   async healthCheck() {
     if (!API_URL) {
-      return { connected: false, message: 'VITE_API_URL not set', lastSync: localStorage.getItem(STORAGE_KEYS.LAST_SYNC) };
+      return {
+        connected: false,
+        status: 'OFFLINE',
+        message: 'VITE_API_URL not set',
+        lastSync: localStorage.getItem(STORAGE_KEYS.LAST_SYNC)
+      };
     }
     try {
       const data = await getApi('health');
-      return { connected: true, data, lastSync: new Date().toISOString() };
+      const isOnline = data && (String(data.status).toUpperCase() === 'ONLINE');
+      return {
+        connected: isOnline,
+        status: isOnline ? 'ONLINE' : 'ERROR',
+        sheetName: data?.sheetName || 'MSR CHITS',
+        sheetsCount: data?.sheetsCount || 0,
+        data,
+        lastSync: new Date().toISOString()
+      };
     } catch (err) {
-      return { connected: false, error: err.message, lastSync: localStorage.getItem(STORAGE_KEYS.LAST_SYNC) };
+      return {
+        connected: false,
+        status: 'ERROR',
+        error: err.message,
+        lastSync: localStorage.getItem(STORAGE_KEYS.LAST_SYNC)
+      };
     }
   },
 
@@ -409,16 +427,47 @@ export const api = {
 
   // Chits
   async getChits() {
+    let list = [];
     if (API_URL) {
       try {
-        const data = await getApi('getChits');
-        setCache(STORAGE_KEYS.CHITS_CACHE, data || []);
-        return data || [];
+        const res = await getApi('getChits');
+        let raw = res;
+        // Normalize any wrapper: { data: [...] }, { chits: [...] }, or single object
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          if (Array.isArray(raw.chits)) {
+            raw = raw.chits;
+          } else if (Array.isArray(raw.data)) {
+            raw = raw.data;
+          } else if (raw.chitId) {
+            raw = [raw];
+          }
+        }
+        if (Array.isArray(raw)) {
+          list = raw.map(c => ({
+            ...c,
+            chitId: c.chitId || c.id,
+            chitName: c.chitName || c.name,
+            chitValue: Number(c.chitValue || c.totalAmount || 0),
+            totalAmount: Number(c.totalAmount || c.chitValue || 0),
+            duration: Number(c.duration || c.durationMonths || 20),
+            durationMonths: Number(c.durationMonths || c.duration || 20),
+            memberCount: Number(c.memberCount || 0),
+            currentMonth: Number(c.currentMonth || 1),
+            monthlyContribution: Number(c.monthlyContribution || c.monthlyAmount || 0),
+            monthlyAmount: Number(c.monthlyAmount || c.monthlyContribution || 0),
+            startDate: c.startDate || '',
+            paymentDay: Number(c.paymentDay || 20),
+            status: c.status ? String(c.status).trim() : 'Active'
+          }));
+        }
+        setCache(STORAGE_KEYS.CHITS_CACHE, list);
+        return list;
       } catch (e) {
         console.warn('getChits error:', e.message);
       }
     }
-    return getCache(STORAGE_KEYS.CHITS_CACHE) || [];
+    const cached = getCache(STORAGE_KEYS.CHITS_CACHE);
+    return Array.isArray(cached) ? cached : [];
   },
 
   async getChit(chitId) {
