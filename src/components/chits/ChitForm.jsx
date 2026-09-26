@@ -36,12 +36,13 @@ export const ChitForm = ({
     chitValue: 100000,
     multiple: 1,
     duration: 20,
+    requiredMembers: 20,
     dividend: 1250,
     startDate: getTodayDateInput(),
     startMonth: 1,
     paymentDay: 20,
     fixedPayoutMonth: 2,
-    memberCount: 20,
+    status: 'Upcoming',
     description: 'Standard 20-Month Mutual Chit Scheme'
   });
 
@@ -52,6 +53,7 @@ export const ChitForm = ({
         const mult = Number(chitToEdit.multiple) || 1;
         const baseVal = Number(chitToEdit.chitValue) || Number(chitToEdit.totalAmount) || 100000;
         const dur = Number(chitToEdit.duration || chitToEdit.durationMonths) || 20;
+        const reqMembers = Number(chitToEdit.requiredMembers || chitToEdit.totalMembers || chitToEdit.memberCount) || dur;
         const div = Number(chitToEdit.dividend) || Math.max(0, Math.round(baseVal * mult / dur) - (Number(chitToEdit.monthlyContribution || chitToEdit.monthlyAmount) || 3750));
 
         setIsCustomMultiple(!COMMON_MULTIPLES.includes(mult));
@@ -61,12 +63,13 @@ export const ChitForm = ({
           chitValue: baseVal,
           multiple: mult,
           duration: dur,
+          requiredMembers: reqMembers,
           dividend: div,
           startDate: chitToEdit.startDate || getTodayDateInput(),
           startMonth: Number(chitToEdit.currentMonth) || 1,
           paymentDay: Number(chitToEdit.paymentDay) || 20,
           fixedPayoutMonth: Number(chitToEdit.fixedPayoutMonth) || 2,
-          memberCount: Number(chitToEdit.memberCount) || dur,
+          status: chitToEdit.status || 'Active',
           description: chitToEdit.description || chitToEdit.notes || 'Standard 20-Month Mutual Chit Scheme'
         });
       } else {
@@ -77,12 +80,13 @@ export const ChitForm = ({
           chitValue: 100000,
           multiple: 1,
           duration: 20,
+          requiredMembers: 20,
           dividend: 1250,
           startDate: getTodayDateInput(),
           startMonth: 1,
           paymentDay: 20,
           fixedPayoutMonth: 2,
-          memberCount: 20,
+          status: 'Upcoming',
           description: 'Standard 20-Month Mutual Chit Scheme'
         });
       }
@@ -133,16 +137,17 @@ export const ChitForm = ({
         schedule: calculation.schedule
       };
 
+      let savedChit;
       if (chitToEdit && chitToEdit.chitId) {
-        await api.updateChit(chitToEdit.chitId, payload);
+        savedChit = await api.updateChit(chitToEdit.chitId, payload);
         showToast(`Chit group "${formData.chitName}" updated successfully!`, 'success');
       } else {
-        await api.createChit(payload);
+        savedChit = await api.createChit(payload);
         showToast(`Chit group "${formData.chitName}" created successfully!`, 'success');
       }
 
       await refreshChits();
-      if (onSuccess) onSuccess();
+      if (onSuccess) onSuccess(savedChit || payload);
       onClose();
     } catch (err) {
       showToast(err.message || 'Failed to save chit plan', 'error');
@@ -247,8 +252,8 @@ export const ChitForm = ({
           </div>
         </div>
 
-        {/* Duration & Dividend */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        {/* Duration & Dividend & Required Members */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
           <div>
             <label className="block text-xs font-bold text-[#003524] mb-1">
               Duration (Months) *
@@ -258,11 +263,34 @@ export const ChitForm = ({
               min="1"
               max="120"
               value={formData.duration}
-              onChange={(e) => setFormData({ ...formData, duration: Number(e.target.value), memberCount: Number(e.target.value) })}
+              onChange={(e) => {
+                const dur = Number(e.target.value);
+                setFormData(prev => ({
+                  ...prev,
+                  duration: dur,
+                  requiredMembers: prev.requiredMembers === prev.duration ? dur : prev.requiredMembers
+                }));
+              }}
               className="w-full px-3 py-2 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-semibold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524]"
               required
             />
-            <p className="text-[10px] text-[#5B7065] mt-0.5">Base Installment: {formatINR(calculation.baseInstallment)}/mo</p>
+            <p className="text-[10px] text-[#5B7065] mt-0.5">Base: {formatINR(calculation.baseInstallment)}/mo</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-[#003524] mb-1">
+              Required Members *
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="150"
+              value={formData.requiredMembers}
+              onChange={(e) => setFormData({ ...formData, requiredMembers: Number(e.target.value) })}
+              className="w-full px-3 py-2 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-semibold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524]"
+              required
+            />
+            <p className="text-[10px] text-[#5B7065] mt-0.5">Defaults to duration ({formData.duration})</p>
           </div>
 
           <div>
@@ -271,7 +299,7 @@ export const ChitForm = ({
                 Dividend (₹) *
               </label>
               <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                Direct Calculation Input
+                Direct Input
               </span>
             </div>
             <input
@@ -285,12 +313,12 @@ export const ChitForm = ({
               required
             />
             <p className="text-[10px] text-[#5B7065] mt-0.5">
-              Directly deducted from base installment ({formatINR(calculation.baseInstallment)})
+              Deducted from base installment
             </p>
           </div>
         </div>
 
-        {/* Dates & Payment Day */}
+        {/* Dates & Status */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
           <div>
             <label className="block text-xs font-bold text-[#003524] mb-1">
@@ -322,49 +350,42 @@ export const ChitForm = ({
 
           <div>
             <label className="block text-xs font-bold text-[#003524] mb-1">
-              Fixed Payout Month
+              Scheme Lifecycle Status *
             </label>
-            <input
-              type="number"
-              min="1"
-              max={formData.duration}
-              value={formData.fixedPayoutMonth}
-              onChange={(e) => setFormData({ ...formData, fixedPayoutMonth: Number(e.target.value) })}
-              className="w-full px-3 py-2 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524]"
-            />
+            <select
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+              className="w-full px-3 py-2 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-bold text-[#003524] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524]"
+            >
+              <option value="Upcoming">Upcoming (Pre-Launch)</option>
+              <option value="Filling">Filling (Enrolling Members)</option>
+              <option value="Full">Full (Capacity Reached)</option>
+              <option value="Active">Active (Scheme Running)</option>
+              <option value="Completed">Completed</option>
+            </select>
           </div>
         </div>
 
         {/* ================================================================= */}
-        {/* SECTION 5: LIVE CALCULATION PREVIEW */}
+        {/* SECTION 62: CHIT PREVIEW & CALCULATION ENGINE */}
         {/* ================================================================= */}
         <div className="p-4 rounded-2xl bg-[#F0FCF4] border border-[#DCE8E0] space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Calculator className="w-4 h-4 text-[#174D38]" />
-              <h4 className="text-xs font-bold uppercase tracking-wider text-[#003524]">
-                Live Calculation Engine Preview
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#003524]">
+                Chit Plan Live Preview (Section 62)
               </h4>
             </div>
-            <span className="text-[10px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
-              Auto-Calculated
+            <span className="text-[10px] font-extrabold uppercase text-[#003524] bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+              Status: {formData.status.toUpperCase()}
             </span>
           </div>
 
           {/* Core Calculation Metrics Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
-              <span className="text-[10px] font-semibold text-[#5B7065] block">Chit Value:</span>
-              <span className="font-extrabold text-[#003524]">{formatINR(calculation.chitValue)}</span>
-            </div>
-
-            <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
-              <span className="text-[10px] font-semibold text-[#5B7065] block">Multiple:</span>
-              <span className="font-extrabold text-[#003524]">{calculation.multiple}×</span>
-            </div>
-
-            <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
-              <span className="text-[10px] font-semibold text-[#5B7065] block">Total Chit Value:</span>
+              <span className="text-[10px] font-semibold text-[#5B7065] block">Total Value:</span>
               <span className="font-extrabold text-emerald-900">{formatINR(calculation.totalChitValue)}</span>
             </div>
 
@@ -373,19 +394,29 @@ export const ChitForm = ({
               <span className="font-extrabold text-[#003524]">{calculation.duration} Months</span>
             </div>
 
+            <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
+              <span className="text-[10px] font-semibold text-[#5B7065] block">Required Members:</span>
+              <span className="font-extrabold text-[#003524]">{formData.requiredMembers}</span>
+            </div>
+
+            <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
+              <span className="text-[10px] font-semibold text-[#5B7065] block">Monthly Amount:</span>
+              <span className="font-extrabold text-[#003524]">{formatINR(calculation.monthlyAmount)}</span>
+            </div>
+
             <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200">
               <span className="text-[10px] font-semibold text-amber-900 block">Entered Dividend:</span>
               <span className="font-extrabold text-amber-900">{formatINR(calculation.dividend)}</span>
             </div>
 
             <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
-              <span className="text-[10px] font-semibold text-[#5B7065] block">Calculated Amount:</span>
-              <span className="font-extrabold text-[#003524]">{formatINR(calculation.calculatedAmount)}</span>
+              <span className="text-[10px] font-semibold text-[#5B7065] block">Start Date:</span>
+              <span className="font-extrabold text-[#003524]">{formData.startDate || 'Not Set'}</span>
             </div>
 
             <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
-              <span className="text-[10px] font-semibold text-[#5B7065] block">Month 2 Amount:</span>
-              <span className="font-extrabold text-[#003524]">{formatINR(calculation.monthlyAmount)}</span>
+              <span className="text-[10px] font-semibold text-[#5B7065] block">Month 2 Payout:</span>
+              <span className="font-extrabold text-[#003524]">{formatINR(calculation.month2Payout)}</span>
             </div>
 
             <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200">

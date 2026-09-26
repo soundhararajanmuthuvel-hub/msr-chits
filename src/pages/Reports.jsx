@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
   Download,
@@ -8,11 +8,13 @@ import {
   Send,
   Users,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Layers
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
 import { formatDate } from '../utils/date';
+import { getChitCapacityStats } from '../utils/chitCalculations';
 import StatCard from '../components/common/StatCard';
 import StatusBadge from '../components/common/StatusBadge';
 import DataTable from '../components/common/DataTable';
@@ -23,14 +25,23 @@ import { useChit } from '../context/ChitContext';
 export const Reports = () => {
   const { showToast } = useChit();
   const [data, setData] = useState(null);
+  const [chits, setChits] = useState([]);
+  const [memberships, setMemberships] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedReport, setSelectedReport] = useState('monthly'); // 'monthly', 'members', 'payments', 'payouts', 'pending', 'extraInvestment'
+  const [selectedReport, setSelectedReport] = useState('monthly'); // 'monthly', 'upcoming', 'members', 'payments', 'payouts', 'pending', 'extraInvestment'
+  const [upcomingStatusFilter, setUpcomingStatusFilter] = useState('all');
 
   const loadReports = async () => {
     setLoading(true);
     try {
-      const res = await api.getReports();
+      const [res, cList, msList] = await Promise.all([
+        api.getReports(),
+        api.getChits(),
+        api.getMemberships()
+      ]);
       setData(res);
+      setChits(Array.isArray(cList) ? cList : (cList?.chits || []));
+      setMemberships(Array.isArray(msList) ? msList : []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -57,6 +68,11 @@ export const Reports = () => {
         const p = (Number(inv.returnedAmount) || 0) - (Number(inv.investmentAmount) || 0);
         const pct = (Number(inv.investmentAmount) || 0) > 0 ? ((p / Number(inv.investmentAmount)) * 100).toFixed(1) : 0;
         csvContent += `${inv.investmentId},${inv.investmentDate || ''},${inv.investmentAmount},${inv.usedAmount || inv.investmentAmount},"${inv.beneficiary || ''}","${inv.payout || ''}",${inv.returnedAmount},${p},${pct}%\n`;
+      });
+    } else if (selectedReport === 'upcoming') {
+      csvContent += 'Chit Name,Chit Value,Start Date,Duration,Required Members,Joined Members,Remaining Members,Fill %,Status\n';
+      filteredUpcomingChits.forEach((c) => {
+        csvContent += `"${c.chitName}",${c.chitValue},${c.startDate || ''},${c.duration},${c.requiredMembers},${c.joinedMembers},${c.remainingSlots},${c.fillPercentage}%,${c.status}\n`;
       });
     } else if (data) {
       if (selectedReport === 'monthly') {
@@ -96,6 +112,28 @@ export const Reports = () => {
     showToast(`Exported ${filename} successfully!`, 'success');
   };
 
+  const upcomingChitsList = useMemo(() => {
+    return (chits || []).map(c => {
+      const capStats = getChitCapacityStats(c, memberships);
+      return {
+        ...c,
+        chitName: c.chitName || c.chitId,
+        chitValue: Number(c.chitValue || c.totalAmount || 0),
+        duration: Number(c.duration || c.durationMonths || 20),
+        requiredMembers: capStats.requiredMembers,
+        joinedMembers: capStats.joinedMembers,
+        remainingSlots: capStats.remainingSlots,
+        fillPercentage: capStats.fillPercentage,
+        status: capStats.status
+      };
+    });
+  }, [chits, memberships]);
+
+  const filteredUpcomingChits = useMemo(() => {
+    if (upcomingStatusFilter === 'all') return upcomingChitsList;
+    return upcomingChitsList.filter(c => c.status.toLowerCase() === upcomingStatusFilter.toLowerCase());
+  }, [upcomingChitsList, upcomingStatusFilter]);
+
   if (loading || !data) {
     return <LoadingState message="Generating MSR Chits Reports..." />;
   }
@@ -104,6 +142,7 @@ export const Reports = () => {
 
   const reportTabs = [
     { key: 'monthly', label: 'Monthly Collection & Payout', count: `${monthlyBreakdown.length} Months` },
+    { key: 'upcoming', label: 'Upcoming Chit Summary', count: `${upcomingChitsList.length} Schemes` },
     { key: 'members', label: 'Member Ledger Statement', count: `${members.length} Members` },
     { key: 'payments', label: 'Payment Receipts Report', count: `${payments.length} Records` },
     { key: 'payouts', label: 'Payout Disbursements', count: `${payouts.length} Records` },
@@ -228,6 +267,56 @@ export const Reports = () => {
           ]}
           data={monthlyBreakdown}
         />
+      )}
+
+      {selectedReport === 'upcoming' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-[#DCE8E0]">
+            <span className="text-xs font-bold text-[#003524]">Filter Schemes by Lifecycle Status:</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {['all', 'upcoming', 'filling', 'full', 'active', 'completed'].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setUpcomingStatusFilter(st)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition-all ${
+                    upcomingStatusFilter === st
+                      ? 'bg-[#003524] text-white shadow-xs'
+                      : 'bg-slate-100 text-[#4B6358] hover:bg-slate-200'
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <DataTable
+            columns={[
+              { header: 'Chit Name', accessor: 'chitName', render: (r) => <span className="font-bold text-[#003524]">{r.chitName}</span> },
+              { header: 'Chit Value', accessor: 'chitValue', render: (r) => formatINR(r.chitValue) },
+              { header: 'Start Date', accessor: 'startDate', render: (r) => r.startDate ? formatDate(r.startDate) : 'Not Set' },
+              { header: 'Duration', accessor: 'duration', render: (r) => `${r.duration} Months` },
+              { header: 'Required Members', accessor: 'requiredMembers', render: (r) => <span className="font-bold">{r.requiredMembers}</span> },
+              { header: 'Joined Members', accessor: 'joinedMembers', render: (r) => <span className="font-bold text-emerald-800">{r.joinedMembers}</span> },
+              { header: 'Remaining Slots', accessor: 'remainingSlots', render: (r) => <span className="font-bold text-amber-800">{r.remainingSlots}</span> },
+              {
+                header: 'Fill %',
+                accessor: 'fillPercentage',
+                render: (r) => (
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold">{r.fillPercentage}%</span>
+                    <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#003524]" style={{ width: `${r.fillPercentage}%` }} />
+                    </div>
+                  </div>
+                )
+              },
+              { header: 'Status', accessor: 'status', render: (r) => <StatusBadge status={r.status} /> }
+            ]}
+            data={filteredUpcomingChits}
+          />
+        </div>
       )}
 
       {(selectedReport === 'members' || selectedReport === 'pending') && (

@@ -192,3 +192,86 @@ export function calculateExtraInvestment({
     isProfitable: profit >= 0
   };
 }
+
+/**
+ * Calculates dynamic lifecycle status for a chit scheme:
+ * UPCOMING -> FILLING -> FULL -> ACTIVE -> COMPLETED
+ */
+export function getChitLifecycleStatus(chit, memberships = []) {
+  if (!chit) return 'Upcoming';
+  const rawStatus = String(chit.status || '').trim();
+  const lowerStatus = rawStatus.toLowerCase();
+
+  if (lowerStatus === 'completed') return 'Completed';
+
+  const duration = Number(chit.duration || chit.durationMonths) || 20;
+  const requiredMembers = Number(chit.totalMembers || chit.memberCount || chit.requiredMembers) || duration;
+  const chitId = chit.chitId;
+
+  const validMemberships = (memberships || []).filter(
+    m => String(m.chitId) === String(chitId) && m.status !== 'Cancelled'
+  );
+  const joinedCount = validMemberships.length;
+
+  // If explicitly marked Active and chit has run past month 1 or has members and start date reached
+  const today = new Date().toISOString().split('T')[0];
+  const isDateStarted = Boolean(chit.startDate && chit.startDate <= today);
+
+  if (lowerStatus === 'active') {
+    if (Number(chit.currentMonth || 1) > 1 || isDateStarted || joinedCount >= requiredMembers) {
+      return 'Active';
+    }
+  }
+
+  // Pre-launch lifecycle:
+  if (joinedCount >= requiredMembers) {
+    return isDateStarted ? 'Active' : 'Full';
+  }
+
+  if (joinedCount > 0) {
+    return isDateStarted ? 'Active' : 'Filling';
+  }
+
+  return isDateStarted ? 'Active' : 'Upcoming';
+}
+
+/**
+ * Calculates capacity and slot metrics for a chit:
+ * requiredMembers, joinedMembers, remainingSlots, fillPercentage, isFull
+ */
+export function getChitCapacityStats(chit, memberships = []) {
+  if (!chit) {
+    return {
+      requiredMembers: 20,
+      joinedMembers: 0,
+      remainingSlots: 20,
+      fillPercentage: 0,
+      isFull: false,
+      status: 'Upcoming'
+    };
+  }
+
+  const duration = Number(chit.duration || chit.durationMonths) || 20;
+  const requiredMembers = Number(chit.totalMembers || chit.memberCount || chit.requiredMembers) || duration;
+  const chitId = chit.chitId;
+
+  const validMemberships = (memberships || []).filter(
+    m => String(m.chitId) === String(chitId) && m.status !== 'Cancelled'
+  );
+  const joinedMembers = validMemberships.length;
+  const remainingSlots = Math.max(0, requiredMembers - joinedMembers);
+  const fillPercentage = requiredMembers > 0
+    ? Math.min(100, Math.round((joinedMembers / requiredMembers) * 100))
+    : 0;
+  const isFull = joinedMembers >= requiredMembers;
+  const status = getChitLifecycleStatus(chit, memberships);
+
+  return {
+    requiredMembers,
+    joinedMembers,
+    remainingSlots,
+    fillPercentage,
+    isFull,
+    status
+  };
+}

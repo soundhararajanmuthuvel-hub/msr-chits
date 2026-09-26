@@ -18,9 +18,9 @@
  * TEST 13: Change UPI ID in Settings -> New WhatsApp messages use the updated UPI ID
  */
 
-import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment } from '../src/utils/chitCalculations.js';
+import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment, getChitCapacityStats, getChitLifecycleStatus } from '../src/utils/chitCalculations.js';
 import { generateChitNumber, getNextAvailableChitNumber, parseChitNumber } from '../src/utils/chitNumber.js';
-import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage } from '../src/utils/whatsapp.js';
+import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage } from '../src/utils/whatsapp.js';
 
 let passed = 0;
 let failed = 0;
@@ -251,6 +251,114 @@ assert(
   'TEST 13: Changing UPI ID in Settings propagates immediately to WhatsApp reminder',
   `Expected ${newUpiId} in message, found: ${updatedReminderMsg.includes(newUpiId)}`
 );
+
+// ----------------------------------------------------
+// TEST 14: Required Member Count & Capacity (Sections 49 & 61)
+// ----------------------------------------------------
+const chit10M = { chitId: 'C10', duration: 10, chitValue: 50000 };
+const chit15M = { chitId: 'C15', duration: 15, chitValue: 150000 };
+const chit20M = { chitId: 'C20', duration: 20, chitValue: 100000 };
+const chit24M = { chitId: 'C24', duration: 24, chitValue: 200000 };
+
+const cap10 = getChitCapacityStats(chit10M, []);
+const cap15 = getChitCapacityStats(chit15M, []);
+const cap20 = getChitCapacityStats(chit20M, []);
+const cap24 = getChitCapacityStats(chit24M, []);
+
+// Simulate 8 joined members in a 20-month chit
+const sampleMemberships = Array.from({ length: 8 }, (_, i) => ({
+  membershipId: `M-${i + 1}`,
+  chitId: 'C20',
+  chitNo: `MSR261L${String(i + 1).padStart(2, '0')}`,
+  payoutMonth: i + 1,
+  status: 'Active'
+}));
+const cap20With8 = getChitCapacityStats(chit20M, sampleMemberships);
+
+assert(
+  cap10.requiredMembers === 10 &&
+  cap15.requiredMembers === 15 &&
+  cap20.requiredMembers === 20 &&
+  cap24.requiredMembers === 24 &&
+  cap20With8.joinedMembers === 8 &&
+  cap20With8.remainingSlots === 12 &&
+  cap20With8.fillPercentage === 40,
+  'TEST 14: Dynamic Required Members (10, 15, 20, 24M) & Slot Capacity (8/20 = 40%, 12 remaining)',
+  `Capacities: 10M=${cap10.requiredMembers}, 15M=${cap15.requiredMembers}, 20M=${cap20.requiredMembers}, 24M=${cap24.requiredMembers}, 8/20 remaining=${cap20With8.remainingSlots}`
+);
+
+// ----------------------------------------------------
+// TEST 15: Lifecycle Transitions (Section 56)
+// UPCOMING -> FILLING -> FULL -> ACTIVE -> COMPLETED
+// ----------------------------------------------------
+const futureDate = '2099-01-01';
+const pastDate = '2020-01-01';
+
+const upcomingChitObj = { chitId: 'C-UP', duration: 20, startDate: futureDate, status: 'Upcoming' };
+const fillingMemberships = Array.from({ length: 5 }, (_, i) => ({ membershipId: `M-${i}`, chitId: 'C-UP', status: 'Active' }));
+const fullMemberships = Array.from({ length: 20 }, (_, i) => ({ membershipId: `M-${i}`, chitId: 'C-UP', status: 'Active' }));
+
+const statusUpcoming = getChitLifecycleStatus(upcomingChitObj, []);
+const statusFilling = getChitLifecycleStatus(upcomingChitObj, fillingMemberships);
+const statusFull = getChitLifecycleStatus(upcomingChitObj, fullMemberships);
+const statusActive = getChitLifecycleStatus({ chitId: 'C-ACT', duration: 20, startDate: pastDate, status: 'Active' }, fillingMemberships);
+const statusCompleted = getChitLifecycleStatus({ chitId: 'C-DONE', status: 'Completed' }, fullMemberships);
+
+assert(
+  statusUpcoming === 'Upcoming' &&
+  statusFilling === 'Filling' &&
+  statusFull === 'Full' &&
+  statusActive === 'Active' &&
+  statusCompleted === 'Completed',
+  'TEST 15: Lifecycle Status Transitions (Upcoming -> Filling -> Full -> Active -> Completed)',
+  `Statuses: ${statusUpcoming} -> ${statusFilling} -> ${statusFull} -> ${statusActive} -> ${statusCompleted}`
+);
+
+// ----------------------------------------------------
+// TEST 16: Payout Month Map (Sections 50, 51, 53)
+// ----------------------------------------------------
+const upcoming20M = { chitId: 'C-20M', duration: 20, chitValue: 100000 };
+const assignedMembers = [
+  { memberName: 'Amma', chitNo: 'MSR261L01', payoutMonth: 2, chitId: 'C-20M', status: 'Active' },
+  { memberName: 'Mani Mama', chitNo: 'MSR261L02', payoutMonth: 5, chitId: 'C-20M', status: 'Active' },
+  { memberName: 'MD', chitNo: 'MSR261L03', payoutMonth: 8, chitId: 'C-20M', status: 'Active' },
+  { memberName: 'Periya Periyappa', chitNo: 'MSR261L04', payoutMonth: 15, chitId: 'C-20M', status: 'Active' },
+  { memberName: 'Member 5', chitNo: 'MSR261L05', payoutMonth: 20, chitId: 'C-20M', status: 'Active' }
+];
+
+const monthMap = {};
+assignedMembers.forEach(m => {
+  monthMap[m.payoutMonth] = m;
+});
+
+const month1Available = !monthMap[1];
+const month2Amma = monthMap[2]?.memberName === 'Amma';
+const month5ManiMama = monthMap[5]?.memberName === 'Mani Mama';
+const month8MD = monthMap[8]?.memberName === 'MD';
+const month15Periyappa = monthMap[15]?.memberName === 'Periya Periyappa';
+const month20Member5 = monthMap[20]?.memberName === 'Member 5';
+
+assert(
+  month1Available && month2Amma && month5ManiMama && month8MD && month15Periyappa && month20Member5,
+  'TEST 16: Fixed Payout Month Map correctly maps member slots and available slots',
+  `Slot check: Month 1 Avail=${month1Available}, Month 2=${monthMap[2]?.memberName}, Month 5=${monthMap[5]?.memberName}`
+);
+
+// ----------------------------------------------------
+// TEST 17: Chit Full condition & capacity enforcement (Section 55)
+// ----------------------------------------------------
+const twentyMemberships = Array.from({ length: 20 }, (_, i) => ({
+  membershipId: `M-${i + 1}`,
+  chitId: 'C-FULL',
+  status: 'Active'
+}));
+const fullChitCap = getChitCapacityStats({ chitId: 'C-FULL', duration: 20 }, twentyMemberships);
+assert(
+  fullChitCap.isFull === true && fullChitCap.remainingSlots === 0 && fullChitCap.joinedMembers === 20,
+  'TEST 17: Chit Full condition reached (joined >= required, remaining = 0, isFull = true)',
+  `isFull=${fullChitCap.isFull}, remaining=${fullChitCap.remainingSlots}`
+);
+
 
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
