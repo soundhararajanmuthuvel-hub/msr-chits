@@ -552,13 +552,27 @@ function getChitDetails(chitId) {
     .map(s => {
       const monthNum = Number(s.monthNumber || s.month);
       const monthlyAmount = Number(s.amount || s.monthlyAmount) || 0;
-      const payoutAmount = Number(s.payoutAmount || s.amount) || 0;
+      
+      // IMPORTANT: Payout is the actual amount given to the member taking the chit in that month.
+      // It is completely independent from Monthly Chit collection!
+      let payoutAmount = Number(s.payoutAmount);
+      if (isNaN(payoutAmount) || payoutAmount <= 0) {
+        if (monthNum === 1) {
+          payoutAmount = Number(chit.chitValue || chit.totalAmount) || 100000;
+        } else {
+          const div = Number(chit.dividend) || 0;
+          const dur = Number(chit.duration || chit.durationMonths) || 20;
+          const totVal = Number(chit.chitValue || chit.totalAmount) || 100000;
+          payoutAmount = div > 0 ? Math.max(0, totVal - (div * dur)) : totVal;
+        }
+      }
 
       return {
         month: monthNum,
         monthNumber: monthNum,
         monthlyAmount: monthlyAmount,
         amount: monthlyAmount,
+        dividend: s.dividend !== undefined ? Number(s.dividend) : 0,
         payoutAmount: payoutAmount,
         chitNumber: s.notes ? s.notes.replace('Chit ', '') : (monthNum === 1 ? 'NIL' : String(monthNum)),
         assignedMemberId: s.memberId || s.assignedMemberId || '',
@@ -1246,6 +1260,80 @@ function assignChitMonth(payload) {
   return { success: true, chitNo: assignedChitNo };
 }
 
+function updateSchedulePayout(payload) {
+  const chitId = payload.chitId || 'CHIT-100K-01';
+  const month = Number(payload.month || payload.monthNumber);
+  const payoutAmount = Number(payload.payoutAmount);
+
+  if (!month || isNaN(payoutAmount) || payoutAmount <= 0) {
+    return { success: false, message: 'Valid month and positive payout amount are required' };
+  }
+
+  const sheet = getSheet(SHEET_NAMES.MONTHLY_SCHEDULE);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: false, message: 'Schedule is empty' };
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const chitIdCol = headers.indexOf('chitId');
+  const monthCol = headers.indexOf('monthNumber');
+  let payoutCol = headers.indexOf('payoutAmount');
+
+  // If payoutAmount column doesn't exist, append it
+  if (payoutCol === -1) {
+    payoutCol = headers.length;
+    sheet.getRange(1, payoutCol + 1).setValue('payoutAmount');
+  }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  let updated = false;
+  let memberName = '';
+  let chitNo = payload.chitNo || '';
+
+  for (let r = 0; r < data.length; r++) {
+    const rowChitId = String(data[r][chitIdCol]);
+    const rowMonth = Number(data[r][monthCol]);
+
+    if (rowChitId === chitId && rowMonth === month) {
+      sheet.getRange(r + 2, payoutCol + 1).setValue(payoutAmount);
+      memberName = data[r][headers.indexOf('memberName')] || '';
+      updated = true;
+      break;
+    }
+  }
+
+  if (!updated) {
+    return { success: false, message: 'Month ' + month + ' not found in schedule for ' + chitId };
+  }
+
+  // Also if a matching Payout record exists in Payouts tab, update its amount
+  const payoutsSheet = getSheet(SHEET_NAMES.PAYOUTS);
+  if (payoutsSheet && payoutsSheet.getLastRow() >= 2) {
+    const pHeaders = payoutsSheet.getRange(1, 1, 1, payoutsSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const pChitIdCol = pHeaders.indexOf('chitId');
+    const pMonthCol = pHeaders.indexOf('monthNumber');
+    const pAmtCol = pHeaders.indexOf('amount');
+    const pUpdatedAtCol = pHeaders.indexOf('updatedAt');
+
+    const pData = payoutsSheet.getRange(2, 1, payoutsSheet.getLastRow() - 1, payoutsSheet.getLastColumn()).getValues();
+    for (let pr = 0; pr < pData.length; pr++) {
+      if (String(pData[pr][pChitIdCol]) === chitId && Number(pData[pr][pMonthCol]) === month) {
+        if (pAmtCol !== -1) payoutsSheet.getRange(pr + 2, pAmtCol + 1).setValue(payoutAmount);
+        if (pUpdatedAtCol !== -1) payoutsSheet.getRange(pr + 2, pUpdatedAtCol + 1).setValue(new Date().toISOString());
+      }
+    }
+  }
+
+  logActivity('Payout Updated', 'Month ' + month + ' payout updated to ₹' + payoutAmount.toLocaleString('en-IN') + ' for ' + (memberName || chitId) + (chitNo ? ' (' + chitNo + ')' : ''), 'Admin');
+
+  return {
+    success: true,
+    chitId: chitId,
+    month: month,
+    payoutAmount: payoutAmount,
+    message: 'Payout amount updated successfully'
+  };
+}
+
 // ============================================================================
 // PAYMENTS
 // ============================================================================
@@ -1404,7 +1492,7 @@ function getFinancialReports() {
       expected: expected,
       collected: collected,
       pending: Math.max(0, expected - collected),
-      payoutAmount: Number(sch.payoutAmount || sch.amount) || 0,
+      payoutAmount: Number(sch.payoutAmount) > 0 ? Number(sch.payoutAmount) : 0,
       payoutBeneficiary: sch.memberName || sch.assignedMemberName || 'Not Assigned',
       payoutStatus: payout ? (payout.status || 'Completed') : (sch.payoutStatus || 'Scheduled')
     };
@@ -1695,6 +1783,11 @@ function handleRequest(e, method) {
 
       case 'assignChit':
         result = assignChitMonth(payload);
+        break;
+
+      case 'updateSchedulePayout':
+      case 'updatePayout':
+        result = updateSchedulePayout(payload);
         break;
 
       case 'getMemberships':

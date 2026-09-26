@@ -55,8 +55,12 @@ export const PayoutForm = ({
           const targetMonth = Number(prefilledMonth || activeChit?.currentMonth || 1);
           const schItem = sch.find(s => s.month === targetMonth) || sch[0];
           const chitValue = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
-          const chitNo = generateChitNumber({ year: 2026, chitValue, sequenceNumber: targetMonth });
-          const payoutAmt = schItem ? Number(schItem.payoutAmount || schItem.amount) : chitValue;
+          const chitNo = schItem?.chitNo || generateChitNumber({ year: 2026, chitValue, sequenceNumber: targetMonth });
+          const dur = Number(activeChit?.durationMonths || activeChit?.duration || 20);
+          const div = Number(schItem?.dividend || activeChit?.dividend || 0);
+          const payoutAmt = (schItem && Number(schItem.payoutAmount) > 0)
+            ? Number(schItem.payoutAmount)
+            : (targetMonth === 1 ? chitValue : (div > 0 ? Math.max(0, chitValue - (div * dur)) : chitValue));
 
           setFormData({
             chitId: activeChit?.chitId || 'CHIT-100K-01',
@@ -83,8 +87,12 @@ export const PayoutForm = ({
     const monthNum = Number(monthVal);
     const schItem = schedule.find(s => s.month === monthNum);
     const chitValue = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
-    const chitNo = generateChitNumber({ year: 2026, chitValue, sequenceNumber: monthNum });
-    const payoutAmt = schItem ? Number(schItem.payoutAmount || schItem.amount) : chitValue;
+    const chitNo = schItem?.chitNo || generateChitNumber({ year: 2026, chitValue, sequenceNumber: monthNum });
+    const dur = Number(activeChit?.durationMonths || activeChit?.duration || 20);
+    const div = Number(schItem?.dividend || activeChit?.dividend || 0);
+    const payoutAmt = (schItem && Number(schItem.payoutAmount) > 0)
+      ? Number(schItem.payoutAmount)
+      : (monthNum === 1 ? chitValue : (div > 0 ? Math.max(0, chitValue - (div * dur)) : chitValue));
 
     setFormData(prev => ({
       ...prev,

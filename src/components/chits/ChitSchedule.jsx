@@ -2,10 +2,10 @@ import React from 'react';
 import { formatINR } from '../../utils/currency';
 import { generateChitNumber } from '../../utils/chitNumber';
 import StatusBadge from '../common/StatusBadge';
-import { UserCheck, Edit3, Send } from 'lucide-react';
+import { UserCheck, Edit3, Send, IndianRupee } from 'lucide-react';
 import { useChit } from '../../context/ChitContext';
 
-export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayout }) => {
+export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayout, onEditPayout }) => {
   const { setIsRecordPayoutOpen } = useChit();
 
   const totalMonthlyAmount = schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount) || 0), 0);
@@ -18,7 +18,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
             Master {schedule.length || 20}-Month Chit Schedule
           </h3>
           <p className="text-xs text-[#5B7065]">
-            Complete installment amounts, auction dividends, and member assignments
+            Complete installment amounts, auction dividends, member assignments, and disbursed payouts
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -77,7 +77,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                     </div>
                   </td>
 
-                  {/* Monthly Chit Amount */}
+                  {/* Monthly Chit Amount (Collected from each member) */}
                   <td className="py-3.5 px-4 font-bold text-[#003524]">
                     {formatINR(item.monthlyAmount)}
                   </td>
@@ -87,9 +87,24 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                     {item.dividend ? formatINR(item.dividend) : '—'}
                   </td>
 
-                  {/* Payout */}
+                  {/* Payout (Actual net amount given to the chit taker) */}
                   <td className="py-3.5 px-4 font-semibold text-[#131E19]">
-                    {formatINR(item.payoutAmount)}
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-extrabold text-[#003524]">
+                        {item.payoutAmount ? formatINR(item.payoutAmount) : '—'}
+                      </span>
+                      {onEditPayout && (
+                        <button
+                          type="button"
+                          onClick={() => onEditPayout(item)}
+                          title={`Edit Month ${item.month} Payout Amount`}
+                          className="px-1.5 py-0.5 text-[10px] font-bold text-[#174D38] bg-[#F0FCF4] hover:bg-[#DCE8E0] rounded border border-[#DCE8E0] transition-colors inline-flex items-center gap-0.5"
+                        >
+                          <Edit3 className="w-2.5 h-2.5" />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
 
                   {/* Permanent Chit No */}
@@ -146,6 +161,18 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                         <Edit3 className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Assign</span>
                       </button>
+
+                      {onEditPayout && (
+                        <button
+                          type="button"
+                          onClick={() => onEditPayout(item)}
+                          title={`Edit Month ${item.month} Payout Amount`}
+                          className="p-1.5 text-[#003524] hover:bg-[#F0FCF4] rounded-lg border border-[#DCE8E0] transition-colors flex items-center gap-1 text-xs font-semibold"
+                        >
+                          <IndianRupee className="w-3.5 h-3.5 text-[#174D38]" />
+                          <span className="hidden sm:inline">Edit Payout</span>
+                        </button>
+                      )}
 
                       {isCurrent && (
                         <button

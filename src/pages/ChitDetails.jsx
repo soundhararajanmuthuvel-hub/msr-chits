@@ -21,6 +21,7 @@ import StatCard from '../components/common/StatCard';
 import ChitTimeline from '../components/chits/ChitTimeline';
 import ChitSchedule from '../components/chits/ChitSchedule';
 import AssignChitModal from '../components/chits/AssignChitModal';
+import EditPayoutModal from '../components/chits/EditPayoutModal';
 import PayoutForm from '../components/payouts/PayoutForm';
 import ChitForm from '../components/chits/ChitForm';
 import AddMemberToChitModal from '../components/chits/AddMemberToChitModal';
@@ -44,6 +45,8 @@ export const ChitDetails = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [selectedScheduleItem, setSelectedScheduleItem] = useState(null);
+  const [isEditPayoutOpen, setIsEditPayoutOpen] = useState(false);
+  const [payoutToEdit, setPayoutToEdit] = useState(null);
   const [isPayoutOpen, setIsPayoutOpen] = useState(false);
   const [selectedPayoutMonth, setSelectedPayoutMonth] = useState(2);
   const [isAddMemberToChitOpen, setIsAddMemberToChitOpen] = useState(false);
@@ -115,6 +118,11 @@ export const ChitDetails = () => {
   const handleOpenAssign = (schItem) => {
     setSelectedScheduleItem(schItem);
     setIsAssignOpen(true);
+  };
+
+  const handleOpenEditPayout = (schItem) => {
+    setPayoutToEdit(schItem);
+    setIsEditPayoutOpen(true);
   };
 
   const handleOpenPayout = (schItem) => {
@@ -576,7 +584,41 @@ export const ChitDetails = () => {
         schedule={schedule}
         currentMonth={chit.currentMonth || 1}
         onAssign={handleOpenAssign}
+        onEditPayout={handleOpenEditPayout}
         onPayout={handleOpenPayout}
+      />
+
+      {/* Edit Payout Modal */}
+      <EditPayoutModal
+        isOpen={isEditPayoutOpen}
+        onClose={() => {
+          setIsEditPayoutOpen(false);
+          setPayoutToEdit(null);
+        }}
+        scheduleItem={payoutToEdit}
+        chit={chit}
+        onSuccess={loadChitDetails}
+      />
+
+      {/* Assign Chit Modal */}
+      <AssignChitModal
+        isOpen={isAssignOpen}
+        onClose={() => {
+          setIsAssignOpen(false);
+          setSelectedScheduleItem(null);
+        }}
+        initialMonth={selectedScheduleItem?.month}
+        initialMemberName={selectedScheduleItem?.assignedMemberName}
+        prefilledMemberId={selectedScheduleItem?.assignedMemberId}
+        onSuccess={loadChitDetails}
+      />
+
+      {/* Record Payout Form Modal */}
+      <PayoutForm
+        isOpen={isPayoutOpen}
+        onClose={() => setIsPayoutOpen(false)}
+        prefilledMonth={selectedPayoutMonth}
+        onSuccess={loadChitDetails}
       />
 
       {/* Add Member to Upcoming Chit Modal */}

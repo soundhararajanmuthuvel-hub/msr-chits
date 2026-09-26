@@ -726,6 +726,31 @@ export const api = {
     return { success: true };
   },
 
+  async updateSchedulePayout(payload) {
+    if (API_URL) {
+      const res = await postApi('updateSchedulePayout', payload);
+      const cachedSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+      const updatedSchedule = cachedSchedule.map(s => {
+        if (String(s.chitId) === String(payload.chitId) && Number(s.month || s.monthNumber) === Number(payload.month)) {
+          return { ...s, payoutAmount: Number(payload.payoutAmount) };
+        }
+        return s;
+      });
+      setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
+      return res;
+    }
+
+    const cachedSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const updatedSchedule = cachedSchedule.map(s => {
+      if (String(s.chitId) === String(payload.chitId) && Number(s.month || s.monthNumber) === Number(payload.month)) {
+        return { ...s, payoutAmount: Number(payload.payoutAmount) };
+      }
+      return s;
+    });
+    setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
+    return { success: true, ...payload };
+  },
+
   // Payments
   async getPayments() {
     if (API_URL) {

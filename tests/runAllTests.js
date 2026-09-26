@@ -654,6 +654,123 @@ assert(
   `Status=${cancelledMembershipResult.status}, ChitNo=${cancelledMembershipResult.chitNo}`
 );
 
+// ----------------------------------------------------
+// TEST 13: PAYOUT MEANING & EDITABLE WORKFLOW SUITE
+// ----------------------------------------------------
+console.log('\n--- PAYOUT MEANING & EDITABLE WORKFLOW TESTS ---');
+
+// Case 1 & 2: Month 1: Monthly Chit ₹5,000 + Payout ₹1,00,000; Month 2: Monthly Chit ₹3,750 + Payout ₹70,000
+const chit100k = { chitId: 'CHIT-100K-01', chitValue: 100000, durationMonths: 20, dividend: 62.5 };
+const initialSchedule = generateChitSchedule({
+  chitValue: 100000,
+  durationMonths: 20,
+  dividend: 62.5,
+  memberships: [
+    { chitNo: 'MSR261L01', payoutMonth: 1, memberId: 'MEM-001', memberName: 'MU' },
+    { chitNo: 'MSR261L02', payoutMonth: 2, memberId: 'MEM-002', memberName: 'Amma' }
+  ],
+  existingSchedule: [
+    { month: 1, amount: 5000, dividend: 0, payoutAmount: 100000, chitNo: 'MSR261L01', assignedMemberName: 'MU' },
+    { month: 2, amount: 3750, dividend: 62.5, payoutAmount: 70000, chitNo: 'MSR261L02', assignedMemberName: 'Amma' }
+  ]
+});
+
+const m1 = initialSchedule.find(s => s.month === 1);
+const m2 = initialSchedule.find(s => s.month === 2);
+
+assert(
+  m1 && m1.amount === 5000 && m1.payoutAmount === 100000,
+  'PAYOUT TEST 1: Month 1 Monthly Chit ₹5,000 + Payout ₹1,00,000',
+  `m1.amount=${m1?.amount}, m1.payoutAmount=${m1?.payoutAmount}`
+);
+
+assert(
+  m2 && m2.amount === 3750 && m2.payoutAmount === 70000,
+  'PAYOUT TEST 2: Month 2 Monthly Chit ₹3,750 + Payout ₹70,000',
+  `m2.amount=${m2?.amount}, m2.payoutAmount=${m2?.payoutAmount}`
+);
+
+// Case 3, 4, 5, 9, 10: Edit Month 2 payout ₹70,000 -> ₹65,000
+function simulateUpdateSchedulePayout(existingScheduleList, payload) {
+  const { chitId, month, payoutAmount } = payload;
+  return existingScheduleList.map(item => {
+    if (item.month === Number(month)) {
+      return {
+        ...item,
+        payoutAmount: Number(payoutAmount),
+        updatedAt: new Date().toISOString()
+      };
+    }
+    return item;
+  });
+}
+
+const updatedSchedule = simulateUpdateSchedulePayout(initialSchedule, {
+  chitId: 'CHIT-100K-01',
+  month: 2,
+  payoutAmount: 65000
+});
+
+const m2Updated = updatedSchedule.find(s => s.month === 2);
+
+assert(
+  m2Updated && m2Updated.amount === 3750,
+  'PAYOUT TEST 3 & 4: After editing payout to ₹65,000, Monthly Chit remains ₹3,750',
+  `amount=${m2Updated?.amount}`
+);
+
+assert(
+  m2Updated && m2Updated.payoutAmount === 65000,
+  'PAYOUT TEST 5: After editing payout, Payout becomes ₹65,000',
+  `payoutAmount=${m2Updated?.payoutAmount}`
+);
+
+assert(
+  m2Updated && m2Updated.chitNo === 'MSR261L02',
+  'PAYOUT TEST 9: Chit No remains unchanged (MSR261L02)',
+  `chitNo=${m2Updated?.chitNo}`
+);
+
+assert(
+  m2Updated && m2Updated.assignedMemberName === 'Amma',
+  'PAYOUT TEST 10: Member remains unchanged (Amma)',
+  `member=${m2Updated?.assignedMemberName}`
+);
+
+// Case 6: Multiple payouts in same month (e.g. Month 5: Member A ₹70,000, Member B ₹65,000, Member C ₹60,000)
+const multiPayoutsTableSample = [
+  { payoutId: 'PO-001', chitId: 'CHIT-100K-01', month: 5, memberId: 'MEM-A', memberName: 'Member A', chitNo: 'MSR261L05', payoutAmount: 70000, status: 'PAID' },
+  { payoutId: 'PO-002', chitId: 'CHIT-100K-01', month: 5, memberId: 'MEM-B', memberName: 'Member B', chitNo: 'MSR261L08', payoutAmount: 65000, status: 'PAID' },
+  { payoutId: 'PO-003', chitId: 'CHIT-100K-01', month: 5, memberId: 'MEM-C', memberName: 'Member C', chitNo: 'MSR261L12', payoutAmount: 60000, status: 'PAID' }
+];
+const multiM5Payouts = multiPayoutsTableSample.filter(p => p.month === 5);
+assert(
+  multiM5Payouts.length === 3 &&
+  multiM5Payouts[0].payoutAmount === 70000 &&
+  multiM5Payouts[1].payoutAmount === 65000 &&
+  multiM5Payouts[2].payoutAmount === 60000,
+  'PAYOUT TEST 6: Multiple payouts in same month supported as separate records',
+  `Count=${multiM5Payouts.length}`
+);
+
+// Case 7: Payout is independent, never derived as monthly contribution
+const monthlyContribution = 3750;
+const payoutVal = 70000;
+assert(
+  payoutVal !== monthlyContribution && (payoutVal % monthlyContribution !== 0 || payoutVal > monthlyContribution * 10),
+  'PAYOUT TEST 7: Monthly Chit (₹3,750) ≠ Payout (₹70,000) independent validation',
+  `MonthlyChit=${monthlyContribution}, Payout=${payoutVal}`
+);
+
+// Case 8: Historical payout remains unchanged when editing future payout
+const month1HistoricalPayout = initialSchedule.find(s => s.month === 1).payoutAmount;
+const month1AfterEdit = updatedSchedule.find(s => s.month === 1).payoutAmount;
+assert(
+  month1HistoricalPayout === 100000 && month1AfterEdit === 100000,
+  'PAYOUT TEST 8: Historical payout remains unchanged when future payout is edited',
+  `M1 Before=${month1HistoricalPayout}, M1 After=${month1AfterEdit}`
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');

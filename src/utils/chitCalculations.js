@@ -149,17 +149,35 @@ export function generateChitSchedule({
       payoutAmount = Math.max(0, totalChitValue - (monthDiv * dur));
     }
 
+    let finalMonthlyAmount = monthlyAmount;
+    if (existing.amount !== undefined && existing.amount !== null && Number(existing.amount) > 0) {
+      finalMonthlyAmount = Number(existing.amount);
+    } else if (existing.monthlyAmount !== undefined && existing.monthlyAmount !== null && Number(existing.monthlyAmount) > 0) {
+      finalMonthlyAmount = Number(existing.monthlyAmount);
+    }
+
+    let finalDividend = monthDiv;
+    if (existing.dividend !== undefined && existing.dividend !== null) {
+      finalDividend = Number(existing.dividend);
+    }
+
+    let finalPayoutAmount = payoutAmount;
+    if (existing.payoutAmount !== undefined && existing.payoutAmount !== null && Number(existing.payoutAmount) > 0) {
+      finalPayoutAmount = Number(existing.payoutAmount);
+    }
+
     schedule.push({
       scheduleId: existing.scheduleId || `SCH-${String(m).padStart(2, '0')}`,
       chitId: chitId,
       month: m,
       monthNumber: m,
       dueDate: existing.dueDate || dueDate,
-      chitNumber: m === 1 ? 'NIL' : String(m),
-      monthlyAmount: monthlyAmount,
-      amount: monthlyAmount,
-      dividend: monthDiv,
-      payoutAmount: payoutAmount,
+      chitNo: existing.chitNo || existing.chitNumber || (m === 1 ? 'NIL' : String(m)),
+      chitNumber: existing.chitNumber || existing.chitNo || (m === 1 ? 'NIL' : String(m)),
+      monthlyAmount: finalMonthlyAmount,
+      amount: finalMonthlyAmount,
+      dividend: finalDividend,
+      payoutAmount: finalPayoutAmount,
       assignedMemberId: existing.assignedMemberId || existing.memberId || '',
       assignedMemberName: existing.assignedMemberName || existing.memberName || (m === 1 ? 'Organizer / NIL' : 'Not Assigned'),
       paymentStatus: existing.paymentStatus || (m === 1 ? 'Paid' : 'Upcoming'),
