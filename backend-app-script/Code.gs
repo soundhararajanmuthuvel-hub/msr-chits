@@ -139,17 +139,31 @@ function getSheetData(sheetName) {
 
 /**
  * Appends a JavaScript object to a sheet matching the column header keys.
+ * Auto-expands any missing column headers safely on row 1 to prevent data loss.
  */
 function appendRow(sheetName, obj) {
   const sheet = getSheet(sheetName);
-  const lastCol = sheet.getLastColumn();
+  let lastCol = sheet.getLastColumn();
   if (lastCol < 1) throw new Error('Sheet has no header row.');
 
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  const rowValues = [];
+  let headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
 
+  // Auto-expand headers if obj contains keys that are not yet in row 1 headers
+  const newKeys = Object.keys(obj).filter(k => k && !headers.includes(k));
+  if (newKeys.length > 0) {
+    const startCol = lastCol + 1;
+    const newHeaderRange = sheet.getRange(1, startCol, 1, newKeys.length);
+    newHeaderRange.setValues([newKeys]);
+    newHeaderRange.setBackground('#003524');
+    newHeaderRange.setFontColor('#FFFFFF');
+    newHeaderRange.setFontWeight('bold');
+    lastCol += newKeys.length;
+    headers = headers.concat(newKeys);
+  }
+
+  const rowValues = [];
   for (let c = 0; c < headers.length; c++) {
-    const key = String(headers[c]).trim();
+    const key = headers[c];
     rowValues.push(obj[key] !== undefined ? obj[key] : '');
   }
 
@@ -158,16 +172,30 @@ function appendRow(sheetName, obj) {
 
 /**
  * Updates a row in a sheet matching an ID column.
+ * Auto-expands any missing column headers safely on row 1 to prevent data loss.
  */
 function updateRow(sheetName, idColumnName, idValue, updateObj) {
   const sheet = getSheet(sheetName);
   const lastRow = sheet.getLastRow();
-  const lastCol = sheet.getLastColumn();
+  let lastCol = sheet.getLastColumn();
   if (lastRow < 2) return false;
 
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  let headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
   const idColIndex = headers.indexOf(idColumnName);
   if (idColIndex === -1) return false;
+
+  // Auto-expand headers if updateObj contains keys not yet in row 1 headers
+  const newKeys = Object.keys(updateObj).filter(k => k && !headers.includes(k));
+  if (newKeys.length > 0) {
+    const startCol = lastCol + 1;
+    const newHeaderRange = sheet.getRange(1, startCol, 1, newKeys.length);
+    newHeaderRange.setValues([newKeys]);
+    newHeaderRange.setBackground('#003524');
+    newHeaderRange.setFontColor('#FFFFFF');
+    newHeaderRange.setFontWeight('bold');
+    lastCol += newKeys.length;
+    headers = headers.concat(newKeys);
+  }
 
   const dataRange = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
 
@@ -250,25 +278,26 @@ function ensureSheetWithHeaders(ss, sheetName, headers) {
 function setupDatabase() {
   const ss = getSpreadsheet();
 
-  // 1. Users (userId, username, password, name, role, status, createdAt, updatedAt)
+  // 1. Users (userId, username, password, name, role, status, createdAt, updatedAt, phone)
   const userSheet = ensureSheetWithHeaders(ss, SHEET_NAMES.USERS, [
-    'userId', 'username', 'password', 'name', 'role', 'status', 'createdAt', 'updatedAt'
+    'userId', 'username', 'password', 'name', 'role', 'status', 'createdAt', 'updatedAt', 'phone'
   ]);
   if (userSheet.getLastRow() <= 1) {
     userSheet.appendRow([
       'USR-001', 'admin', 'admin123', 'MSR Administrator', 'Admin', 'Active',
-      new Date().toISOString(), new Date().toISOString()
+      new Date().toISOString(), new Date().toISOString(), '9840123456'
     ]);
   }
 
-  // 2. Chits (chitId, chitName, totalAmount, durationMonths, monthlyAmount, startDate, currentMonth, status, createdAt, updatedAt)
+  // 2. Chits (chitId, chitName, totalAmount, durationMonths, monthlyAmount, startDate, currentMonth, status, createdAt, updatedAt, baseChitValue, multiple, dividend, fixedPayoutMonth, expectedTotal, paymentDay, memberCount, totalMembers, notes)
   const chitSheet = ensureSheetWithHeaders(ss, SHEET_NAMES.CHITS, [
-    'chitId', 'chitName', 'totalAmount', 'durationMonths', 'monthlyAmount', 'startDate', 'currentMonth', 'status', 'createdAt', 'updatedAt'
+    'chitId', 'chitName', 'totalAmount', 'durationMonths', 'monthlyAmount', 'startDate', 'currentMonth', 'status', 'createdAt', 'updatedAt',
+    'baseChitValue', 'multiple', 'dividend', 'fixedPayoutMonth', 'expectedTotal', 'paymentDay', 'memberCount', 'totalMembers', 'notes'
   ]);
   if (chitSheet.getLastRow() <= 1) {
     chitSheet.appendRow([
       'CHIT-100K-01', 'MSR Chit — ₹1,00,000', 100000, 20, 3750, '2026-01-01', 2, 'Active',
-      new Date().toISOString(), new Date().toISOString()
+      new Date().toISOString(), new Date().toISOString(), 100000, 1, 0, '', 93650, 20, 20, 20, 'Flagship Chit Plan'
     ]);
   }
 
@@ -277,44 +306,44 @@ function setupDatabase() {
     'memberId', 'name', 'phone', 'email', 'address', 'joinDate', 'status', 'totalPaid', 'pendingAmount', 'assignedChits', 'notes', 'createdAt', 'updatedAt'
   ]);
 
-  // 4. MonthlySchedule (scheduleId, chitId, monthNumber, dueDate, memberId, memberName, amount, paymentStatus, payoutStatus, payoutDate, notes)
+  // 4. MonthlySchedule (scheduleId, chitId, monthNumber, dueDate, memberId, memberName, amount, paymentStatus, payoutStatus, payoutDate, notes, payoutAmount)
   const scheduleSheet = ensureSheetWithHeaders(ss, SHEET_NAMES.MONTHLY_SCHEDULE, [
-    'scheduleId', 'chitId', 'monthNumber', 'dueDate', 'memberId', 'memberName', 'amount', 'paymentStatus', 'payoutStatus', 'payoutDate', 'notes'
+    'scheduleId', 'chitId', 'monthNumber', 'dueDate', 'memberId', 'memberName', 'amount', 'paymentStatus', 'payoutStatus', 'payoutDate', 'notes', 'payoutAmount'
   ]);
   if (scheduleSheet.getLastRow() <= 1) {
     const masterSchedule = [
-      ['SCH-01', 'CHIT-100K-01', 1, '2026-01-20', 'MEM-003', 'MU', 5000, 'Paid', 'Completed', '2026-01-22', 'Chit NIL'],
-      ['SCH-02', 'CHIT-100K-01', 2, '2026-02-20', 'MEM-001,MEM-003', 'Amma + MU', 3750, 'In Progress', 'Completed', '2026-02-22', 'Chit 2 (Shared)'],
-      ['SCH-03', 'CHIT-100K-01', 3, '2026-03-20', '', 'Not Assigned', 3825, 'Upcoming', 'Upcoming', '', 'Chit 3'],
-      ['SCH-04', 'CHIT-100K-01', 4, '2026-04-20', '', 'Not Assigned', 3900, 'Upcoming', 'Upcoming', '', 'Chit 4'],
-      ['SCH-05', 'CHIT-100K-01', 5, '2026-05-20', '', 'Not Assigned', 3975, 'Upcoming', 'Upcoming', '', 'Chit 5'],
-      ['SCH-06', 'CHIT-100K-01', 6, '2026-06-20', '', 'Not Assigned', 4050, 'Upcoming', 'Upcoming', '', 'Chit 6'],
-      ['SCH-07', 'CHIT-100K-01', 7, '2026-07-20', '', 'Not Assigned', 4125, 'Upcoming', 'Upcoming', '', 'Chit 7'],
-      ['SCH-08', 'CHIT-100K-01', 8, '2026-08-20', 'MEM-003', 'MU', 4200, 'Upcoming', 'Upcoming', '', 'Chit 8'],
-      ['SCH-09', 'CHIT-100K-01', 9, '2026-09-20', '', 'Not Assigned', 4275, 'Upcoming', 'Upcoming', '', 'Chit 9'],
-      ['SCH-10', 'CHIT-100K-01', 10, '2026-10-20', '', 'Not Assigned', 4350, 'Upcoming', 'Upcoming', '', 'Chit 10'],
-      ['SCH-11', 'CHIT-100K-01', 11, '2026-11-20', '', 'Not Assigned', 4425, 'Upcoming', 'Upcoming', '', 'Chit 11'],
-      ['SCH-12', 'CHIT-100K-01', 12, '2026-12-20', '', 'Not Assigned', 4500, 'Upcoming', 'Upcoming', '', 'Chit 12'],
-      ['SCH-13', 'CHIT-100K-01', 13, '2027-01-20', '', 'Not Assigned', 4575, 'Upcoming', 'Upcoming', '', 'Chit 13'],
-      ['SCH-14', 'CHIT-100K-01', 14, '2027-02-20', '', 'Not Assigned', 4650, 'Upcoming', 'Upcoming', '', 'Chit 14'],
-      ['SCH-15', 'CHIT-100K-01', 15, '2027-03-20', 'MEM-003', 'MU', 4725, 'Upcoming', 'Upcoming', '', 'Chit 15'],
-      ['SCH-16', 'CHIT-100K-01', 16, '2027-04-20', '', 'Not Assigned', 4800, 'Upcoming', 'Upcoming', '', 'Chit 16'],
-      ['SCH-17', 'CHIT-100K-01', 17, '2027-05-20', '', 'Not Assigned', 4850, 'Upcoming', 'Upcoming', '', 'Chit 17'],
-      ['SCH-18', 'CHIT-100K-01', 18, '2027-06-20', '', 'Not Assigned', 4900, 'Upcoming', 'Upcoming', '', 'Chit 18'],
-      ['SCH-19', 'CHIT-100K-01', 19, '2027-07-20', '', 'Not Assigned', 4950, 'Upcoming', 'Upcoming', '', 'Chit 19'],
-      ['SCH-20', 'CHIT-100K-01', 20, '2027-08-20', '', 'Not Assigned', 5000, 'Upcoming', 'Upcoming', '', 'Chit 20']
+      ['SCH-01', 'CHIT-100K-01', 1, '2026-01-20', 'MEM-003', 'MU', 5000, 'Paid', 'Completed', '2026-01-22', 'Chit NIL', 100000],
+      ['SCH-02', 'CHIT-100K-01', 2, '2026-02-20', 'MEM-001,MEM-003', 'Amma + MU', 3750, 'In Progress', 'Completed', '2026-02-22', 'Chit 2 (Shared)', 75000],
+      ['SCH-03', 'CHIT-100K-01', 3, '2026-03-20', '', 'Not Assigned', 3825, 'Upcoming', 'Upcoming', '', 'Chit 3', 76500],
+      ['SCH-04', 'CHIT-100K-01', 4, '2026-04-20', '', 'Not Assigned', 3900, 'Upcoming', 'Upcoming', '', 'Chit 4', 78000],
+      ['SCH-05', 'CHIT-100K-01', 5, '2026-05-20', '', 'Not Assigned', 3975, 'Upcoming', 'Upcoming', '', 'Chit 5', 79500],
+      ['SCH-06', 'CHIT-100K-01', 6, '2026-06-20', '', 'Not Assigned', 4050, 'Upcoming', 'Upcoming', '', 'Chit 6', 81000],
+      ['SCH-07', 'CHIT-100K-01', 7, '2026-07-20', '', 'Not Assigned', 4125, 'Upcoming', 'Upcoming', '', 'Chit 7', 82500],
+      ['SCH-08', 'CHIT-100K-01', 8, '2026-08-20', 'MEM-003', 'MU', 4200, 'Upcoming', 'Upcoming', '', 'Chit 8', 84000],
+      ['SCH-09', 'CHIT-100K-01', 9, '2026-09-20', '', 'Not Assigned', 4275, 'Upcoming', 'Upcoming', '', 'Chit 9', 85500],
+      ['SCH-10', 'CHIT-100K-01', 10, '2026-10-20', '', 'Not Assigned', 4350, 'Upcoming', 'Upcoming', '', 'Chit 10', 87000],
+      ['SCH-11', 'CHIT-100K-01', 11, '2026-11-20', '', 'Not Assigned', 4425, 'Upcoming', 'Upcoming', '', 'Chit 11', 88500],
+      ['SCH-12', 'CHIT-100K-01', 12, '2026-12-20', '', 'Not Assigned', 4500, 'Upcoming', 'Upcoming', '', 'Chit 12', 90000],
+      ['SCH-13', 'CHIT-100K-01', 13, '2027-01-20', '', 'Not Assigned', 4575, 'Upcoming', 'Upcoming', '', 'Chit 13', 91500],
+      ['SCH-14', 'CHIT-100K-01', 14, '2027-02-20', '', 'Not Assigned', 4650, 'Upcoming', 'Upcoming', '', 'Chit 14', 93000],
+      ['SCH-15', 'CHIT-100K-01', 15, '2027-03-20', 'MEM-003', 'MU', 4725, 'Upcoming', 'Upcoming', '', 'Chit 15', 94500],
+      ['SCH-16', 'CHIT-100K-01', 16, '2027-04-20', '', 'Not Assigned', 4800, 'Upcoming', 'Upcoming', '', 'Chit 16', 96000],
+      ['SCH-17', 'CHIT-100K-01', 17, '2027-05-20', '', 'Not Assigned', 4850, 'Upcoming', 'Upcoming', '', 'Chit 17', 97000],
+      ['SCH-18', 'CHIT-100K-01', 18, '2027-06-20', '', 'Not Assigned', 4900, 'Upcoming', 'Upcoming', '', 'Chit 18', 98000],
+      ['SCH-19', 'CHIT-100K-01', 19, '2027-07-20', '', 'Not Assigned', 4950, 'Upcoming', 'Upcoming', '', 'Chit 19', 99000],
+      ['SCH-20', 'CHIT-100K-01', 20, '2027-08-20', '', 'Not Assigned', 5000, 'Upcoming', 'Upcoming', '', 'Chit 20', 100000]
     ];
     masterSchedule.forEach(row => scheduleSheet.appendRow(row));
   }
 
-  // 5. Payments (paymentId, chitId, memberId, monthNumber, amount, paymentDate, paymentMethod, referenceNumber, status, notes, createdAt)
+  // 5. Payments (paymentId, chitId, memberId, monthNumber, amount, paymentDate, paymentMethod, referenceNumber, status, notes, createdAt, chitNo, memberName)
   ensureSheetWithHeaders(ss, SHEET_NAMES.PAYMENTS, [
-    'paymentId', 'chitId', 'memberId', 'monthNumber', 'amount', 'paymentDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt'
+    'paymentId', 'chitId', 'memberId', 'monthNumber', 'amount', 'paymentDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName'
   ]);
 
-  // 6. Payouts (payoutId, chitId, memberId, monthNumber, amount, payoutDate, paymentMethod, referenceNumber, status, notes, createdAt)
+  // 6. Payouts (payoutId, chitId, memberId, monthNumber, amount, payoutDate, paymentMethod, referenceNumber, status, notes, createdAt, chitNo, memberName, fundingSource)
   ensureSheetWithHeaders(ss, SHEET_NAMES.PAYOUTS, [
-    'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt'
+    'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName', 'fundingSource'
   ]);
 
   // 7. Memberships (membershipId, memberId, chitId, chitNo, chitValue, durationMonths, monthlyPayment, payoutMonth, status, joinedDate, createdAt, updatedAt)
@@ -482,14 +511,17 @@ function getAllChits() {
       fixedPayoutMonth: c.fixedPayoutMonth ? Number(c.fixedPayoutMonth) : null,
       duration: Number(c.durationMonths || c.duration) || 0,
       durationMonths: Number(c.durationMonths || c.duration) || 0,
-      memberCount: Number(c.memberCount) || 0,
+      memberCount: Number(c.totalMembers || c.memberCount || c.durationMonths || c.duration) || 0,
+      totalMembers: Number(c.totalMembers || c.memberCount || c.durationMonths || c.duration) || 0,
       currentMonth: Number(c.currentMonth) || 1,
       monthlyContribution: Number(c.monthlyAmount) || 0,
       monthlyAmount: Number(c.monthlyAmount) || 0,
       expected20M: Number(c.expectedTotal) || 0,
+      expectedTotal: Number(c.expectedTotal) || 0,
       startDate: c.startDate || '',
       paymentDay: Number(c.paymentDay) || 20,
-      status: c.status || 'Active'
+      status: c.status || 'Active',
+      notes: c.notes || ''
     };
   });
 }
@@ -563,26 +595,32 @@ function createNewChit(data) {
   const totVal = Number(data.chitValue || data.totalAmount || (baseVal * mult)) || (baseVal * mult);
   const dur = Number(data.duration || data.durationMonths) || 20;
 
+  const totMembers = Number(data.totalMembers || data.memberCount || dur);
+
   const newChit = {
     chitId: chitId,
     chitName: data.chitName || ('MSR Chit — ₹' + totVal.toLocaleString('en-IN')),
     totalAmount: totVal,
+    durationMonths: dur,
+    monthlyAmount: Number(data.monthlyContribution || data.monthlyAmount) || 0,
+    startDate: data.startDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
+    currentMonth: Number(data.currentMonth) || 1,
+    status: data.status || 'Active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     baseChitValue: baseVal,
     multiple: mult,
     dividend: Number(data.dividend) || 0,
     fixedPayoutMonth: data.fixedPayoutMonth ? Number(data.fixedPayoutMonth) : '',
-    durationMonths: dur,
-    monthlyAmount: Number(data.monthlyContribution || data.monthlyAmount) || 0,
     expectedTotal: Number(data.expectedTotal) || 0,
-    startDate: data.startDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
-    currentMonth: 1,
-    status: 'Active',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    paymentDay: Number(data.paymentDay) || 20,
+    memberCount: totMembers,
+    totalMembers: totMembers,
+    notes: data.notes || ''
   };
 
   appendRow(SHEET_NAMES.CHITS, newChit);
-  logActivity('Chit Created', 'Created chit ' + newChit.chitName + ' (Multiple: ' + mult + 'x, Dividend: ₹' + (Number(data.dividend) || 0) + ')', 'Admin');
+  logActivity('Chit Created', 'Created chit ' + newChit.chitName + ' (Multiple: ' + mult + 'x, Dividend: ₹' + (Number(data.dividend) || 0) + ', Status: ' + newChit.status + ')', 'Admin');
   return newChit;
 }
 
@@ -983,15 +1021,20 @@ function assignChitMonth(payload) {
   // Update or create membership record with permanent unique Chit Number
   let assignedChitNo = '';
   if (memberId && memberId !== 'unassigned') {
+    const chit = getAllChits().find(c => String(c.chitId) === String(chitId));
+    const chitVal = Number(payload.chitValue) || (chit ? Number(chit.totalAmount || chit.chitValue) : 100000);
+    const dur = Number(payload.durationMonths) || (chit ? Number(chit.durationMonths || chit.duration) : 20);
+    const monthlyAmt = Number(payload.monthlyPayment || payload.monthlyAmount) || (chit ? Number(chit.monthlyAmount) : 3750);
+
     const memRecord = createOrAssignMembership({
       chitId: chitId,
       memberId: memberId,
       memberName: memberName,
       payoutMonth: month,
-      chitValue: 100000,
-      durationMonths: 20,
-      monthlyPayment: 3750,
-      chitNo: payload.chitNo || generatePermanentChitNumber('2026', 100000, month)
+      chitValue: chitVal,
+      durationMonths: dur,
+      monthlyPayment: monthlyAmt,
+      chitNo: payload.chitNo || generatePermanentChitNumber('2026', chitVal, month)
     });
     assignedChitNo = memRecord.chitNo;
 
@@ -1110,7 +1153,9 @@ function recordChitPayout(data) {
   // Derive or lookup chitNo
   let chitNo = data.chitNo || '';
   if (!chitNo) {
-    chitNo = generatePermanentChitNumber('2026', 100000, monthNum);
+    const chit = getAllChits().find(c => String(c.chitId) === String(data.chitId || 'CHIT-100K-01'));
+    const chitVal = chit ? Number(chit.totalAmount || chit.chitValue) : 100000;
+    chitNo = generatePermanentChitNumber('2026', chitVal, monthNum);
   }
 
   const newPayout = {
@@ -1259,16 +1304,22 @@ function getExtraInvestments() {
       const retAmt = Number(inv.returnedAmount) || 0;
       const profit = retAmt - investAmt;
       const profitPercent = investAmt > 0 ? Math.round((profit / investAmt) * 1000) / 10 : 0;
+      const used = Number(inv.usedAmount || inv.allocatedAmount) || 0;
+      const ben = inv.beneficiary || inv.purpose || '';
       return {
         investmentId: inv.investmentId,
         investmentAmount: investAmt,
         investmentDate: inv.investmentDate || '',
-        usedAmount: Number(inv.usedAmount) || 0,
-        beneficiary: inv.beneficiary || '',
+        usedAmount: used,
+        allocatedAmount: used,
+        remainingAmount: Math.max(0, investAmt - used),
+        beneficiary: ben,
+        purpose: ben,
         payout: Number(inv.payout) || 0,
         returnedAmount: retAmt,
         profit: profit,
         profitPercent: profitPercent,
+        profitPercentage: profitPercent,
         status: inv.status || 'Active',
         notes: inv.notes || '',
         createdAt: inv.createdAt || ''
@@ -1289,13 +1340,15 @@ function createExtraInvestment(data) {
   const retAmt = Number(data.returnedAmount) || 0;
   const profit = retAmt - investAmt;
   const profitPercent = investAmt > 0 ? Math.round((profit / investAmt) * 1000) / 10 : 0;
+  const usedAmt = Number(data.usedAmount !== undefined ? data.usedAmount : data.allocatedAmount) || 0;
+  const ben = data.beneficiary || data.purpose || '';
 
   const newInv = {
     investmentId: investmentId,
     investmentAmount: investAmt,
     investmentDate: data.investmentDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
-    usedAmount: Number(data.usedAmount) || 0,
-    beneficiary: data.beneficiary || '',
+    usedAmount: usedAmt,
+    beneficiary: ben,
     payout: Number(data.payout) || 0,
     returnedAmount: retAmt,
     profit: profit,
