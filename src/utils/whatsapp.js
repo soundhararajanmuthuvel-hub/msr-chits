@@ -81,28 +81,24 @@ export function buildWelcomeMessage(data = {}) {
 
   if (activeChits.length <= 1) {
     const chit = activeChits[0] || {};
-    const chitNo = chit.chitNo || 'Pending Assignment';
-    const chitVal = formatAmountOnly(chit.chitValue || 100000);
-    const duration = chit.durationMonths || chit.duration || 20;
-    const monthlyPay = formatAmountOnly(chit.monthlyPayment || chit.monthlyAmount || 3750);
-    const payoutMonth = chit.payoutMonth || 'Not Assigned';
+    const chitNo = chit.chitNo || data.chitNo || 'Pending Assignment';
+    const chitVal = formatAmountOnly(chit.chitValue || chit.totalAmount || data.chitValue || data.totalAmount || 0);
+    const duration = chit.durationMonths || chit.duration || data.durationMonths || data.duration || 0;
+    const monthlyPay = formatAmountOnly(chit.monthlyPayment || chit.monthlyAmount || data.monthlyPayment || data.monthlyAmount || 0);
+    const payoutMonth = chit.payoutMonth || data.payoutMonth || 'Not Assigned';
 
     return (
 `Hi ${name} 👋
 
 Welcome to MSR CHITS.
 
-Your chit membership details:
+Your chit details:
 
-━━━━━━━━━━━━━━
 Chit No: ${chitNo}
 Chit Value: ₹${chitVal}
-Duration: ${duration} Months
+Duration: ${duration} months
 Monthly Payment: ₹${monthlyPay}
 Fixed Payout Month: Month ${payoutMonth}
-━━━━━━━━━━━━━━
-
-Please keep your Chit Number for future reference.
 
 Thank you,
 MSR CHITS`
@@ -113,20 +109,18 @@ MSR CHITS`
   let chitBlocks = '';
   activeChits.forEach((chit, idx) => {
     const chitNo = chit.chitNo || `Chit ${idx + 1}`;
-    const chitVal = formatAmountOnly(chit.chitValue || 100000);
-    const duration = chit.durationMonths || chit.duration || 20;
-    const monthlyPay = formatAmountOnly(chit.monthlyPayment || chit.monthlyAmount || 3750);
+    const chitVal = formatAmountOnly(chit.chitValue || chit.totalAmount || 0);
+    const duration = chit.durationMonths || chit.duration || 0;
+    const monthlyPay = formatAmountOnly(chit.monthlyPayment || chit.monthlyAmount || 0);
     const payoutMonth = chit.payoutMonth || 'Not Assigned';
 
     chitBlocks += (
-`CHIT ${idx + 1}
-
+`Chit ${idx + 1}:
 Chit No: ${chitNo}
 Chit Value: ₹${chitVal}
-Duration: ${duration} Months
+Duration: ${duration} months
 Monthly Payment: ₹${monthlyPay}
-Fixed Payout Month: Month ${payoutMonth}
-━━━━━━━━━━━━━━
+Payout Month: Month ${payoutMonth}
 `
     );
     if (idx < activeChits.length - 1) {
@@ -139,10 +133,11 @@ Fixed Payout Month: Month ${payoutMonth}
 
 Welcome to MSR CHITS.
 
-Your chit membership details:
+Your active chit memberships:
 
 ━━━━━━━━━━━━━━
-${chitBlocks}
+${chitBlocks}━━━━━━━━━━━━━━
+
 Please keep these Chit Numbers for future reference.
 
 Thank you,
@@ -152,39 +147,38 @@ MSR CHITS`
 
 /**
  * 2. Monthly Payment Reminder
- * If 1 chit: Single chit reminder
- * If 2+ chits: Consolidated reminder with calculated total from actual active memberships
+ * Includes configured UPI ID and actual database values
  */
 export function buildPaymentReminderMessage(data = {}, secondArg) {
   const name = data.memberName || data.name || 'Member';
   const chits = data.chits || [];
-  const currentMonth = data.currentMonth || secondArg || 2;
+  const currentMonth = data.currentMonth || secondArg || 1;
   const monthSchedule = data.monthSchedule || {};
   const activeChits = (chits || []).filter(c => c && c.chitNo);
+  const upiId = data.upiId || data.configuredUPI || '';
+
+  const upiBlock = upiId ? `\nUPI ID:\n${upiId}\n` : '';
 
   if (activeChits.length <= 1) {
     const chit = activeChits[0] || {};
-    const chitNo = chit.chitNo || 'MSR261L01';
-    const chitVal = formatAmountOnly(chit.chitValue || 100000);
-    const curMonth = currentMonth || chit.currentMonth || 2;
-    const duration = chit.durationMonths || chit.duration || 20;
+    const chitNo = chit.chitNo || data.chitNo || 'Pending Assignment';
+    const curMonth = currentMonth || data.month || chit.currentMonth || 1;
     
     // Scheduled monthly amount for current month
     const monthlyPay = formatAmountOnly(
-      monthSchedule[curMonth] || chit.monthlyPayment || chit.monthlyAmount || 3750
+      data.amount !== undefined ? data.amount : (monthSchedule[curMonth] || chit.monthlyPayment || chit.monthlyAmount || 0)
     );
 
     return (
-`Hi ${name},
+`Hi ${name} 👋
 
-MSR CHITS Payment Reminder 🔔
+This is a payment reminder from MSR CHITS.
 
 Chit No: ${chitNo}
-Chit Value: ₹${chitVal}
-Month: ${curMonth} of ${duration}
-Monthly Payment: ₹${monthlyPay}
-
-Please make your monthly payment.
+Month: ${curMonth}
+Due Amount: ₹${monthlyPay}
+${upiBlock}
+Please make the payment and share the transaction screenshot/reference.
 
 Thank you,
 MSR CHITS`
@@ -199,28 +193,30 @@ MSR CHITS`
   activeChits.forEach((chit, idx) => {
     const icon = numIcons[idx] || `${idx + 1}️⃣`;
     const chitNo = chit.chitNo || `Chit ${idx + 1}`;
-    const curMonth = currentMonth || chit.currentMonth || 2;
-    const duration = chit.durationMonths || chit.duration || 20;
-    const payNum = Number(monthSchedule[curMonth] || chit.monthlyPayment || chit.monthlyAmount || 3750);
+    const curMonth = currentMonth || chit.currentMonth || 1;
+    const duration = chit.durationMonths || chit.duration || 0;
+    const payNum = Number(monthSchedule[curMonth] || chit.monthlyPayment || chit.monthlyAmount || 0);
     calculatedTotal += payNum;
 
     chitLines.push(
 `${icon} ${chitNo}
 Month: ${curMonth}/${duration}
-Payment: ₹${formatAmountOnly(payNum)}`
+Due: ₹${formatAmountOnly(payNum)}`
     );
   });
 
   return (
-`Hi ${name},
+`Hi ${name} 👋
 
-MSR CHITS Monthly Payment Reminder 🔔
+This is a payment reminder from MSR CHITS.
 
 Your active chits:
 
 ${chitLines.join('\n\n')}
 
-Total Monthly Payment: ₹${formatAmountOnly(calculatedTotal)}
+Total Due Amount: ₹${formatAmountOnly(calculatedTotal)}
+${upiBlock}
+Please make the payment and share the transaction screenshot/reference.
 
 Thank you,
 MSR CHITS`
@@ -234,28 +230,27 @@ MSR CHITS`
 export function buildPaymentConfirmationMessage({
   memberName,
   chitNo,
-  month = 2,
-  durationMonths = 20,
-  amount = 3750,
-  paymentDate
+  month = 1,
+  amount = 0,
+  paymentDate,
+  reference = ''
 }) {
   const name = memberName || 'Member';
-  const cNo = chitNo || 'MSR261L01';
+  const cNo = chitNo || 'N/A';
   const amtFormatted = formatAmountOnly(amount);
   const dateFormatted = paymentDate || new Date().toISOString().split('T')[0];
+  const refLine = reference ? `Reference: ${reference}\n` : '';
 
   return (
-`Hi ${name},
+`Hi ${name} 👋
 
-Payment Received ✅
+Payment received.
 
 Chit No: ${cNo}
-Month: ${month} of ${durationMonths}
+Month: ${month}
 Amount Paid: ₹${amtFormatted}
 Payment Date: ${dateFormatted}
-
-Your payment has been recorded successfully.
-
+${refLine}
 Thank you,
 MSR CHITS`
   );
@@ -326,25 +321,28 @@ MSR CHITS`
 export function buildPayoutConfirmationMessage({
   memberName,
   chitNo,
-  payoutMonth = 2,
+  payoutMonth = 1,
   actualPayoutAmount = 0,
-  payoutDate
+  payoutDate,
+  fundingSource = 'CHIT_FUND',
+  status = 'Completed'
 }) {
   const name = memberName || 'Member';
-  const cNo = chitNo || 'MSR261L01';
+  const cNo = chitNo || 'N/A';
   const amtFormatted = formatAmountOnly(actualPayoutAmount);
   const dateFormatted = payoutDate || new Date().toISOString().split('T')[0];
 
   return (
-`Hi ${name},
+`Hi ${name} 👋
 
-MSR CHITS Payout Update 🎉
+MSR CHITS Payout Disbursed 🎉
 
 Chit No: ${cNo}
 Payout Month: Month ${payoutMonth}
 Payout Amount: ₹${amtFormatted}
 Payout Date: ${dateFormatted}
-Status: Paid
+Funding Source: ${fundingSource}
+Status: ${status}
 
 Thank you,
 MSR CHITS`
@@ -353,9 +351,14 @@ MSR CHITS`
 
 // Aliases for seamless naming compatibility
 export const createWelcomeMessage = buildWelcomeMessage;
+export const generateWelcomeMessage = (member, chit) => buildWelcomeMessage({ ...member, ...(chit ? { chits: [chit], ...chit } : {}) });
 export const createMonthlyPaymentReminder = (arg1, arg2) => buildPaymentReminderMessage(arg1, arg2);
+export const generatePaymentReminderMessage = (member, reminderData) => buildPaymentReminderMessage({ ...member, ...reminderData });
 export const createPaymentConfirmationMessage = buildPaymentConfirmationMessage;
+export const generatePaymentReceiptMessage = (member, paymentData) => buildPaymentConfirmationMessage({ memberName: member?.name || member?.memberName, ...paymentData });
 export const createPayoutDetailsMessage = buildPayoutDetailMessage;
 export const createPayoutReminderMessage = buildPayoutReminderMessage;
 export const createPayoutConfirmationMessage = buildPayoutConfirmationMessage;
+export const generatePayoutMessage = (member, payoutData) => buildPayoutConfirmationMessage({ memberName: member?.name || member?.memberName, ...payoutData });
+
 

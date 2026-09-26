@@ -91,7 +91,7 @@ export const Dashboard = () => {
     chitValue: 100000,
     duration: 20,
     currentMonth: 1,
-    monthlyContribution: 3750,
+    monthlyContribution: activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0,
     memberCount: stats?.activeMembers || 0,
     paymentDay: 20,
     progressPercent: 5,

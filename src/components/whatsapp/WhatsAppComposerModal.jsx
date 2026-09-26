@@ -50,22 +50,30 @@ export const WhatsAppComposerModal = ({
   const normalizedPhone = useMemo(() => normalizeIndianPhone(rawPhone), [rawPhone]);
   const hasValidPhone = useMemo(() => isValidWhatsAppPhone(rawPhone), [rawPhone]);
 
+  const [settings, setSettings] = useState(null);
+
+  useEffect(() => {
+    api.getSettings().then(s => setSettings(s)).catch(() => {});
+  }, []);
+
   // Member's chits
   const memberChits = useMemo(() => {
     if (!member) return [];
     if (member.chits && member.chits.length > 0) return member.chits;
     if (member.assignedMonths && member.assignedMonths.length > 0) {
+      const chitVal = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
+      const monthlyPay = Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0);
       return member.assignedMonths.map(m => ({
         chitNo: `MSR261L${String(m).padStart(2, '0')}`,
         payoutMonth: m,
-        chitValue: 100000,
-        durationMonths: 20,
-        monthlyPayment: 3750,
+        chitValue: chitVal,
+        durationMonths: activeChit?.duration || 20,
+        monthlyPayment: monthlyPay,
         status: 'Active'
       }));
     }
     return [];
-  }, [member]);
+  }, [member, activeChit]);
 
   // Set default selected chit on open
   useEffect(() => {
@@ -106,7 +114,8 @@ export const WhatsAppComposerModal = ({
         msg = buildPaymentReminderMessage({
           memberName,
           chits: memberChits,
-          currentMonth: activeChit?.currentMonth || 2
+          currentMonth: activeChit?.currentMonth || 1,
+          upiId: settings?.upiId || ''
         });
         break;
 
@@ -114,11 +123,11 @@ export const WhatsAppComposerModal = ({
         const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
         msg = buildPaymentConfirmationMessage({
           memberName,
-          chitNo: paymentRecord?.chitNo || chit.chitNo || selectedChitNo || 'MSR261L01',
-          month: paymentRecord?.month || paymentRecord?.monthNumber || activeChit?.currentMonth || 2,
-          durationMonths: chit.durationMonths || 20,
-          amount: paymentRecord?.amount || paymentRecord?.paidAmount || chit.monthlyPayment || 3750,
-          paymentDate: paymentRecord?.paymentDate || new Date().toISOString().split('T')[0]
+          chitNo: paymentRecord?.chitNo || chit.chitNo || selectedChitNo || 'N/A',
+          month: paymentRecord?.month || paymentRecord?.monthNumber || activeChit?.currentMonth || 1,
+          amount: paymentRecord?.amount || paymentRecord?.paidAmount || chit.monthlyPayment || chit.monthlyAmount || 0,
+          paymentDate: paymentRecord?.paymentDate || new Date().toISOString().split('T')[0],
+          reference: paymentRecord?.reference || paymentRecord?.referenceNumber || ''
         });
         break;
       }
@@ -127,9 +136,9 @@ export const WhatsAppComposerModal = ({
         const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
         msg = buildPayoutDetailMessage({
           memberName,
-          chitNo: chit.chitNo || selectedChitNo || 'MSR261L01',
-          chitValue: chit.chitValue || 100000,
-          payoutMonth: chit.payoutMonth || 2
+          chitNo: chit.chitNo || selectedChitNo || 'N/A',
+          chitValue: chit.chitValue || Number(activeChit?.chitValue || 0),
+          payoutMonth: chit.payoutMonth || 1
         });
         break;
       }
@@ -138,9 +147,9 @@ export const WhatsAppComposerModal = ({
         const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
         msg = buildPayoutReminderMessage({
           memberName,
-          chitNo: chit.chitNo || selectedChitNo || 'MSR261L01',
-          chitValue: chit.chitValue || 100000,
-          payoutMonth: chit.payoutMonth || 2
+          chitNo: chit.chitNo || selectedChitNo || 'N/A',
+          chitValue: chit.chitValue || Number(activeChit?.chitValue || 0),
+          payoutMonth: chit.payoutMonth || 1
         });
         break;
       }
@@ -149,10 +158,12 @@ export const WhatsAppComposerModal = ({
         const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
         msg = buildPayoutConfirmationMessage({
           memberName,
-          chitNo: payoutRecord?.chitNo || chit.chitNo || selectedChitNo || 'MSR261L01',
-          payoutMonth: payoutRecord?.month || payoutRecord?.monthNumber || chit.payoutMonth || 2,
-          actualPayoutAmount: payoutRecord?.amount || 0,
-          payoutDate: payoutRecord?.payoutDate || new Date().toISOString().split('T')[0]
+          chitNo: payoutRecord?.chitNo || chit.chitNo || selectedChitNo || 'N/A',
+          payoutMonth: payoutRecord?.month || payoutRecord?.monthNumber || chit.payoutMonth || 1,
+          actualPayoutAmount: payoutRecord?.amount || payoutRecord?.payoutAmount || 0,
+          payoutDate: payoutRecord?.payoutDate || new Date().toISOString().split('T')[0],
+          fundingSource: payoutRecord?.fundingSource || 'CHIT_FUND',
+          status: payoutRecord?.status || 'Completed'
         });
         break;
       }
@@ -162,7 +173,7 @@ export const WhatsAppComposerModal = ({
     }
 
     setCustomMessage(msg);
-  }, [messageType, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, activeChit, isOpen]);
+  }, [messageType, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, activeChit, isOpen, settings]);
 
   const handleCopy = () => {
     if (!customMessage) return;

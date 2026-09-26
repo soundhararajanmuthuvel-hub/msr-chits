@@ -110,7 +110,7 @@ export const MemberDetails = () => {
     {
       header: 'Scheduled Due',
       accessor: 'dueAmount',
-      render: (row) => formatINR(row.dueAmount || row.amount || 3750)
+      render: (row) => formatINR(row.dueAmount || row.amount || 0)
     },
     {
       header: 'Amount Paid',
@@ -437,7 +437,7 @@ export const MemberDetails = () => {
                   <div>
                     <span className="text-[#5B7065] text-[10px] block">Monthly Payment</span>
                     <span className="font-bold text-[#003524]">
-                      {formatINR(chit.monthlyPayment || 3750)}
+                      {formatINR(chit.monthlyPayment || chit.monthlyAmount || 0)}
                     </span>
                   </div>
                   <div className="col-span-2 pt-1">

@@ -28,10 +28,10 @@ export function calculateChitParameters({
   const div = Math.max(0, Number(dividend) || 0);
 
   // Base installment before auction discount
-  const baseInstallment = dur > 0 ? Math.round(totalChitValue / dur) : 0;
+  const baseInstallment = dur > 0 ? Math.floor(totalChitValue / dur) : 0;
 
   // Month 2 / bidding month installment after dividend deduction
-  const monthlyAmount = Math.max(0, baseInstallment - div);
+  const monthlyAmount = div > 0 ? Math.max(0, baseInstallment - div) : baseInstallment;
 
   // Initial auction discount and payout
   const totalAuctionDiscount = Math.round(div * dur);
@@ -82,7 +82,7 @@ export function generateChitSchedule({
   const totalChitValue = Math.round(baseValue * mult);
   const dur = Math.max(1, parseInt(duration, 10) || 20);
   const div = Math.max(0, Number(dividend) || 0);
-  const baseInstallment = dur > 0 ? Math.round(totalChitValue / dur) : 0;
+  const baseInstallment = dur > 0 ? Math.floor(totalChitValue / dur) : 0;
 
   // Parse start date for monthly date sequence
   let startYear = new Date().getFullYear();
@@ -104,6 +104,7 @@ export function generateChitSchedule({
   }
 
   const schedule = [];
+  let runningBaseSum = 0;
 
   for (let m = 1; m <= dur; m++) {
     const existing = existingMap[m] || {};
@@ -116,26 +117,35 @@ export function generateChitSchedule({
     const dueDate = `${yyyy}-${mm}-${dd}`;
 
     let monthDiv = 0;
-    let monthlyAmount = baseInstallment;
+    // Base monthly installment before dividend deduction (with zero rounding loss on month dur)
+    let curBase = (m === dur) ? (totalChitValue - runningBaseSum) : baseInstallment;
+    runningBaseSum += baseInstallment;
+
+    let monthlyAmount = curBase;
     let payoutAmount = totalChitValue;
 
     if (m === 1) {
       // Month 1: Chit NIL / Organizer, full installment, full payout, zero dividend
       monthDiv = 0;
-      monthlyAmount = baseInstallment;
+      monthlyAmount = curBase;
+      payoutAmount = totalChitValue;
+    } else if (div === 0) {
+      // Simple plan without dividend: exact basic installment with final-month zero-loss adjustment
+      monthDiv = 0;
+      monthlyAmount = curBase;
       payoutAmount = totalChitValue;
     } else if (dur <= 2) {
       // 2-month chit edge case
       monthDiv = div;
-      monthlyAmount = Math.max(0, baseInstallment - monthDiv);
+      monthlyAmount = Math.max(0, curBase - monthDiv);
       payoutAmount = Math.max(0, totalChitValue - (monthDiv * dur));
     } else {
       // Month 2 to Month N progressive tapering:
       // At month 2, dividend is max (div)
-      // At month N, dividend reaches 0 (full base installment)
+      // At month N, dividend reaches 0 (full installment)
       const ratio = (dur - m) / (dur - 2);
       monthDiv = Math.round(div * Math.max(0, ratio));
-      monthlyAmount = Math.max(0, baseInstallment - monthDiv);
+      monthlyAmount = Math.max(0, curBase - monthDiv);
       payoutAmount = Math.max(0, totalChitValue - (monthDiv * dur));
     }
 

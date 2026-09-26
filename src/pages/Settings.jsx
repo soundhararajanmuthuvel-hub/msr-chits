@@ -12,7 +12,11 @@ import {
   Smartphone,
   Share,
   PlusSquare,
-  Download
+  Download,
+  CreditCard,
+  Eye,
+  EyeOff,
+  QrCode
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +33,7 @@ export const Settings = () => {
   const [submitting, setSubmitting] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [showAccountNumber, setShowAccountNumber] = useState(false);
 
   const [formData, setFormData] = useState({
     companyName: 'MSR CHITS',
@@ -40,7 +45,15 @@ export const Settings = () => {
     paymentDay: 20,
     currency: 'INR',
     adminName: 'MSR Administrator',
-    adminUsername: 'admin'
+    adminUsername: 'admin',
+    // Bank & UPI Payment Settings
+    upiId: 'msrchits@okhdfcbank',
+    accountHolderName: 'MSR CHITS',
+    bankName: 'HDFC Bank',
+    accountNumber: '',
+    ifscCode: '',
+    branch: '',
+    paymentInstructions: 'Please include your Chit Number in the payment reference/remarks.'
   });
 
   const [passwordData, setPasswordData] = useState({
@@ -373,6 +386,151 @@ export const Settings = () => {
               {submitting && <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
               <Save className="w-4 h-4 text-[#C9A227]" />
               <span>Save System Settings</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Payment Settings: Bank & UPI Configuration */}
+      <div className="bg-white rounded-2xl p-6 border border-[#DCE8E0] shadow-sm space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-[#EAF2EC]">
+          <div className="flex items-center gap-2.5">
+            <CreditCard className="w-5 h-5 text-[#174D38]" />
+            <div>
+              <h3 className="text-base font-bold text-[#003524]">
+                Payment Settings (UPI & Bank Accounts)
+              </h3>
+              <p className="text-xs text-[#5B7065]">
+                Configure official UPI ID for WhatsApp payment reminders and bank account for member disbursements
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-900 border border-emerald-200 px-2 py-0.5 rounded-full">
+            Active Gateway
+          </span>
+        </div>
+
+        <form onSubmit={handleSaveCompanySettings} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                Official UPI ID *
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. msrchits@okhdfcbank"
+                value={formData.upiId || ''}
+                onChange={(e) => setFormData({ ...formData, upiId: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-bold text-[#003524] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+                required
+              />
+              <span className="text-[10px] text-[#5B7065] mt-0.5 block">
+                Automatically included in member WhatsApp payment reminder messages
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                Account Holder Name
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. MSR CHITS or Soundhararajan"
+                value={formData.accountHolderName || ''}
+                onChange={(e) => setFormData({ ...formData, accountHolderName: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                Bank Name
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. HDFC Bank, SBI, ICICI"
+                value={formData.bankName || ''}
+                onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-[#003524]">
+                  Account Number
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowAccountNumber(!showAccountNumber)}
+                  className="text-[10px] text-[#5B7065] hover:text-[#003524] flex items-center gap-1 font-semibold"
+                >
+                  {showAccountNumber ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  <span>{showAccountNumber ? 'Hide' : 'Show'}</span>
+                </button>
+              </div>
+              <input
+                type={showAccountNumber ? 'text' : 'password'}
+                placeholder="Bank account number"
+                value={formData.accountNumber || ''}
+                onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-mono text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                IFSC Code
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. HDFC0001234"
+                value={formData.ifscCode || ''}
+                onChange={(e) => setFormData({ ...formData, ifscCode: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-mono text-[#131E19] uppercase focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                Branch Location
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Anna Nagar, Chennai"
+                value={formData.branch || ''}
+                onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] min-h-[44px]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                Payment Instructions / Notes
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Include Chit No in UPI remarks"
+                value={formData.paymentInstructions || ''}
+                onChange={(e) => setFormData({ ...formData, paymentInstructions: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-6 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-2 min-h-[44px]"
+            >
+              {submitting && <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+              <Save className="w-4 h-4 text-[#C9A227]" />
+              <span>Save Payment Settings</span>
             </button>
           </div>
         </form>

@@ -350,7 +350,7 @@ export const WhatsApp = () => {
             {filteredMembers.map(member => {
               const chits = member.chits || [];
               const canSend = isValidWhatsAppPhone(member.mobile || member.phone);
-              const totalMonthlyDue = chits.reduce((sum, c) => sum + (Number(c.monthlyPayment) || 3750), 0);
+              const totalMonthlyDue = chits.reduce((sum, c) => sum + (Number(c.monthlyPayment || c.monthlyAmount) || Number(activeChit?.monthlyContribution || 0)), 0);
 
               return (
                 <div
@@ -370,7 +370,7 @@ export const WhatsApp = () => {
                       <div className="text-right">
                         <span className="text-[10px] text-[#5B7065] block">Total Monthly Due</span>
                         <span className="font-extrabold text-[#003524] text-sm">
-                          {formatINR(totalMonthlyDue || 3750)}
+                          {formatINR(totalMonthlyDue)}
                         </span>
                       </div>
                     </div>
@@ -393,7 +393,7 @@ export const WhatsApp = () => {
                           chits.map((c, idx) => (
                             <div key={c.chitNo} className="flex justify-between text-[11px]">
                               <span className="font-mono font-bold text-[#174D38]">{idx + 1}️⃣ {c.chitNo}</span>
-                              <span className="font-bold text-[#003524]">₹{Number(c.monthlyPayment || 3750).toLocaleString('en-IN')}</span>
+                              <span className="font-bold text-[#003524]">₹{Number(c.monthlyPayment || c.monthlyAmount || activeChit?.monthlyContribution || 0).toLocaleString('en-IN')}</span>
                             </div>
                           ))
                         )}

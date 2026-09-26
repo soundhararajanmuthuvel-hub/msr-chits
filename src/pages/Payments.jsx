@@ -61,11 +61,19 @@ export const Payments = () => {
     loadData();
   }, []);
 
-  const totalCollected = payments.reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
+  const totalCollected = payments.reduce((sum, p) => sum + (Number(p.paidAmount || p.amount) || 0), 0);
+  const currentMonthNum = activeChit?.currentMonth || 1;
   const thisMonthCollected = payments
-    .filter(p => p.month === (activeChit?.currentMonth || 2))
-    .reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
-  const pendingCount = payments.filter(p => p.status === 'Pending').length;
+    .filter(p => Number(p.month || p.monthNumber) === currentMonthNum)
+    .reduce((sum, p) => sum + (Number(p.paidAmount || p.amount) || 0), 0);
+  const currentMonthlyDue = Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0);
+  const pendingPayments = payments.filter(p => p.status === 'Pending' || p.status === 'Partial');
+  const pendingCount = pendingPayments.length;
+  const totalPendingDue = pendingPayments.reduce((sum, p) => {
+    const due = Number(p.dueAmount || currentMonthlyDue);
+    const paid = Number(p.paidAmount || p.amount || 0);
+    return sum + Math.max(0, due - paid);
+  }, 0);
 
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
@@ -229,8 +237,8 @@ export const Payments = () => {
 
         <StatCard
           title="Pending Due"
-          value={formatINR(3750 * pendingCount)}
-          subtitle={`${pendingCount} Pending Members`}
+          value={formatINR(totalPendingDue)}
+          subtitle={`${pendingCount} Pending Dues`}
           icon={AlertCircle}
           accentColor="gold"
         />

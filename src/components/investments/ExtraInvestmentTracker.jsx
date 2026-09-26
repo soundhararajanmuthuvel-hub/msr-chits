@@ -32,9 +32,14 @@ export const ExtraInvestmentTracker = () => {
   }, []);
 
   const totalInvested = investments.reduce((sum, inv) => sum + (Number(inv.investmentAmount) || 0), 0);
+  const totalAllocated = investments.reduce((sum, inv) => sum + (Number(inv.allocatedAmount || inv.usedAmount) || 0), 0);
+  const totalRemaining = Math.max(0, totalInvested - totalAllocated);
   const totalReturned = investments.reduce((sum, inv) => sum + (Number(inv.returnedAmount) || 0), 0);
-  const totalProfit = totalReturned - totalInvested;
-  const overallProfitPercent = totalInvested > 0 ? Number(((totalProfit / totalInvested) * 100).toFixed(2)) : 0;
+  // Profit calculated strictly on completed/returned investments
+  const investmentsWithReturn = investments.filter(inv => Number(inv.returnedAmount) > 0);
+  const totalProfit = investmentsWithReturn.reduce((sum, inv) => sum + ((Number(inv.returnedAmount) || 0) - (Number(inv.investmentAmount) || 0)), 0);
+  const investedForReturned = investmentsWithReturn.reduce((sum, inv) => sum + (Number(inv.investmentAmount) || 0), 0);
+  const overallProfitPercent = investedForReturned > 0 ? Number(((totalProfit / investedForReturned) * 100).toFixed(2)) : 0;
 
   const handleSave = async (record) => {
     try {
@@ -79,6 +84,18 @@ export const ExtraInvestmentTracker = () => {
       render: (row) => formatDate(row.investmentDate)
     },
     {
+      header: 'Purpose',
+      accessor: 'purpose',
+      render: (row) => (
+        <div>
+          <span className="font-semibold text-xs text-[#131E19] block">{row.purpose || 'Capital Deployment'}</span>
+          {row.beneficiary && (
+            <span className="text-[10px] text-[#5B7065] block">For: {row.beneficiary}</span>
+          )}
+        </div>
+      )
+    },
+    {
       header: 'Invested',
       accessor: 'investmentAmount',
       render: (row) => (
@@ -88,36 +105,52 @@ export const ExtraInvestmentTracker = () => {
       )
     },
     {
-      header: 'Used Amount',
-      accessor: 'usedAmount',
-      render: (row) => formatINR(row.usedAmount || row.investmentAmount)
+      header: 'Allocated',
+      accessor: 'allocatedAmount',
+      render: (row) => {
+        const alloc = Number(row.allocatedAmount || row.usedAmount) || 0;
+        return (
+          <span className="font-semibold text-slate-800">
+            {formatINR(alloc)}
+          </span>
+        );
+      }
     },
     {
-      header: 'Beneficiary',
-      accessor: 'beneficiary',
-      render: (row) => (
-        <div>
-          <span className="font-semibold text-[#131E19]">{row.beneficiary || 'Direct Capital'}</span>
-          {row.payout && (
-            <span className="block text-[10px] text-[#5B7065]">{row.payout}</span>
-          )}
-        </div>
-      )
+      header: 'Remaining',
+      accessor: 'remainingAmount',
+      render: (row) => {
+        const invest = Number(row.investmentAmount) || 0;
+        const alloc = Number(row.allocatedAmount || row.usedAmount) || 0;
+        const remaining = Math.max(0, invest - alloc);
+        return (
+          <span className={`font-bold text-xs ${remaining > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
+            {formatINR(remaining)}
+          </span>
+        );
+      }
     },
     {
       header: 'Returned',
       accessor: 'returnedAmount',
-      render: (row) => (
-        <span className="font-bold text-emerald-900">
-          {formatINR(row.returnedAmount)}
-        </span>
-      )
+      render: (row) => {
+        const ret = Number(row.returnedAmount) || 0;
+        return ret > 0 ? (
+          <span className="font-bold text-emerald-900">
+            {formatINR(ret)}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400 italic">Pending</span>
+        );
+      }
     },
     {
       header: 'Profit',
       accessor: 'profit',
       render: (row) => {
-        const profit = (Number(row.returnedAmount) || 0) - (Number(row.investmentAmount) || 0);
+        const ret = Number(row.returnedAmount) || 0;
+        if (ret <= 0) return <span className="text-xs text-slate-400 italic">-</span>;
+        const profit = ret - (Number(row.investmentAmount) || 0);
         return (
           <span className={`font-extrabold ${profit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
             {profit >= 0 ? '+' : ''}{formatINR(profit)}
@@ -126,16 +159,33 @@ export const ExtraInvestmentTracker = () => {
       }
     },
     {
-      header: 'Profit %',
+      header: 'ROI %',
       accessor: 'profitPercent',
       render: (row) => {
+        const ret = Number(row.returnedAmount) || 0;
+        if (ret <= 0) return <span className="text-xs text-slate-400 italic">-</span>;
         const invested = Number(row.investmentAmount) || 0;
-        const returned = Number(row.returnedAmount) || 0;
-        const profit = returned - invested;
+        const profit = ret - invested;
         const pct = invested > 0 ? ((profit / invested) * 100).toFixed(1) : 0;
         return (
           <span className={`px-2 py-0.5 rounded text-xs font-bold ${profit >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
             {pct}%
+          </span>
+        );
+      }
+    },
+    {
+      header: 'Status',
+      accessor: 'status',
+      render: (row) => {
+        const ret = Number(row.returnedAmount) || 0;
+        const invest = Number(row.investmentAmount) || 0;
+        const alloc = Number(row.allocatedAmount || row.usedAmount) || 0;
+        const isClosed = ret >= invest && ret > 0;
+        const isAllocated = alloc >= invest && invest > 0;
+        return (
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isClosed ? 'bg-slate-100 text-slate-700' : (isAllocated ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800')}`}>
+            {isClosed ? 'Closed' : (isAllocated ? 'Fully Allocated' : 'Active')}
           </span>
         );
       }

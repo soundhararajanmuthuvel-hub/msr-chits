@@ -25,9 +25,9 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
     memberId: '',
     memberName: '',
     chitNo: '',
-    month: activeChit?.currentMonth || 2,
-    dueAmount: 3750,
-    paidAmount: 3750,
+    month: activeChit?.currentMonth || 1,
+    dueAmount: Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0),
+    paidAmount: Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0),
     paymentDate: getTodayDateInput(),
     paymentMode: 'UPI',
     reference: '',
@@ -47,21 +47,24 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
           setMembers(mems || []);
           
           const chitDetails = await api.getChit(activeChit?.chitId || 'CHIT-100K-01');
-          const sch = chitDetails.schedule || INITIAL_SCHEDULE;
+          const sch = chitDetails.schedule || [];
           setSchedule(sch);
 
           const defaultMember = prefilledMemberId
             ? mems.find(m => m.memberId === prefilledMemberId) || mems[0]
             : mems[0];
 
-          const defaultMonth = prefilledMonth || activeChit?.currentMonth || 2;
-          const scheduleItem = sch.find(s => s.month === Number(defaultMonth)) || sch[1];
-          const due = scheduleItem ? scheduleItem.monthlyAmount : 3750;
+          const defaultMonth = prefilledMonth || activeChit?.currentMonth || 1;
+          const scheduleItem = sch.find(s => s.month === Number(defaultMonth)) || sch[0];
+          const due = scheduleItem 
+            ? Number(scheduleItem.monthlyAmount || scheduleItem.amount) 
+            : Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0);
 
           // Default Chit No
           const memChits = defaultMember?.chits || [];
           const matchedChit = memChits.find(c => Number(c.payoutMonth) === Number(defaultMonth));
-          const defaultChitNo = matchedChit ? matchedChit.chitNo : (memChits[0]?.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: defaultMonth }));
+          const chitVal = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
+          const defaultChitNo = matchedChit ? matchedChit.chitNo : (memChits[0]?.chitNo || generateChitNumber({ year: 2026, chitValue: chitVal, sequenceNumber: defaultMonth }));
 
           setFormData({
             chitId: activeChit?.chitId || 'CHIT-100K-01',
@@ -90,13 +93,16 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
   const handleMonthChange = (newMonth) => {
     const monthNum = Number(newMonth);
     const scheduleItem = schedule.find(s => s.month === monthNum);
-    const due = scheduleItem ? scheduleItem.monthlyAmount : 3750;
+    const due = scheduleItem 
+      ? Number(scheduleItem.monthlyAmount || scheduleItem.amount) 
+      : Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0);
 
     // Check member's chits for this month
     const curMember = members.find(m => m.memberId === formData.memberId);
     const memChits = curMember?.chits || [];
     const matchedChit = memChits.find(c => Number(c.payoutMonth) === monthNum);
-    const nextChitNo = matchedChit ? matchedChit.chitNo : (memChits[0]?.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: monthNum }));
+    const chitVal = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
+    const nextChitNo = matchedChit ? matchedChit.chitNo : (memChits[0]?.chitNo || generateChitNumber({ year: 2026, chitValue: chitVal, sequenceNumber: monthNum }));
 
     setFormData(prev => ({
       ...prev,
