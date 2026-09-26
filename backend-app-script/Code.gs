@@ -24,9 +24,11 @@ const SHEET_NAMES = {
   USERS: 'Users',
   CHITS: 'Chits',
   MEMBERS: 'Members',
+  MEMBERSHIPS: 'Memberships',
   MONTHLY_SCHEDULE: 'MonthlySchedule',
   PAYMENTS: 'Payments',
   PAYOUTS: 'Payouts',
+  WHATSAPP_LOG: 'WhatsAppLog',
   ACTIVITY_LOG: 'ActivityLog',
   SETTINGS: 'Settings'
 };
@@ -314,7 +316,17 @@ function setupDatabase() {
     'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt'
   ]);
 
-  // 7. ActivityLog (logId, action, user, description, timestamp)
+  // 7. Memberships (membershipId, memberId, chitId, chitNo, chitValue, durationMonths, monthlyPayment, payoutMonth, status, joinedDate, createdAt, updatedAt)
+  ensureSheetWithHeaders(ss, SHEET_NAMES.MEMBERSHIPS, [
+    'membershipId', 'memberId', 'chitId', 'chitNo', 'chitValue', 'durationMonths', 'monthlyPayment', 'payoutMonth', 'status', 'joinedDate', 'createdAt', 'updatedAt'
+  ]);
+
+  // 8. WhatsAppLog (messageId, memberId, memberName, phone, messageType, chitNo, message, relatedPaymentId, relatedPayoutId, status, createdAt)
+  ensureSheetWithHeaders(ss, SHEET_NAMES.WHATSAPP_LOG, [
+    'messageId', 'memberId', 'memberName', 'phone', 'messageType', 'chitNo', 'message', 'relatedPaymentId', 'relatedPayoutId', 'status', 'createdAt'
+  ]);
+
+  // 9. ActivityLog (logId, action, user, description, timestamp)
   const activitySheet = ensureSheetWithHeaders(ss, SHEET_NAMES.ACTIVITY_LOG, [
     'logId', 'action', 'user', 'description', 'timestamp'
   ]);
@@ -557,6 +569,261 @@ function updateChitDetails(chitId, data) {
 }
 
 // ============================================================================
+// UNIQUE CHIT NUMBER & MEMBERSHIP SYSTEM
+// ============================================================================
+
+function getAmountCode(amount) {
+  const num = Number(amount) || 0;
+  if (num >= 100000) {
+    const lakhs = num / 100000;
+    return (lakhs % 1 === 0 ? lakhs : lakhs.toFixed(1)) + 'L';
+  }
+  if (num >= 1000) {
+    const thousands = num / 1000;
+    return (thousands % 1 === 0 ? thousands : thousands.toFixed(0)) + 'K';
+  }
+  return String(num);
+}
+
+function generatePermanentChitNumber(year, chitValue, sequenceNum) {
+  const yrStr = String(year || '2026').slice(-2);
+  const amt = getAmountCode(chitValue || 100000);
+  const seq = String(sequenceNum || 1).padStart(2, '0');
+  return 'MSR' + yrStr + amt + seq;
+}
+
+function parseChitNoMonth(chitNo) {
+  if (!chitNo) return 1;
+  const match = String(chitNo).match(/(\d{2})$/);
+  return match ? parseInt(match[1], 10) : 1;
+}
+
+/**
+ * Reads all memberships from Memberships tab.
+ * If empty or sheet not present, falls back safely to schedule assignments so no data is lost.
+ */
+function getMembershipsSafe(filterMemberId, filterChitId) {
+  let list = [];
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName(SHEET_NAMES.MEMBERSHIPS);
+    if (sheet && sheet.getLastRow() > 1) {
+      const rows = getSheetData(SHEET_NAMES.MEMBERSHIPS);
+      list = rows.map(m => ({
+        membershipId: m.membershipId,
+        memberId: m.memberId,
+        chitId: m.chitId || 'CHIT-100K-01',
+        chitNo: m.chitNo,
+        chitValue: Number(m.chitValue) || 100000,
+        durationMonths: Number(m.durationMonths) || 20,
+        monthlyPayment: Number(m.monthlyPayment) || 3750,
+        payoutMonth: Number(m.payoutMonth) || (m.chitNo ? parseChitNoMonth(m.chitNo) : 1),
+        status: m.status || 'Active',
+        joinedDate: m.joinedDate || ''
+      }));
+    }
+  } catch (e) {
+    list = [];
+  }
+
+  // If no rows in Memberships sheet, synthesize from MonthlySchedule & Members
+  if (list.length === 0) {
+    try {
+      const schedule = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE);
+      const members = getSheetData(SHEET_NAMES.MEMBERS);
+      const memberMap = {};
+      members.forEach(m => {
+        memberMap[m.memberId] = m;
+        memberMap[m.name] = m;
+      });
+
+      schedule.forEach((sch, idx) => {
+        const monthNum = Number(sch.monthNumber || sch.month || (idx + 1));
+        const memId = sch.memberId || sch.assignedMemberId || '';
+        const memName = sch.memberName || sch.assignedMemberName || '';
+
+        if (memId || (memName && memName !== 'Not Assigned')) {
+          const memIds = memId ? String(memId).split(',') : [];
+          const targetMemId = memIds[0] || (memberMap[memName] ? memberMap[memName].memberId : 'MEM-001');
+
+          list.push({
+            membershipId: 'MEMCHIT-' + String(monthNum).padStart(3, '0'),
+            memberId: targetMemId,
+            chitId: sch.chitId || 'CHIT-100K-01',
+            chitNo: generatePermanentChitNumber('2026', 100000, monthNum),
+            chitValue: 100000,
+            durationMonths: 20,
+            monthlyPayment: Number(sch.amount || sch.monthlyAmount) || 3750,
+            payoutMonth: monthNum,
+            status: 'Active',
+            joinedDate: '2026-01-01'
+          });
+        }
+      });
+    } catch (schErr) {
+      // Ignore
+    }
+  }
+
+  if (filterMemberId) {
+    list = list.filter(m => String(m.memberId) === String(filterMemberId));
+  }
+  if (filterChitId) {
+    list = list.filter(m => String(m.chitId) === String(filterChitId));
+  }
+
+  return list;
+}
+
+/**
+ * Assigns or creates a permanent membership with a unique Chit Number.
+ */
+function createOrAssignMembership(data) {
+  const ss = getSpreadsheet();
+  ensureSheetWithHeaders(ss, SHEET_NAMES.MEMBERSHIPS, [
+    'membershipId', 'memberId', 'chitId', 'chitNo', 'chitValue', 'durationMonths', 'monthlyPayment', 'payoutMonth', 'status', 'joinedDate', 'createdAt', 'updatedAt'
+  ]);
+
+  const chitId = data.chitId || 'CHIT-100K-01';
+  const memberId = data.memberId;
+  const payoutMonth = Number(data.payoutMonth || data.month || 1);
+  const chitValue = Number(data.chitValue || data.totalAmount) || 100000;
+  const durationMonths = Number(data.durationMonths || data.duration) || 20;
+  const monthlyPayment = Number(data.monthlyPayment || data.monthlyAmount) || 3750;
+
+  // Read existing chit numbers to prevent duplicate
+  const existingMemberships = getMembershipsSafe();
+  const existingChitNos = new Set(existingMemberships.map(m => String(m.chitNo).toUpperCase()));
+
+  let finalChitNo = data.chitNo;
+  if (!finalChitNo) {
+    const candidate = generatePermanentChitNumber('2026', chitValue, payoutMonth);
+    if (!existingChitNos.has(candidate.toUpperCase())) {
+      finalChitNo = candidate;
+    } else {
+      let slot = 1;
+      while (true) {
+        const testNo = generatePermanentChitNumber('2026', chitValue, slot);
+        if (!existingChitNos.has(testNo.toUpperCase())) {
+          finalChitNo = testNo;
+          break;
+        }
+        slot++;
+      }
+    }
+  }
+
+  const membershipId = generateSequentialId(SHEET_NAMES.MEMBERSHIPS, 'MEMCHIT', 'membershipId');
+  const newMembership = {
+    membershipId: membershipId,
+    memberId: memberId,
+    chitId: chitId,
+    chitNo: finalChitNo,
+    chitValue: chitValue,
+    durationMonths: durationMonths,
+    monthlyPayment: monthlyPayment,
+    payoutMonth: payoutMonth,
+    status: data.status || 'Active',
+    joinedDate: data.joinedDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  appendRow(SHEET_NAMES.MEMBERSHIPS, newMembership);
+
+  // Also update MonthlySchedule if this chit belongs to the schedule
+  try {
+    const members = getAllMembers();
+    const mem = members.find(m => String(m.memberId) === String(memberId));
+    const memName = mem ? mem.name : (data.memberName || 'Assigned Member');
+    const scheduleSheet = getSheet(SHEET_NAMES.MONTHLY_SCHEDULE);
+    const sData = scheduleSheet.getDataRange().getValues();
+
+    for (let r = 1; r < sData.length; r++) {
+      if (String(sData[r][1]) === chitId && Number(sData[r][2]) === payoutMonth) {
+        scheduleSheet.getRange(r + 1, 5).setValue(memberId);
+        scheduleSheet.getRange(r + 1, 6).setValue(memName);
+        break;
+      }
+    }
+  } catch (e) {
+    // Ignore schedule update error
+  }
+
+  logActivity('Membership Created', 'Assigned chit ' + finalChitNo + ' (Month ' + payoutMonth + ') to ' + memberId, 'Admin');
+  return newMembership;
+}
+
+function deleteMembershipRecord(membershipId) {
+  const sheet = getSheet(SHEET_NAMES.MEMBERSHIPS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: false };
+
+  const data = sheet.getDataRange().getValues();
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][0]) === String(membershipId)) {
+      sheet.deleteRow(r + 1);
+      logActivity('Membership Removed', 'Deleted membership ' + membershipId, 'Admin');
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
+// ============================================================================
+// WHATSAPP LOG HELPERS
+// ============================================================================
+
+function getWhatsAppLogs() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName(SHEET_NAMES.WHATSAPP_LOG);
+    if (!sheet) return [];
+    return getSheetData(SHEET_NAMES.WHATSAPP_LOG);
+  } catch (e) {
+    return [];
+  }
+}
+
+function logWhatsAppMessage(payload) {
+  try {
+    const ss = getSpreadsheet();
+    ensureSheetWithHeaders(ss, SHEET_NAMES.WHATSAPP_LOG, [
+      'messageId', 'memberId', 'memberName', 'phone', 'messageType', 'chitNo', 'message', 'relatedPaymentId', 'relatedPayoutId', 'status', 'createdAt'
+    ]);
+    const messageId = generateSequentialId(SHEET_NAMES.WHATSAPP_LOG, 'WA', 'messageId');
+    const logItem = {
+      messageId: messageId,
+      memberId: payload.memberId || '',
+      memberName: payload.memberName || '',
+      phone: payload.phone || '',
+      messageType: payload.messageType || 'Welcome',
+      chitNo: payload.chitNo || '',
+      message: payload.message || '',
+      relatedPaymentId: payload.relatedPaymentId || '',
+      relatedPayoutId: payload.relatedPayoutId || '',
+      status: payload.status || 'Prepared',
+      createdAt: new Date().toISOString()
+    };
+    appendRow(SHEET_NAMES.WHATSAPP_LOG, logItem);
+    return logItem;
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function updateWhatsAppStatus(messageId, status) {
+  try {
+    updateRow(SHEET_NAMES.WHATSAPP_LOG, 'messageId', messageId, {
+      status: status || 'Opened'
+    });
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================================
 // MEMBERS
 // ============================================================================
 
@@ -567,10 +834,12 @@ function updateChitDetails(chitId, data) {
 function getAllMembers() {
   const members = getSheetData(SHEET_NAMES.MEMBERS);
   const payments = getSheetData(SHEET_NAMES.PAYMENTS);
+  const memberships = getMembershipsSafe();
 
   return members.map(m => {
     const memPayments = payments.filter(p => String(p.memberId) === String(m.memberId));
     const paid = memPayments.reduce((s, p) => s + (Number(p.amount || p.paidAmount) || 0), 0);
+    const memChits = memberships.filter(ch => String(ch.memberId) === String(m.memberId));
 
     return {
       memberId: m.memberId,
@@ -580,9 +849,12 @@ function getAllMembers() {
       email: m.email || '',
       address: m.address || '',
       joinDate: m.joinDate || '',
-      payoutMonth: m.assignedChits || m.payoutMonth || 'Not Assigned',
-      assignedMonths: [],
-      chitCount: Number(m.chitCount) || 1,
+      payoutMonth: memChits.length > 0
+        ? memChits.map(c => 'Month ' + c.payoutMonth).join(', ')
+        : (m.assignedChits || m.payoutMonth || 'Not Assigned'),
+      assignedMonths: memChits.map(c => Number(c.payoutMonth)).filter(Boolean),
+      chits: memChits,
+      chitCount: memChits.length || Number(m.chitCount) || 1,
       status: m.status || 'Active',
       notes: m.notes || '',
       totalPaid: paid || Number(m.totalPaid) || 0,
@@ -683,16 +955,32 @@ function assignChitMonth(payload) {
     }
   }
 
-  // Update member assignedChits text in Members tab
+  // Update or create membership record with permanent unique Chit Number
+  let assignedChitNo = '';
   if (memberId && memberId !== 'unassigned') {
+    const memRecord = createOrAssignMembership({
+      chitId: chitId,
+      memberId: memberId,
+      memberName: memberName,
+      payoutMonth: month,
+      chitValue: 100000,
+      durationMonths: 20,
+      monthlyPayment: 3750,
+      chitNo: payload.chitNo || generatePermanentChitNumber('2026', 100000, month)
+    });
+    assignedChitNo = memRecord.chitNo;
+
+    // Update member assignedChits text in Members tab
+    const memChits = getMembershipsSafe(memberId);
+    const chitsSummary = memChits.map(c => c.chitNo + ' (M' + c.payoutMonth + ')').join(', ');
     updateRow(SHEET_NAMES.MEMBERS, 'memberId', memberId, {
-      assignedChits: memberName === 'Not Assigned' ? 'Not Assigned' : ('Month ' + month),
+      assignedChits: chitsSummary || ('Month ' + month),
       updatedAt: new Date().toISOString()
     });
   }
 
-  logActivity('Schedule Updated', 'Month ' + month + ' assigned to ' + memberName, 'Admin');
-  return { success: true };
+  logActivity('Schedule Updated', 'Month ' + month + (assignedChitNo ? ' (' + assignedChitNo + ')' : '') + ' assigned to ' + memberName, 'Admin');
+  return { success: true, chitNo: assignedChitNo };
 }
 
 // ============================================================================
@@ -704,6 +992,7 @@ function getAllPayments() {
   return payments.map(p => ({
     paymentId: p.paymentId,
     chitId: p.chitId,
+    chitNo: p.chitNo || '',
     memberId: p.memberId,
     memberName: p.memberName,
     month: Number(p.monthNumber || p.month),
@@ -733,9 +1022,18 @@ function recordMemberPayment(data) {
     status = 'Partial';
   }
 
+  // Lookup chitNo from member's assigned chits if not provided
+  let chitNo = data.chitNo || '';
+  if (!chitNo && data.memberId) {
+    const memChits = getMembershipsSafe(data.memberId);
+    const matchedChit = memChits.find(c => Number(c.payoutMonth) === Number(data.month || data.monthNumber));
+    chitNo = matchedChit ? matchedChit.chitNo : (memChits[0] ? memChits[0].chitNo : '');
+  }
+
   const newPayment = {
     paymentId: paymentId,
     chitId: data.chitId || 'CHIT-100K-01',
+    chitNo: chitNo,
     memberId: data.memberId,
     memberName: data.memberName,
     monthNumber: Number(data.month || data.monthNumber),
@@ -749,7 +1047,7 @@ function recordMemberPayment(data) {
   };
 
   appendRow(SHEET_NAMES.PAYMENTS, newPayment);
-  logActivity('Payment Recorded', 'Received ₹' + paidAmount + ' from ' + data.memberName + ' (Month ' + newPayment.monthNumber + ')', 'Admin');
+  logActivity('Payment Recorded', 'Received ₹' + paidAmount + ' from ' + data.memberName + ' (Month ' + newPayment.monthNumber + (chitNo ? ', ' + chitNo : '') + ')', 'Admin');
   return newPayment;
 }
 
@@ -762,6 +1060,7 @@ function getAllPayouts() {
   return payouts.map(po => ({
     payoutId: po.payoutId,
     chitId: po.chitId,
+    chitNo: po.chitNo || '',
     month: Number(po.monthNumber || po.month),
     monthNumber: Number(po.monthNumber || po.month),
     memberId: po.memberId,
@@ -780,11 +1079,19 @@ function getAllPayouts() {
 function recordChitPayout(data) {
   const payoutId = generateSequentialId(SHEET_NAMES.PAYOUTS, 'PO', 'payoutId');
   const amount = Number(data.amount) || 0;
+  const monthNum = Number(data.month || data.monthNumber);
+
+  // Derive or lookup chitNo
+  let chitNo = data.chitNo || '';
+  if (!chitNo) {
+    chitNo = generatePermanentChitNumber('2026', 100000, monthNum);
+  }
 
   const newPayout = {
     payoutId: payoutId,
     chitId: data.chitId || 'CHIT-100K-01',
-    monthNumber: Number(data.month || data.monthNumber),
+    chitNo: chitNo,
+    monthNumber: monthNum,
     memberId: data.memberId || '',
     memberName: data.memberName,
     amount: amount,
@@ -797,7 +1104,7 @@ function recordChitPayout(data) {
   };
 
   appendRow(SHEET_NAMES.PAYOUTS, newPayout);
-  logActivity('Payout Recorded', 'Disbursed ₹' + amount + ' to ' + newPayout.memberName + ' (Month ' + newPayout.monthNumber + ')', 'Admin');
+  logActivity('Payout Recorded', 'Disbursed ₹' + amount + ' to ' + newPayout.memberName + ' (Month ' + newPayout.monthNumber + (chitNo ? ', ' + chitNo : '') + ')', 'Admin');
   return newPayout;
 }
 
@@ -999,6 +1306,32 @@ function handleRequest(e, method) {
 
       case 'assignChit':
         result = assignChitMonth(payload);
+        break;
+
+      case 'getMemberships':
+        result = getMembershipsSafe(payload.memberId, payload.chitId);
+        break;
+
+      case 'createMembership':
+      case 'assignMemberChit':
+        result = createOrAssignMembership(payload);
+        break;
+
+      case 'deleteMembership':
+        result = deleteMembershipRecord(payload.membershipId);
+        break;
+
+      case 'getWhatsAppLogs':
+        result = getWhatsAppLogs();
+        break;
+
+      case 'logWhatsApp':
+      case 'logWhatsAppMessage':
+        result = logWhatsAppMessage(payload);
+        break;
+
+      case 'updateWhatsAppStatus':
+        result = updateWhatsAppStatus(payload.messageId, payload.status);
         break;
 
       case 'getPayments':

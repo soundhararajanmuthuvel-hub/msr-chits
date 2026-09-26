@@ -11,7 +11,8 @@ import {
   LogOut,
   RefreshCw,
   Database,
-  Building2
+  Building2,
+  MessageSquare
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useChit } from '../../context/ChitContext';
@@ -32,6 +33,7 @@ export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
     { to: '/members', label: 'Members', icon: Users },
     { to: '/payments', label: 'Payments', icon: CreditCard },
     { to: '/payouts', label: 'Payouts', icon: Send },
+    { to: '/whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/settings', label: 'Settings', icon: Settings },
   ];

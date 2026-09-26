@@ -8,15 +8,19 @@
 const RAW_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '';
 const API_URL = RAW_URL.replace(/\/+$/, '');
 
+import { generateChitNumber, getNextAvailableChitNumber } from '../utils/chitNumber';
+
 const STORAGE_KEYS = {
   SESSION: 'msr_auth_session',
   LAST_SYNC: 'msr_last_sync_time',
   MEMBERS_CACHE: 'msr_members_cache',
+  MEMBERSHIPS_CACHE: 'msr_memberships_cache',
   PAYMENTS_CACHE: 'msr_payments_cache',
   PAYOUTS_CACHE: 'msr_payouts_cache',
   CHITS_CACHE: 'msr_chits_cache',
   SCHEDULE_CACHE: 'msr_schedule_cache',
-  SETTINGS_CACHE: 'msr_settings_cache'
+  SETTINGS_CACHE: 'msr_settings_cache',
+  WHATSAPP_LOGS_CACHE: 'msr_whatsapp_logs_cache'
 };
 
 const getCache = (key) => {
@@ -162,6 +166,71 @@ export async function getApi(action, params = {}) {
 // API Service Object
 // ----------------------------------------------------------------------------
 
+// Helper to enrich members with their real permanent unique chit numbers
+function enrichMembers(members, memberships = [], schedule = []) {
+  if (!Array.isArray(members)) return [];
+
+  const membershipMap = {};
+  (memberships || []).forEach(m => {
+    if (!membershipMap[m.memberId]) membershipMap[m.memberId] = [];
+    membershipMap[m.memberId].push(m);
+  });
+
+  const scheduleMap = {};
+  (schedule || []).forEach(s => {
+    const memId = s.memberId || s.assignedMemberId;
+    const memName = s.memberName || s.assignedMemberName;
+    if (memId) {
+      String(memId).split(',').forEach(p => {
+        const id = p.trim();
+        if (!scheduleMap[id]) scheduleMap[id] = [];
+        scheduleMap[id].push(s);
+      });
+    }
+    if (memName && memName !== 'Not Assigned') {
+      if (!scheduleMap[memName]) scheduleMap[memName] = [];
+      scheduleMap[memName].push(s);
+    }
+  });
+
+  return members.map(m => {
+    let memChits = m.chits && m.chits.length > 0 ? m.chits : (membershipMap[m.memberId] || []);
+
+    if (memChits.length === 0) {
+      const schRows = scheduleMap[m.memberId] || scheduleMap[m.name] || [];
+      memChits = schRows.map(s => {
+        const monthNum = Number(s.monthNumber || s.month || 1);
+        const chitNo = s.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: monthNum });
+        return {
+          membershipId: `MEMCHIT-${String(monthNum).padStart(3, '0')}`,
+          memberId: m.memberId,
+          chitId: s.chitId || 'CHIT-100K-01',
+          chitNo: chitNo,
+          chitValue: 100000,
+          durationMonths: 20,
+          monthlyPayment: Number(s.amount || s.monthlyAmount) || 3750,
+          payoutMonth: monthNum,
+          status: 'Active',
+          joinedDate: m.joinDate || '2026-01-01'
+        };
+      });
+    }
+
+    const assignedMonths = memChits.map(c => Number(c.payoutMonth)).filter(Boolean);
+    const payoutMonthStr = memChits.length > 0
+      ? memChits.map(c => `Month ${c.payoutMonth}`).join(', ')
+      : (m.payoutMonth || m.assignedChits || 'Not Assigned');
+
+    return {
+      ...m,
+      chits: memChits,
+      chitCount: memChits.length || Number(m.chitCount) || 1,
+      assignedMonths,
+      payoutMonth: payoutMonthStr
+    };
+  });
+}
+
 export const api = {
   // Health Check
   async healthCheck() {
@@ -241,32 +310,53 @@ export const api = {
 
   // Members (Reads direct from Members Google Sheet)
   async getMembers() {
+    let members = [];
     if (API_URL) {
       try {
         const data = await getApi('getMembers');
-        setCache(STORAGE_KEYS.MEMBERS_CACHE, data || []);
-        return data || [];
+        members = data || [];
       } catch (e) {
         console.warn('getMembers fetch error:', e.message);
+        members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
       }
+    } else {
+      members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
     }
-    return getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+
+    const memberships = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+    const schedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const enriched = enrichMembers(members, memberships, schedule);
+    setCache(STORAGE_KEYS.MEMBERS_CACHE, enriched);
+    return enriched;
   },
 
   async getMember(memberId) {
+    let member = null;
+    let payments = [];
+
     if (API_URL) {
       try {
-        return await getApi('getMember', { memberId });
+        const res = await getApi('getMember', { memberId });
+        member = res.member;
+        payments = res.payments || [];
       } catch (e) {
         console.warn('getMember fetch error:', e.message);
       }
     }
 
-    const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
-    const member = members.find(m => String(m.memberId) === String(memberId));
-    if (!member) throw new Error('Member not found');
-    const payments = (getCache(STORAGE_KEYS.PAYMENTS_CACHE) || []).filter(p => String(p.memberId) === String(memberId));
-    return { member, payments };
+    if (!member) {
+      const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+      member = members.find(m => String(m.memberId) === String(memberId));
+      payments = (getCache(STORAGE_KEYS.PAYMENTS_CACHE) || []).filter(p => String(p.memberId) === String(memberId));
+    }
+
+    if (!member) throw new Error('Member not found: ' + memberId);
+
+    const memberships = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+    const schedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const [enrichedMember] = enrichMembers([member], memberships, schedule);
+
+    return { member: enrichedMember, payments };
   },
 
   async createMember(memberData) {
@@ -426,6 +516,7 @@ export const api = {
     const newPayment = {
       paymentId: `PAY-${Date.now().toString().slice(-6)}`,
       chitId: paymentData.chitId || 'CHIT-100K-01',
+      chitNo: paymentData.chitNo || '',
       memberId: paymentData.memberId,
       memberName: paymentData.memberName,
       month: Number(paymentData.month),
@@ -466,6 +557,7 @@ export const api = {
     const newPayout = {
       payoutId: `PO-${Date.now().toString().slice(-6)}`,
       chitId: payoutData.chitId || 'CHIT-100K-01',
+      chitNo: payoutData.chitNo || '',
       month: Number(payoutData.month),
       monthNumber: Number(payoutData.month),
       memberId: payoutData.memberId || '',
@@ -533,6 +625,133 @@ export const api = {
     }
     setCache(STORAGE_KEYS.SETTINGS_CACHE, settingsData);
     return settingsData;
+  },
+
+  // Memberships
+  async getMemberships(params = {}) {
+    if (API_URL) {
+      try {
+        const data = await getApi('getMemberships', params);
+        if (data && Array.isArray(data)) {
+          setCache(STORAGE_KEYS.MEMBERSHIPS_CACHE, data);
+          return data;
+        }
+      } catch (e) {
+        console.warn('getMemberships fetch error:', e.message);
+      }
+    }
+    return getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+  },
+
+  async createMembership(membershipData) {
+    if (API_URL) {
+      try {
+        const newRecord = await postApi('createMembership', membershipData);
+        if (newRecord && newRecord.membershipId) {
+          const cached = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+          setCache(STORAGE_KEYS.MEMBERSHIPS_CACHE, [...cached, newRecord]);
+          return newRecord;
+        }
+      } catch (e) {
+        console.warn('createMembership API error, using local fallback:', e.message);
+      }
+    }
+    const cached = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+    const seq = Number(membershipData.payoutMonth || membershipData.month || cached.length + 1);
+    const chitNo = membershipData.chitNo || generateChitNumber({
+      year: 2026,
+      chitValue: membershipData.chitValue || 100000,
+      sequenceNumber: seq
+    });
+    const newRecord = {
+      membershipId: `MEMCHIT-${String(cached.length + 1).padStart(3, '0')}`,
+      memberId: membershipData.memberId,
+      chitId: membershipData.chitId || 'CHIT-100K-01',
+      chitNo: chitNo,
+      chitValue: Number(membershipData.chitValue) || 100000,
+      durationMonths: Number(membershipData.durationMonths) || 20,
+      monthlyPayment: Number(membershipData.monthlyPayment) || 3750,
+      payoutMonth: seq,
+      status: 'Active',
+      joinedDate: new Date().toISOString().split('T')[0]
+    };
+    setCache(STORAGE_KEYS.MEMBERSHIPS_CACHE, [...cached, newRecord]);
+    return newRecord;
+  },
+
+  async deleteMembership(membershipId) {
+    if (API_URL) {
+      try {
+        await postApi('deleteMembership', { membershipId });
+      } catch (e) {
+        console.warn('deleteMembership error:', e.message);
+      }
+    }
+    const cached = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+    const updated = cached.filter(m => String(m.membershipId) !== String(membershipId));
+    setCache(STORAGE_KEYS.MEMBERSHIPS_CACHE, updated);
+    return { success: true };
+  },
+
+  // WhatsApp Logging & Status
+  async getWhatsAppLogs() {
+    if (API_URL) {
+      try {
+        const data = await getApi('getWhatsAppLogs');
+        if (data && Array.isArray(data)) {
+          setCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE, data);
+          return data;
+        }
+      } catch (e) {
+        console.warn('getWhatsAppLogs error:', e.message);
+      }
+    }
+    return getCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE) || [];
+  },
+
+  async logWhatsAppMessage(payload) {
+    const logItem = {
+      messageId: `WA-${Date.now().toString().slice(-6)}`,
+      memberId: payload.memberId || '',
+      memberName: payload.memberName || '',
+      phone: payload.phone || '',
+      messageType: payload.messageType || 'Welcome',
+      chitNo: payload.chitNo || '',
+      message: payload.message || '',
+      relatedPaymentId: payload.relatedPaymentId || '',
+      relatedPayoutId: payload.relatedPayoutId || '',
+      status: payload.status || 'Prepared',
+      createdAt: new Date().toISOString()
+    };
+
+    if (API_URL) {
+      try {
+        const saved = await postApi('logWhatsApp', payload);
+        if (saved && saved.messageId) {
+          logItem.messageId = saved.messageId;
+        }
+      } catch (e) {
+        console.warn('logWhatsApp API error:', e.message);
+      }
+    }
+
+    const cached = getCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE) || [];
+    setCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE, [logItem, ...cached]);
+    return logItem;
+  },
+
+  async updateWhatsAppStatus(messageId, status) {
+    if (API_URL) {
+      try {
+        await postApi('updateWhatsAppStatus', { messageId, status });
+      } catch (e) {
+        console.warn('updateWhatsAppStatus API error:', e.message);
+      }
+    }
+    const cached = getCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE) || [];
+    const updated = cached.map(l => String(l.messageId) === String(messageId) ? { ...l, status } : l);
+    setCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE, updated);
+    return { success: true };
   },
 
   // Activity Log

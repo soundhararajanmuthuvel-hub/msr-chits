@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Phone,
+  Mail,
   MapPin,
   Calendar,
   CreditCard,
@@ -12,16 +13,25 @@ import {
   AlertCircle,
   Clock,
   Layers,
-  Building2
+  Building2,
+  MessageSquare,
+  PlusCircle,
+  Bell,
+  Eye,
+  ShieldCheck,
+  Send
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
 import { formatDate } from '../utils/date';
+import { isValidWhatsAppPhone } from '../utils/whatsapp';
 import StatusBadge from '../components/common/StatusBadge';
 import DataTable from '../components/common/DataTable';
 import MemberForm from '../components/members/MemberForm';
 import PaymentForm from '../components/payments/PaymentForm';
 import LoadingState from '../components/common/LoadingState';
+import WhatsAppComposerModal from '../components/whatsapp/WhatsAppComposerModal';
+import AssignChitModal from '../components/chits/AssignChitModal';
 import { useChit } from '../context/ChitContext';
 
 export const MemberDetails = () => {
@@ -35,6 +45,12 @@ export const MemberDetails = () => {
   // Modals
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [isAssignChitOpen, setIsAssignChitOpen] = useState(false);
+  const [whatsAppConfig, setWhatsAppConfig] = useState({
+    isOpen: false,
+    messageType: 'welcome',
+    selectedChitNo: ''
+  });
 
   const loadMemberData = async () => {
     setLoading(true);
@@ -57,9 +73,19 @@ export const MemberDetails = () => {
   }
 
   const { member, payments } = data;
+  const memberChits = member.chits || [];
+  const canWhatsApp = isValidWhatsAppPhone(member.mobile || member.phone);
 
   const handlePrintStatement = () => {
     window.print();
+  };
+
+  const handleOpenWhatsApp = (messageType = 'welcome', chitNo = '') => {
+    setWhatsAppConfig({
+      isOpen: true,
+      messageType,
+      selectedChitNo: chitNo
+    });
   };
 
   const paymentColumns = [
@@ -68,21 +94,30 @@ export const MemberDetails = () => {
       accessor: 'month',
       render: (row) => (
         <span className="font-bold text-[#003524]">
-          Month {row.month}
+          Month {row.month || row.monthNumber}
+        </span>
+      )
+    },
+    {
+      header: 'Chit No',
+      accessor: 'chitNo',
+      render: (row) => (
+        <span className="font-mono text-xs font-bold text-[#174D38]">
+          {row.chitNo || (memberChits[0]?.chitNo || '-')}
         </span>
       )
     },
     {
       header: 'Scheduled Due',
       accessor: 'dueAmount',
-      render: (row) => formatINR(row.dueAmount)
+      render: (row) => formatINR(row.dueAmount || row.amount || 3750)
     },
     {
       header: 'Amount Paid',
       accessor: 'paidAmount',
       render: (row) => (
         <span className="font-bold text-emerald-800">
-          {formatINR(row.paidAmount)}
+          {formatINR(row.paidAmount || row.amount)}
         </span>
       )
     },
@@ -96,7 +131,7 @@ export const MemberDetails = () => {
       accessor: 'paymentMode',
       render: (row) => (
         <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-xs font-semibold">
-          {row.paymentMode || 'Cash'}
+          {row.paymentMode || row.paymentMethod || 'Cash'}
         </span>
       )
     },
@@ -105,7 +140,7 @@ export const MemberDetails = () => {
       accessor: 'reference',
       render: (row) => (
         <span className="text-xs text-[#5B7065] font-mono">
-          {row.reference || '-'}
+          {row.reference || row.referenceNumber || '-'}
         </span>
       )
     },
@@ -156,20 +191,67 @@ export const MemberDetails = () => {
           </div>
         </div>
 
+        {/* Action Buttons with prominent WhatsApp Integration */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* WhatsApp Welcome Button */}
+          {canWhatsApp ? (
+            <button
+              type="button"
+              onClick={() => handleOpenWhatsApp('welcome')}
+              className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
+              title="Send WhatsApp Welcome Message"
+            >
+              <MessageSquare className="w-4 h-4 text-emerald-700" />
+              <span>WhatsApp Welcome</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="px-3 py-2 bg-slate-100 text-slate-400 border border-slate-200 text-xs sm:text-sm font-bold rounded-xl cursor-not-allowed flex items-center gap-1.5 min-h-[44px]"
+              title="Phone number required"
+            >
+              <MessageSquare className="w-4 h-4 text-slate-400" />
+              <span>Phone number required</span>
+            </button>
+          )}
+
+          {/* WhatsApp Payment Reminder Button */}
+          {canWhatsApp && (
+            <button
+              type="button"
+              onClick={() => handleOpenWhatsApp('reminder')}
+              className="px-3 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
+              title="Send Monthly Payment Reminder via WhatsApp"
+            >
+              <Bell className="w-4 h-4 text-[#C9A227]" />
+              <span>Payment Reminder</span>
+            </button>
+          )}
+
+          {/* Assign Chit Button */}
+          <button
+            type="button"
+            onClick={() => setIsAssignChitOpen(true)}
+            className="px-3 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
+          >
+            <PlusCircle className="w-4 h-4 text-[#174D38]" />
+            <span>Assign Chit</span>
+          </button>
+
           <button
             type="button"
             onClick={handlePrintStatement}
-            className="px-3.5 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+            className="px-3 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
           >
             <Printer className="w-4 h-4 text-[#174D38]" />
-            <span>Print Statement</span>
+            <span>Print</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsEditOpen(true)}
-            className="px-3.5 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+            className="px-3 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
           >
             <Edit2 className="w-4 h-4 text-[#174D38]" />
             <span>Edit Profile</span>
@@ -178,7 +260,7 @@ export const MemberDetails = () => {
           <button
             type="button"
             onClick={() => setIsPaymentOpen(true)}
-            className="px-4 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
           >
             <CreditCard className="w-4 h-4 text-[#C9A227]" />
             <span>Record Payment</span>
@@ -188,18 +270,31 @@ export const MemberDetails = () => {
 
       {/* Member Profile Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Contact & Chit Details */}
-        <div className="bg-white rounded-2xl p-6 border border-[#DCE8E0] shadow-sm space-y-4">
-          <h4 className="text-sm font-bold text-[#003524] pb-2 border-b border-[#EAF2EC]">
-            Member Information
+        {/* Contact Information */}
+        <div className="bg-white rounded-2xl p-6 border border-[#DCE8E0] shadow-xs space-y-4">
+          <h4 className="text-sm font-bold text-[#003524] pb-2 border-b border-[#EAF2EC] flex items-center justify-between">
+            <span>Member Profile</span>
+            <span className="text-[10px] font-mono text-[#5B7065]">{member.memberId}</span>
           </h4>
 
           <div className="space-y-3 text-xs">
             <div className="flex items-center gap-2.5 text-[#131E19]">
               <Phone className="w-4 h-4 text-[#174D38] shrink-0" />
               <div>
-                <span className="text-[#5B7065] block text-[10px]">Mobile</span>
-                <span className="font-bold">{member.mobile}</span>
+                <span className="text-[#5B7065] block text-[10px]">Mobile / Phone</span>
+                {member.mobile || member.phone ? (
+                  <span className="font-bold text-sm">+{member.mobile || member.phone}</span>
+                ) : (
+                  <span className="text-amber-800 font-semibold italic">Phone number required</span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 text-[#131E19]">
+              <Mail className="w-4 h-4 text-[#174D38] shrink-0" />
+              <div>
+                <span className="text-[#5B7065] block text-[10px]">Email</span>
+                <span className="font-medium">{member.email || 'No email provided'}</span>
               </div>
             </div>
 
@@ -208,14 +303,6 @@ export const MemberDetails = () => {
               <div>
                 <span className="text-[#5B7065] block text-[10px]">Address</span>
                 <span>{member.address || 'Address not specified'}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5 text-[#131E19]">
-              <Layers className="w-4 h-4 text-[#174D38] shrink-0" />
-              <div>
-                <span className="text-[#5B7065] block text-[10px]">Chit Slots Enrolled</span>
-                <span className="font-bold">{member.chitCount || 1} Chit</span>
               </div>
             </div>
 
@@ -228,10 +315,10 @@ export const MemberDetails = () => {
           </div>
         </div>
 
-        {/* Payout & Assignment Status */}
-        <div className="bg-white rounded-2xl p-6 border border-[#DCE8E0] shadow-sm space-y-4">
+        {/* Payout & Assignment Summary */}
+        <div className="bg-white rounded-2xl p-6 border border-[#DCE8E0] shadow-xs space-y-4">
           <h4 className="text-sm font-bold text-[#003524] pb-2 border-b border-[#EAF2EC]">
-            Dividend & Payout Schedule
+            Dividend & Schedule
           </h4>
 
           <div className="space-y-3.5 text-xs">
@@ -243,18 +330,18 @@ export const MemberDetails = () => {
             </div>
 
             <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-              <span className="text-[#5B7065] text-[11px] font-semibold">Dividend Received / Scheduled:</span>
+              <span className="text-[#5B7065] text-[11px] font-semibold">Active Chit Memberships:</span>
               <p className="text-base font-extrabold text-[#003524] mt-0.5">
-                {formatINR(member.payoutAmount || 0)}
+                {memberChits.length} {memberChits.length === 1 ? 'Chit Assigned' : 'Chits Assigned'}
               </p>
             </div>
           </div>
         </div>
 
         {/* Financial Summary */}
-        <div className="bg-white rounded-2xl p-6 border border-[#DCE8E0] shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl p-6 border border-[#DCE8E0] shadow-xs space-y-4">
           <h4 className="text-sm font-bold text-[#003524] pb-2 border-b border-[#EAF2EC]">
-            Installment Summary
+            Financial Ledger
           </h4>
 
           <div className="space-y-3.5 text-xs">
@@ -266,13 +353,139 @@ export const MemberDetails = () => {
             </div>
 
             <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-200">
-              <span className="font-semibold text-amber-800">Current Outstanding Due:</span>
+              <span className="font-semibold text-amber-800">Pending Due:</span>
               <span className="text-base font-extrabold text-amber-900">
                 {formatINR(member.totalPending || 0)}
               </span>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ==================================================================== */}
+      {/* SECTION 6: MY CHITS (Individual Chits per Member) */}
+      {/* ==================================================================== */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base sm:text-lg font-extrabold text-[#003524] tracking-tight">
+              MY CHITS
+            </h3>
+            <p className="text-xs text-[#5B7065]">
+              Individual chit memberships and assigned permanent unique Chit Numbers
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAssignChitOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+          >
+            <PlusCircle className="w-3.5 h-3.5 text-[#C9A227]" />
+            <span>Assign Chit</span>
+          </button>
+        </div>
+
+        {memberChits.length === 0 ? (
+          <div className="bg-white rounded-2xl p-8 border border-dashed border-[#DCE8E0] text-center space-y-3">
+            <Layers className="w-10 h-10 text-[#5B7065] mx-auto opacity-50" />
+            <h4 className="text-sm font-bold text-[#003524]">
+              No active chits assigned
+            </h4>
+            <p className="text-xs text-[#5B7065] max-w-sm mx-auto">
+              This member is registered in MSR Chits but currently has no active chit slot assigned.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsAssignChitOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+            >
+              <PlusCircle className="w-4 h-4 text-[#C9A227]" />
+              <span>Assign Chit</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {memberChits.map((chit) => (
+              <div
+                key={chit.chitNo}
+                className="bg-white rounded-2xl p-5 border border-[#DCE8E0] shadow-xs space-y-4 hover:border-[#174D38] transition-all"
+              >
+                {/* Chit Header */}
+                <div className="flex items-start justify-between">
+                  <div>
+                    <span className="font-mono text-lg font-black text-[#003524] tracking-tight block">
+                      {chit.chitNo}
+                    </span>
+                    <span className="text-xs font-semibold text-[#174D38]">
+                      MSR Chit — {formatINR(chit.chitValue || 100000)}
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                    {chit.status || 'Active'}
+                  </span>
+                </div>
+
+                {/* Chit Details Meta */}
+                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#EAF2EC]">
+                  <div>
+                    <span className="text-[#5B7065] text-[10px] block">Duration</span>
+                    <span className="font-bold text-[#131E19]">
+                      {chit.durationMonths || 20} Months
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#5B7065] text-[10px] block">Monthly Payment</span>
+                    <span className="font-bold text-[#003524]">
+                      {formatINR(chit.monthlyPayment || 3750)}
+                    </span>
+                  </div>
+                  <div className="col-span-2 pt-1">
+                    <span className="text-[#5B7065] text-[10px] block">Fixed Payout Month</span>
+                    <span className="inline-flex items-center gap-1 font-extrabold text-[#003524] bg-[#F0FCF4] px-2 py-0.5 rounded border border-[#DCE8E0]">
+                      <Calendar className="w-3 h-3 text-[#174D38]" />
+                      Month {chit.payoutMonth}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Card Actions */}
+                <div className="pt-3 border-t border-[#EAF2EC] flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/chits/${chit.chitId || 'CHIT-100K-01'}`)}
+                    className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-[#003524] text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 min-h-[44px]"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>View Chit</span>
+                  </button>
+
+                  {canWhatsApp ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenWhatsApp('welcome', chit.chitNo)}
+                      className="flex-1 py-2 px-3 bg-[#25D366]/15 hover:bg-[#25D366]/25 text-emerald-950 text-xs font-bold rounded-xl border border-emerald-300 transition-colors flex items-center justify-center gap-1.5 min-h-[44px]"
+                      title="Send WhatsApp message for this chit"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>WhatsApp</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="flex-1 py-2 px-3 bg-slate-50 text-slate-400 text-xs font-bold rounded-xl border border-slate-200 cursor-not-allowed flex items-center justify-center gap-1.5 min-h-[44px]"
+                      title="Phone number required"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
+                      <span>No Phone</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Member Installment Statement Table */}
@@ -307,6 +520,20 @@ export const MemberDetails = () => {
         onClose={() => setIsPaymentOpen(false)}
         prefilledMemberId={member.memberId}
         onSuccess={loadMemberData}
+      />
+
+      <AssignChitModal
+        isOpen={isAssignChitOpen}
+        onClose={() => setIsAssignChitOpen(false)}
+        prefilledMemberId={member.memberId}
+        onSuccess={loadMemberData}
+      />
+
+      <WhatsAppComposerModal
+        isOpen={whatsAppConfig.isOpen}
+        onClose={() => setWhatsAppConfig({ ...whatsAppConfig, isOpen: false })}
+        member={member}
+        initialMessageType={whatsAppConfig.messageType}
       />
     </div>
   );

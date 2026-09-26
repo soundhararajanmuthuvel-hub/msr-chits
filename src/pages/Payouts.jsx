@@ -7,7 +7,8 @@ import {
   Calendar,
   Layers,
   ArrowUpRight,
-  ShieldCheck
+  ShieldCheck,
+  MessageSquare
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
@@ -16,19 +17,30 @@ import StatCard from '../components/common/StatCard';
 import StatusBadge from '../components/common/StatusBadge';
 import DataTable from '../components/common/DataTable';
 import PayoutForm from '../components/payouts/PayoutForm';
+import WhatsAppComposerModal from '../components/whatsapp/WhatsAppComposerModal';
 import LoadingState from '../components/common/LoadingState';
 import { useChit } from '../context/ChitContext';
 
 export const Payouts = () => {
   const { activeChit, isRecordPayoutOpen, setIsRecordPayoutOpen } = useChit();
   const [payouts, setPayouts] = useState([]);
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const loadPayouts = async () => {
+  // WhatsApp composer state
+  const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
+  const [selectedWhatsAppMember, setSelectedWhatsAppMember] = useState(null);
+  const [selectedPayoutForWA, setSelectedPayoutForWA] = useState(null);
+
+  const loadData = async () => {
     setLoading(true);
     try {
-      const list = await api.getPayouts();
+      const [list, memberList] = await Promise.all([
+        api.getPayouts(),
+        api.getMembers()
+      ]);
       setPayouts(list || []);
+      setMembers(memberList || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -37,7 +49,7 @@ export const Payouts = () => {
   };
 
   useEffect(() => {
-    loadPayouts();
+    loadData();
   }, []);
 
   const totalPayoutAmount = payouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
@@ -53,6 +65,18 @@ export const Payouts = () => {
           Month {row.month}
         </span>
       )
+    },
+    {
+      header: 'Chit No',
+      accessor: 'chitNo',
+      render: (row) => {
+        const chitNo = row.chitNo || ('MSR261L' + String(row.month).padStart(2, '0'));
+        return (
+          <span className="font-mono text-xs font-bold text-[#003524] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+            {chitNo}
+          </span>
+        );
+      }
     },
     {
       header: 'Beneficiary Member',
@@ -107,6 +131,29 @@ export const Payouts = () => {
       header: 'Status',
       accessor: 'status',
       render: (row) => <StatusBadge status={row.status || 'Completed'} />
+    },
+    {
+      header: 'WhatsApp',
+      accessor: 'actions',
+      render: (row) => {
+        const member = members.find(m => m.id === row.memberId || m.name === row.memberName);
+        const chitNo = row.chitNo || ('MSR261L' + String(row.month).padStart(2, '0'));
+        return (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedPayoutForWA(row);
+              setSelectedWhatsAppMember(member || { name: row.memberName, phone: '' });
+              setWhatsAppModalOpen(true);
+            }}
+            title={member?.phone ? "Send WhatsApp Payout Confirmation" : "Phone number required"}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] hover:bg-[#003524] hover:text-white transition-colors"
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+            <span className="hidden sm:inline">Receipt</span>
+          </button>
+        );
+      }
     }
   ];
 
@@ -192,8 +239,20 @@ export const Payouts = () => {
       <PayoutForm
         isOpen={isRecordPayoutOpen}
         onClose={() => setIsRecordPayoutOpen(false)}
-        onSuccess={loadPayouts}
+        onSuccess={loadData}
       />
+
+      {/* WhatsApp Composer Modal */}
+      {whatsAppModalOpen && (
+        <WhatsAppComposerModal
+          isOpen={whatsAppModalOpen}
+          onClose={() => setWhatsAppModalOpen(false)}
+          member={selectedWhatsAppMember}
+          initialCategory="payout_completed"
+          relatedPayout={selectedPayoutForWA}
+          prefilledChitNo={selectedPayoutForWA?.chitNo || ('MSR261L' + String(selectedPayoutForWA?.month || 2).padStart(2, '0'))}
+        />
+      )}
     </div>
   );
 };

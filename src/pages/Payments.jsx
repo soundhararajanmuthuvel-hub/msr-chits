@@ -8,7 +8,8 @@ import {
   AlertCircle,
   Layers,
   ArrowDownLeft,
-  Printer
+  Printer,
+  MessageSquare
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
@@ -19,13 +20,20 @@ import SearchBar from '../components/common/SearchBar';
 import FilterBar from '../components/common/FilterBar';
 import DataTable from '../components/common/DataTable';
 import PaymentForm from '../components/payments/PaymentForm';
+import WhatsAppComposerModal from '../components/whatsapp/WhatsAppComposerModal';
 import LoadingState from '../components/common/LoadingState';
 import { useChit } from '../context/ChitContext';
 
 export const Payments = () => {
   const { activeChit, isRecordPaymentOpen, setIsRecordPaymentOpen } = useChit();
   const [payments, setPayments] = useState([]);
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // WhatsApp composer state
+  const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
+  const [selectedWhatsAppMember, setSelectedWhatsAppMember] = useState(null);
+  const [selectedPaymentForWA, setSelectedPaymentForWA] = useState(null);
 
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
@@ -33,11 +41,15 @@ export const Payments = () => {
   const [statusFilter, setStatusFilter] = useState('All');
   const [modeFilter, setModeFilter] = useState('All');
 
-  const loadPayments = async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
-      const list = await api.getPayments();
+      const [list, memberList] = await Promise.all([
+        api.getPayments(),
+        api.getMembers()
+      ]);
       setPayments(list || []);
+      setMembers(memberList || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -46,7 +58,7 @@ export const Payments = () => {
   };
 
   useEffect(() => {
-    loadPayments();
+    loadData();
   }, []);
 
   const totalCollected = payments.reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
@@ -105,6 +117,15 @@ export const Payments = () => {
       )
     },
     {
+      header: 'Chit No',
+      accessor: 'chitNo',
+      render: (row) => (
+        <span className="font-mono text-xs font-bold text-[#003524] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+          {row.chitNo || row.chitNumber || 'MSR261L01'}
+        </span>
+      )
+    },
+    {
       header: 'Month',
       accessor: 'month',
       render: (row) => (
@@ -140,6 +161,28 @@ export const Payments = () => {
       header: 'Status',
       accessor: 'status',
       render: (row) => <StatusBadge status={row.status || 'Paid'} />
+    },
+    {
+      header: 'WhatsApp',
+      accessor: 'actions',
+      render: (row) => {
+        const member = members.find(m => m.id === row.memberId || m.name === row.memberName);
+        return (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedPaymentForWA(row);
+              setSelectedWhatsAppMember(member || { name: row.memberName, phone: '' });
+              setWhatsAppModalOpen(true);
+            }}
+            title={member?.phone ? "Send WhatsApp Payment Confirmation" : "Phone number required"}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] hover:bg-[#003524] hover:text-white transition-colors"
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+            <span className="hidden sm:inline">Receipt</span>
+          </button>
+        );
+      }
     }
   ];
 
@@ -261,8 +304,20 @@ export const Payments = () => {
       <PaymentForm
         isOpen={isRecordPaymentOpen}
         onClose={() => setIsRecordPaymentOpen(false)}
-        onSuccess={loadPayments}
+        onSuccess={loadData}
       />
+
+      {/* WhatsApp Composer Modal */}
+      {whatsAppModalOpen && (
+        <WhatsAppComposerModal
+          isOpen={whatsAppModalOpen}
+          onClose={() => setWhatsAppModalOpen(false)}
+          member={selectedWhatsAppMember}
+          initialCategory="payment_received"
+          relatedPayment={selectedPaymentForWA}
+          prefilledChitNo={selectedPaymentForWA?.chitNo}
+        />
+      )}
     </div>
   );
 };

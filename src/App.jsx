@@ -13,6 +13,7 @@ import Payments from './pages/Payments';
 import Payouts from './pages/Payouts';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import WhatsApp from './pages/WhatsApp';
 import LoadingState from './components/common/LoadingState';
 
 // Protected Route Guard
@@ -60,6 +61,7 @@ export function App() {
               <Route path="/payments" element={<Payments />} />
               <Route path="/payouts" element={<Payouts />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/whatsapp" element={<WhatsApp />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
 

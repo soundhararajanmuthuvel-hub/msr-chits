@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatINR } from '../../utils/currency';
+import { generateChitNumber } from '../../utils/chitNumber';
 import StatusBadge from '../common/StatusBadge';
 import { UserCheck, Edit3, Send } from 'lucide-react';
 import { useChit } from '../../context/ChitContext';
@@ -35,7 +36,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
               <th className="py-3.5 px-4">Month</th>
               <th className="py-3.5 px-4">Monthly Chit</th>
               <th className="py-3.5 px-4">Payout</th>
-              <th className="py-3.5 px-4">Chit</th>
+              <th className="py-3.5 px-4">Chit No</th>
               <th className="py-3.5 px-4">Status</th>
               <th className="py-3.5 px-4">Assigned Member</th>
               <th className="py-3.5 px-4 text-right">Actions</th>
@@ -46,6 +47,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
               const isCurrent = item.month === currentMonth;
               const isCompleted = item.month < currentMonth;
               const isAssigned = item.assignedMemberName && item.assignedMemberName !== 'Not Assigned';
+              const permanentChitNo = item.chitNo || generateChitNumber(100000, 2026, item.month);
 
               return (
                 <tr
@@ -84,10 +86,10 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                     {formatINR(item.payoutAmount)}
                   </td>
 
-                  {/* Chit Reference (NIL, 2, 3, etc.) */}
+                  {/* Permanent Chit No */}
                   <td className="py-3.5 px-4">
-                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono font-semibold">
-                      {item.chitNumber || item.chit || item.month}
+                    <span className="px-2 py-0.5 rounded bg-emerald-50 text-[#003524] border border-emerald-200 text-xs font-mono font-bold">
+                      {permanentChitNo}
                     </span>
                   </td>
 
