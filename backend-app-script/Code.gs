@@ -833,8 +833,8 @@ function deleteMembershipRecord(membershipId) {
   return { success: false };
 }
 
-function cancelMembershipRecord(membershipId) {
-  if (!membershipId) throw new Error('membershipId is required');
+function cancelMembership(membershipId) {
+  if (!membershipId) return { success: false, message: 'membershipId is required' };
 
   const sheet = getSheet(SHEET_NAMES.MEMBERSHIPS);
   const lastRow = sheet.getLastRow();
@@ -842,7 +842,7 @@ function cancelMembershipRecord(membershipId) {
 
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
   const idColIndex = headers.indexOf('membershipId');
-  if (idColIndex === -1) throw new Error('membershipId column not found');
+  if (idColIndex === -1) return { success: false, message: 'membershipId column not found' };
 
   const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
   let matched = null;
@@ -861,10 +861,10 @@ function cancelMembershipRecord(membershipId) {
 
   if (!matched) return { success: false, message: 'Membership not found' };
 
-  // Set status = 'Cancelled', preserving Membership ID & Chit No (Prompt Section 12)
+  // Set status = 'CANCELLED', preserving Membership ID, Chit No & historical records (Prompt Section 12)
   const statusColIndex = headers.indexOf('status');
   if (statusColIndex !== -1) {
-    sheet.getRange(targetRow, statusColIndex + 1).setValue('Cancelled');
+    sheet.getRange(targetRow, statusColIndex + 1).setValue('CANCELLED');
   }
 
   const updatedAtColIndex = headers.indexOf('updatedAt');
@@ -872,8 +872,12 @@ function cancelMembershipRecord(membershipId) {
     sheet.getRange(targetRow, updatedAtColIndex + 1).setValue(new Date().toISOString());
   }
 
-  logActivity('CANCEL_MEMBERSHIP', 'Cancelled membership ' + membershipId + ' (' + (matched.chitNo || '') + ', Member: ' + (matched.memberId || '') + ')', 'Admin');
-  return { success: true, membershipId: membershipId, status: 'Cancelled', chitNo: matched.chitNo };
+  logActivity('Cancel Membership', 'Cancelled membership ' + membershipId + ' (' + (matched.chitNo || '') + ', Member: ' + (matched.memberId || '') + ')', 'Admin');
+  return { success: true, membershipId: membershipId, status: 'CANCELLED', chitNo: matched.chitNo };
+}
+
+function cancelMembershipRecord(membershipId) {
+  return cancelMembership(membershipId);
 }
 
 // ============================================================================
@@ -1017,10 +1021,14 @@ function createNewMember(data) {
 }
 
 function updateMemberDetails(memberId, data) {
+  if (!memberId) {
+    return { success: false, message: 'memberId is required' };
+  }
+
   const members = getSheetData(SHEET_NAMES.MEMBERS);
   const existing = members.find(m => String(m.memberId) === String(memberId));
   if (!existing) {
-    throw new Error('Member not found: ' + memberId);
+    return { success: false, message: 'Member not found.' };
   }
 
   const updateObj = {
@@ -1030,8 +1038,9 @@ function updateMemberDetails(memberId, data) {
   const changedFields = [];
 
   if (data.name !== undefined && String(data.name).trim()) {
-    updateObj.name = String(data.name).trim();
-    if (updateObj.name !== String(existing.name)) changedFields.push('name');
+    const newName = String(data.name).trim();
+    updateObj.name = newName;
+    if (newName !== String(existing.name || '')) changedFields.push('name');
   }
   if (data.mobile !== undefined || data.phone !== undefined) {
     const newPhone = String(data.mobile !== undefined ? data.mobile : data.phone).trim();
@@ -1039,52 +1048,66 @@ function updateMemberDetails(memberId, data) {
     if (newPhone !== String(existing.phone || existing.mobile || '')) changedFields.push('phone');
   }
   if (data.email !== undefined) {
-    updateObj.email = String(data.email).trim();
-    if (updateObj.email !== String(existing.email || '')) changedFields.push('email');
+    const newEmail = String(data.email).trim();
+    updateObj.email = newEmail;
+    if (newEmail !== String(existing.email || '')) changedFields.push('email');
   }
   if (data.address !== undefined) {
-    updateObj.address = String(data.address).trim();
-    if (updateObj.address !== String(existing.address || '')) changedFields.push('address');
+    const newAddress = String(data.address).trim();
+    updateObj.address = newAddress;
+    if (newAddress !== String(existing.address || '')) changedFields.push('address');
   }
   if (data.notes !== undefined) {
-    updateObj.notes = String(data.notes).trim();
-    if (updateObj.notes !== String(existing.notes || '')) changedFields.push('notes');
+    const newNotes = String(data.notes).trim();
+    updateObj.notes = newNotes;
+    if (newNotes !== String(existing.notes || '')) changedFields.push('notes');
   }
   if (data.status !== undefined && String(data.status).trim()) {
-    updateObj.status = String(data.status).trim();
-    if (updateObj.status !== String(existing.status || 'Active')) changedFields.push('status');
+    const newStatus = String(data.status).trim();
+    updateObj.status = newStatus;
+    if (newStatus !== String(existing.status || 'Active')) changedFields.push('status');
   }
-  if (data.assignedChits !== undefined) {
-    updateObj.assignedChits = data.assignedChits;
-  }
+
+  // IMPORTANT: Per requirement 4, do NOT overwrite assignedChits from manual edit.
+  // assignedChits is derived from Memberships.
 
   updateRow(SHEET_NAMES.MEMBERS, 'memberId', memberId, updateObj);
-  logActivity('UPDATE_MEMBER', 'Updated member ' + (existing.name || memberId) + ' (' + memberId + (changedFields.length > 0 ? ', fields: ' + changedFields.join(', ') : '') + ')', 'Admin');
-  return { success: true, memberId: memberId, updatedFields: changedFields };
+  const changeSummary = changedFields.length > 0 ? 'Changed: ' + changedFields.join(', ') : 'No fields changed';
+  logActivity('Member Updated', memberId + ' — ' + changeSummary, 'Admin');
+
+  return { success: true, memberId: memberId, updatedFields: changedFields, message: 'Member updated successfully' };
 }
 
-function deactivateMemberRecord(memberId) {
+function deactivateMember(memberId) {
+  if (!memberId) return { success: false, message: 'memberId is required' };
+
   const members = getSheetData(SHEET_NAMES.MEMBERS);
   const existing = members.find(m => String(m.memberId) === String(memberId));
   if (!existing) {
-    throw new Error('Member not found: ' + memberId);
+    return { success: false, message: 'Member not found.' };
   }
 
   const updateObj = {
-    status: 'Inactive',
+    status: 'INACTIVE',
     updatedAt: new Date().toISOString()
   };
 
   updateRow(SHEET_NAMES.MEMBERS, 'memberId', memberId, updateObj);
-  logActivity('DEACTIVATE_MEMBER', 'Deactivated member ' + (existing.name || memberId) + ' (' + memberId + ')', 'Admin');
-  return { success: true, memberId: memberId, status: 'Inactive' };
+  logActivity('Member Deactivated', memberId + ' (' + (existing.name || '') + ') deactivated', 'Admin');
+  return { success: true, memberId: memberId, status: 'INACTIVE', message: 'Member deactivated successfully' };
 }
 
-function reactivateMemberRecord(memberId) {
+function deactivateMemberRecord(memberId) {
+  return deactivateMember(memberId);
+}
+
+function reactivateMember(memberId) {
+  if (!memberId) return { success: false, message: 'memberId is required' };
+
   const members = getSheetData(SHEET_NAMES.MEMBERS);
   const existing = members.find(m => String(m.memberId) === String(memberId));
   if (!existing) {
-    throw new Error('Member not found: ' + memberId);
+    return { success: false, message: 'Member not found.' };
   }
 
   const updateObj = {
@@ -1093,43 +1116,48 @@ function reactivateMemberRecord(memberId) {
   };
 
   updateRow(SHEET_NAMES.MEMBERS, 'memberId', memberId, updateObj);
-  logActivity('REACTIVATE_MEMBER', 'Reactivated member ' + (existing.name || memberId) + ' (' + memberId + ')', 'Admin');
-  return { success: true, memberId: memberId, status: 'Active' };
+  logActivity('Member Reactivated', memberId + ' (' + (existing.name || '') + ') reactivated', 'Admin');
+  return { success: true, memberId: memberId, status: 'Active', message: 'Member reactivated successfully' };
 }
 
-function deleteMemberSafely(memberId) {
-  if (!memberId) throw new Error('memberId is required for deletion');
+function reactivateMemberRecord(memberId) {
+  return reactivateMember(memberId);
+}
 
-  // Verify financial relationships (Prompt Sections 6, 8, 13)
-  const payments = getAllPayments().filter(p => String(p.memberId) === String(memberId));
-  if (payments.length > 0) {
-    throw new Error('Cannot delete this member because financial records (' + payments.length + ' payments) are linked to this member. Please deactivate the member instead.');
-  }
+function deleteMember(memberId) {
+  if (!memberId) return { success: false, message: 'memberId is required' };
 
-  const payouts = getAllPayouts().filter(po => String(po.memberId) === String(memberId));
-  if (payouts.length > 0) {
-    throw new Error('Cannot delete this member because financial records (' + payouts.length + ' payouts) are linked to this member. Please deactivate the member instead.');
-  }
+  // Financial safety check: NEVER delete if memberships, payments, or payouts exist (Prompt Section 9 & 10)
+  const allMemberships = getSheetData(SHEET_NAMES.MEMBERSHIPS);
+  const linkedMemberships = allMemberships.filter(m => String(m.memberId) === String(memberId));
 
-  const memberships = getMembershipsSafe(memberId);
-  const activeMemberships = memberships.filter(m => m.status !== 'Cancelled');
-  if (activeMemberships.length > 0) {
-    throw new Error('Cannot delete this member because active chit memberships (' + activeMemberships.length + ') are linked to this member. Please cancel memberships or deactivate the member instead.');
-  }
+  const allPayments = getAllPayments();
+  const linkedPayments = allPayments.filter(p => String(p.memberId) === String(memberId));
 
-  const schedule = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE).filter(s => String(s.memberId || s.assignedMemberId) === String(memberId));
-  if (schedule.length > 0) {
-    throw new Error('Cannot delete this member because monthly schedule slots are assigned to this member. Please unassign or deactivate the member instead.');
+  const allPayouts = getAllPayouts();
+  const linkedPayouts = allPayouts.filter(po => String(po.memberId) === String(memberId));
+
+  if (linkedMemberships.length > 0 || linkedPayments.length > 0 || linkedPayouts.length > 0) {
+    return {
+      success: false,
+      code: 'MEMBER_HAS_FINANCIAL_RECORDS',
+      message: 'This member has linked financial records. Deactivate the member instead.',
+      counts: {
+        memberships: linkedMemberships.length,
+        payments: linkedPayments.length,
+        payouts: linkedPayouts.length
+      }
+    };
   }
 
   // Safe to permanently delete row
   const sheet = getSheet(SHEET_NAMES.MEMBERS);
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) throw new Error('Members sheet is empty');
+  if (lastRow < 2) return { success: false, message: 'Members sheet is empty' };
 
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
   const idColIndex = headers.indexOf('memberId');
-  if (idColIndex === -1) throw new Error('memberId column not found');
+  if (idColIndex === -1) return { success: false, message: 'memberId column not found' };
 
   const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
   let deleted = false;
@@ -1145,11 +1173,15 @@ function deleteMemberSafely(memberId) {
   }
 
   if (!deleted) {
-    throw new Error('Member ' + memberId + ' not found for deletion');
+    return { success: false, message: 'Member not found.' };
   }
 
-  logActivity('DELETE_MEMBER', 'Permanently deleted isolated member ' + memberName + ' (' + memberId + ')', 'Admin');
-  return { success: true, message: 'Member deleted permanently', memberId: memberId };
+  logActivity('Member Permanently Deleted', memberId + ' (' + memberName + ') permanently deleted', 'Admin');
+  return { success: true, message: 'Member permanently deleted', memberId: memberId };
+}
+
+function deleteMemberSafely(memberId) {
+  return deleteMember(memberId);
 }
 
 // ============================================================================
@@ -1646,15 +1678,15 @@ function handleRequest(e, method) {
         break;
 
       case 'deactivateMember':
-        result = deactivateMemberRecord(payload.memberId);
+        result = deactivateMember(payload.memberId);
         break;
 
       case 'reactivateMember':
-        result = reactivateMemberRecord(payload.memberId);
+        result = reactivateMember(payload.memberId);
         break;
 
       case 'deleteMember':
-        result = deleteMemberSafely(payload.memberId);
+        result = deleteMember(payload.memberId);
         break;
 
       case 'getMonthlySchedule':
@@ -1679,7 +1711,7 @@ function handleRequest(e, method) {
         break;
 
       case 'cancelMembership':
-        result = cancelMembershipRecord(payload.membershipId);
+        result = cancelMembership(payload.membershipId);
         break;
 
       case 'getWhatsAppLogs':
@@ -1747,6 +1779,10 @@ function handleRequest(e, method) {
         return createJsonResponse(false, 'Unknown API action: ' + action, null);
     }
 
+    if (result && typeof result === 'object' && result.success === false) {
+      return createJsonResponse(false, result.message || 'Operation failed', result, result.code);
+    }
+
     return createJsonResponse(true, 'Success', result);
   } catch (err) {
     return createJsonResponse(false, err.message || err.toString(), null);
@@ -1767,13 +1803,17 @@ function handleHealthCheck() {
 // JSON RESPONSE
 // ============================================================================
 
-function createJsonResponse(success, message, data) {
+function createJsonResponse(success, message, data, code) {
   const output = {
     success: success,
     message: message || (success ? 'Success' : 'Error'),
     data: data,
     timestamp: new Date().toISOString()
   };
+
+  if (code || (data && data.code)) {
+    output.code = code || (data && data.code);
+  }
 
   return ContentService.createTextOutput(JSON.stringify(output))
     .setMimeType(ContentService.MimeType.JSON);
