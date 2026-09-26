@@ -156,6 +156,10 @@ export async function getApi(action, params = {}) {
     localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
     return result.data;
   } catch (getErr) {
+    // If the server explicitly responded with "Unknown API action", do NOT retry via POST
+    if (getErr.message && getErr.message.includes('Unknown API action')) {
+      throw getErr;
+    }
     // If GET fails (e.g. CORS on redirect or network), try POST fallback with text/plain
     console.warn(`[MSR CHITS API] GET ${action} failed (${getErr.message}), trying POST fallback...`);
     return await postApi(action, params);
@@ -637,7 +641,9 @@ export const api = {
           return data;
         }
       } catch (e) {
-        console.warn('getMemberships fetch error:', e.message);
+        if (!e.message?.includes('Unknown API action')) {
+          console.warn('getMemberships fetch error:', e.message);
+        }
       }
     }
     return getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
@@ -703,7 +709,9 @@ export const api = {
           return data;
         }
       } catch (e) {
-        console.warn('getWhatsAppLogs error:', e.message);
+        if (!e.message?.includes('Unknown API action')) {
+          console.warn('getWhatsAppLogs error:', e.message);
+        }
       }
     }
     return getCache(STORAGE_KEYS.WHATSAPP_LOGS_CACHE) || [];

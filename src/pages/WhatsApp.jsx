@@ -16,7 +16,8 @@ import {
   History,
   Sparkles,
   ShieldCheck,
-  RefreshCw
+  RefreshCw,
+  Phone
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';

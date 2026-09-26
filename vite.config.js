@@ -15,8 +15,7 @@ export default defineConfig({
         'favicon.svg',
         'apple-touch-icon.png',
         'pwa-192x192.png',
-        'pwa-512x512.png',
-        'manifest.webmanifest'
+        'pwa-512x512.png'
       ],
       manifest: {
         name: 'MSR CHITS',
@@ -28,6 +27,7 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/login',
         scope: '/',
+        categories: ['finance', 'productivity', 'utilities'],
         icons: [
           {
             src: '/pwa-192x192.png',
@@ -53,7 +53,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
