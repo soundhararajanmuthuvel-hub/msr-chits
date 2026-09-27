@@ -28,7 +28,8 @@ import {
   calculateMonthlyChitFromPayout,
   calculatePayoutFromMonthlyChit,
   getCurrentChitMonth,
-  getChitInstallmentInfo
+  getChitInstallmentInfo,
+  getDefaultPayoutForMonth
 } from '../src/utils/chitCalculations.js';
 import { generateChitNumber, getNextAvailableChitNumber, parseChitNumber } from '../src/utils/chitNumber.js';
 import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage } from '../src/utils/whatsapp.js';
@@ -2052,6 +2053,123 @@ assert(
   partialPaymentReminder.includes('Total Amount Due: ₹1,750'),
   'MONTHLY REMINDER TEST 10: Partial payment displays Amount Due, Paid, and Balance Due accurately',
   `Partial Payment Msg:\n${partialPaymentReminder}`
+);
+
+// ----------------------------------------------------
+// SECTION 31: PAYOUT MONTH MAP & PAYOUT CALCULATIONS (Prompt Requirements)
+// ----------------------------------------------------
+console.log('\n----------------------------------------------------');
+console.log('SECTION 31: PAYOUT MONTH MAP & PAYOUT SEPARATION');
+console.log('----------------------------------------------------');
+
+const msr20Plan = calculateChitParameters({
+  chitValue: 100000,
+  multiple: 1,
+  duration: 20,
+  totalMembers: 20,
+  commissionPercent: 5,
+  dividend: 0
+});
+
+// TEST 1: Month 1: Monthly Chit = ₹5,000, Payout = ₹1,00,000
+const pmap1 = msr20Plan.schedule.find(s => s.month === 1);
+assert(
+  pmap1.monthlyAmount === 5000 && pmap1.payoutAmount === 100000 && pmap1.dividend === 0,
+  'PAYOUT MAP TEST 1: Month 1 has Monthly Chit = ₹5,000, Payout = ₹1,00,000, Dividend = ₹0',
+  `Month 1: Monthly=${pmap1.monthlyAmount}, Payout=${pmap1.payoutAmount}, Dividend=${pmap1.dividend}`
+);
+
+// TEST 2: Month 2: Monthly Chit = ₹3,750, Dividend = ₹1,250, Payout = ₹70,000
+const pmap2 = msr20Plan.schedule.find(s => s.month === 2);
+assert(
+  pmap2.monthlyAmount === 3750 && pmap2.payoutAmount === 70000 && pmap2.dividend === 1250,
+  'PAYOUT MAP TEST 2: Month 2 has Monthly Chit = ₹3,750, Payout = ₹70,000, Dividend = ₹1,250',
+  `Month 2: Monthly=${pmap2.monthlyAmount}, Payout=${pmap2.payoutAmount}, Dividend=${pmap2.dividend}`
+);
+
+// TEST 3: Month 3: Monthly Chit = ₹3,825, Dividend = ₹1,175, Payout = ₹71,500
+const pmap3 = msr20Plan.schedule.find(s => s.month === 3);
+assert(
+  pmap3.monthlyAmount === 3825 && pmap3.payoutAmount === 71500 && pmap3.dividend === 1175,
+  'PAYOUT MAP TEST 3: Month 3 has Monthly Chit = ₹3,825, Payout = ₹71,500, Dividend = ₹1,175',
+  `Month 3: Monthly=${pmap3.monthlyAmount}, Payout=${pmap3.payoutAmount}, Dividend=${pmap3.dividend}`
+);
+
+// TEST 4: Month 4: Monthly Chit = ₹3,900, Dividend = ₹1,100, Payout = ₹73,000
+const pmap4 = msr20Plan.schedule.find(s => s.month === 4);
+assert(
+  pmap4.monthlyAmount === 3900 && pmap4.payoutAmount === 73000 && pmap4.dividend === 1100,
+  'PAYOUT MAP TEST 4: Month 4 has Monthly Chit = ₹3,900, Payout = ₹73,000, Dividend = ₹1,100',
+  `Month 4: Monthly=${pmap4.monthlyAmount}, Payout=${pmap4.payoutAmount}, Dividend=${pmap4.dividend}`
+);
+
+// TEST 5: Month 8: Monthly Chit = ₹4,200, Dividend = ₹800, Payout = ₹79,000
+const pmap8 = msr20Plan.schedule.find(s => s.month === 8);
+assert(
+  pmap8.monthlyAmount === 4200 && pmap8.payoutAmount === 79000 && pmap8.dividend === 800,
+  'PAYOUT MAP TEST 5: Month 8 has Monthly Chit = ₹4,200, Payout = ₹79,000, Dividend = ₹800',
+  `Month 8: Monthly=${pmap8.monthlyAmount}, Payout=${pmap8.payoutAmount}, Dividend=${pmap8.dividend}`
+);
+
+// TEST 6: Month 16: Monthly Chit = ₹4,800, Dividend = ₹200, Payout = ₹91,000
+const pmap16 = msr20Plan.schedule.find(s => s.month === 16);
+assert(
+  pmap16.monthlyAmount === 4800 && pmap16.payoutAmount === 91000 && pmap16.dividend === 200,
+  'PAYOUT MAP TEST 6: Month 16 has Monthly Chit = ₹4,800, Payout = ₹91,000, Dividend = ₹200',
+  `Month 16: Monthly=${pmap16.monthlyAmount}, Payout=${pmap16.payoutAmount}, Dividend=${pmap16.dividend}`
+);
+
+// TEST 7: Month 17: Monthly Chit = ₹4,850, Dividend = ₹150, Payout = ₹92,000
+const pmap17 = msr20Plan.schedule.find(s => s.month === 17);
+assert(
+  pmap17.monthlyAmount === 4850 && pmap17.payoutAmount === 92000 && pmap17.dividend === 150,
+  'PAYOUT MAP TEST 7: Month 17 has Monthly Chit = ₹4,850, Payout = ₹92,000, Dividend = ₹150',
+  `Month 17: Monthly=${pmap17.monthlyAmount}, Payout=${pmap17.payoutAmount}, Dividend=${pmap17.dividend}`
+);
+
+// TEST 8: Month 20: Monthly Chit = ₹5,000, Dividend = ₹0, Payout = ₹95,000
+const pmap20 = msr20Plan.schedule.find(s => s.month === 20);
+assert(
+  pmap20.monthlyAmount === 5000 && pmap20.payoutAmount === 95000 && pmap20.dividend === 0,
+  'PAYOUT MAP TEST 8: Month 20 has Monthly Chit = ₹5,000, Payout = ₹95,000, Dividend = ₹0',
+  `Month 20: Monthly=${pmap20.monthlyAmount}, Payout=${pmap20.payoutAmount}, Dividend=${pmap20.dividend}`
+);
+
+// TEST 9: getDefaultPayoutForMonth function accuracy across all 20 months
+const expectedPayouts20M = [
+  100000, 70000, 71500, 73000, 74500, 76000, 77500, 79000, 80500, 82000,
+  83500, 85000, 86500, 88000, 89500, 91000, 92000, 93000, 94000, 95000
+];
+const allDefaultPayoutsMatch = expectedPayouts20M.every((expected, idx) => {
+  const actual = getDefaultPayoutForMonth(idx + 1, 100000, 20, 0);
+  return actual === expected;
+});
+assert(
+  allDefaultPayoutsMatch,
+  'PAYOUT MAP TEST 9: getDefaultPayoutForMonth returns exact expected amounts for all 20 months',
+  `Expected all 20 months to match reference schedule`
+);
+
+// TEST 10: Edit Month 2 Payout from ₹70,000 -> ₹75,000 recalculates Monthly Chit = ₹4,000 and Dividend = ₹1,000
+const editedPayout = 75000;
+const recalculatedMonthly = calculateMonthlyChitFromPayout({
+  payoutAmount: editedPayout,
+  commissionAmount: 5000,
+  totalMembers: 20
+});
+const recalculatedDividend = 5000 - recalculatedMonthly;
+assert(
+  recalculatedMonthly === 4000 && recalculatedDividend === 1000,
+  'PAYOUT MAP TEST 10: Editing Month 2 payout to ₹75,000 recalculates Monthly Chit = ₹4,000 and Dividend = ₹1,000',
+  `Recalculated: Monthly = ₹${recalculatedMonthly}, Dividend = ₹${recalculatedDividend}`
+);
+
+// TEST 11: Payout Amount is strictly distinct and never equals Monthly Chit amount
+const noMonthHasPayoutEqualToMonthly = msr20Plan.schedule.every(s => s.payoutAmount !== s.monthlyAmount);
+assert(
+  noMonthHasPayoutEqualToMonthly,
+  'PAYOUT MAP TEST 11: Payout Amount is never confused or interchanged with Monthly Chit amount',
+  `All 20 months have strictly distinct payout and monthly collection amounts`
 );
 
 console.log('\n====================================================');

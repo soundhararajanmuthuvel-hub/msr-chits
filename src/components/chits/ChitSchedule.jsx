@@ -1,6 +1,7 @@
 import React from 'react';
 import { formatINR } from '../../utils/currency';
 import { generateChitNumber } from '../../utils/chitNumber';
+import { getDefaultPayoutForMonth } from '../../utils/chitCalculations';
 import StatusBadge from '../common/StatusBadge';
 import { UserCheck, Edit3, Send, IndianRupee, Layers } from 'lucide-react';
 import { useChit } from '../../context/ChitContext';
@@ -18,11 +19,11 @@ export const ChitSchedule = ({
 
   const totalMonthlyAmount = schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount || item.amount) || 0), 0);
 
-  const sanitizePayoutAmount = (rawAmt, monthNum, defaultVal = 70000) => {
+  const sanitizePayoutAmount = (rawAmt, monthNum) => {
     const num = Number(rawAmt);
     // If num is less than 10,000, it's a legacy monthly collection amount (e.g. 3,750 or 5,000), not a payout
     if (!num || isNaN(num) || num < 10000) {
-      return monthNum === 1 ? 100000 : defaultVal;
+      return getDefaultPayoutForMonth(monthNum, 100000, 20, 0);
     }
     return num;
   };
@@ -34,7 +35,7 @@ export const ChitSchedule = ({
         memberId: po.memberId || '',
         memberName: po.memberName || 'Member',
         chitNo: po.chitNo || item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month }),
-        payoutAmount: sanitizePayoutAmount(po.payoutAmount || po.amount, item.month, item.month === 1 ? 100000 : 70000),
+        payoutAmount: sanitizePayoutAmount(po.payoutAmount || po.amount, item.month),
         fundingSource: String(po.fundingSource || '').toUpperCase().includes('EXTRA') ? 'EXTRA_INVESTMENT' : 'CHIT_FUND',
         notes: po.notes || ''
       }));
@@ -48,7 +49,7 @@ export const ChitSchedule = ({
           memberId: 'MEM-001',
           memberName: 'Amma',
           chitNo: item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: 2 }),
-          payoutAmount: sanitizePayoutAmount(item.payoutAmount, 2, 70000),
+          payoutAmount: sanitizePayoutAmount(item.payoutAmount, 2),
           fundingSource: 'CHIT_FUND',
           notes: 'Chit Fund Allocation'
         },
@@ -64,22 +65,18 @@ export const ChitSchedule = ({
       ];
     }
 
-    const amt = sanitizePayoutAmount(item.payoutAmount, item.month, item.month === 1 ? 100000 : 0);
-    if (amt > 0) {
-      return [
-        {
-          payoutId: item.scheduleId || `PO-M${item.month}`,
-          memberId: item.assignedMemberId || '',
-          memberName: (item.assignedMemberName && item.assignedMemberName !== 'Not Assigned') ? item.assignedMemberName : (item.month === 1 ? 'MU' : 'Not Assigned'),
-          chitNo: item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month }),
-          payoutAmount: amt,
-          fundingSource: 'CHIT_FUND',
-          notes: item.notes || ''
-        }
-      ];
-    }
-
-    return [];
+    const amt = sanitizePayoutAmount(item.payoutAmount, item.month);
+    return [
+      {
+        payoutId: item.scheduleId || `PO-M${item.month}`,
+        memberId: item.assignedMemberId || '',
+        memberName: (item.assignedMemberName && item.assignedMemberName !== 'Not Assigned') ? item.assignedMemberName : (item.month === 1 ? 'Soundhararajan M' : 'Member'),
+        chitNo: item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month }),
+        payoutAmount: amt,
+        fundingSource: 'CHIT_FUND',
+        notes: item.notes || ''
+      }
+    ];
   };
 
   return (

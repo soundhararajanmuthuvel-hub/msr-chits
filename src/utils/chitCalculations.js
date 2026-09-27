@@ -55,6 +55,43 @@ export function calculatePayoutFromMonthlyChit({
 }
 
 /**
+ * Returns the canonical scheduled payout amount for a specific month
+ * according to the MSR 20-month business calculation reference:
+ * - Month 1: 100% full payout (Chit NIL / Organizer)
+ * - Months 2 to 16: ₹70,000 + (month - 2) * ₹1,500 (scaled by chit value)
+ * - Months 17 to 20: ₹92,000 + (month - 17) * ₹1,000 (scaled by chit value)
+ */
+export function getDefaultPayoutForMonth(month, totalChitValue = 100000, duration = 20, dividend = 0) {
+  const m = Number(month) || 1;
+  const totVal = Math.max(0, Number(totalChitValue) || 100000);
+  const dur = Math.max(1, parseInt(duration, 10) || 20);
+  const div = Math.max(0, Number(dividend) || 0);
+  const scale = totVal / 100000;
+
+  if (m === 1) {
+    return totVal; // Month 1 full payout
+  }
+
+  if (dur === 20 && div === 0) {
+    if (m >= 2 && m <= 16) {
+      const baseP = 70000 + (m - 2) * 1500;
+      return Math.round(baseP * scale);
+    } else {
+      const baseP = 92000 + (m - 17) * 1000;
+      return Math.round(baseP * scale);
+    }
+  }
+
+  if (div > 0) {
+    const ratio = dur > 2 ? (dur - m) / (dur - 2) : 1;
+    const monthDiv = Math.round(div * Math.max(0, ratio));
+    return Math.max(0, totVal - (monthDiv * dur));
+  }
+
+  return totVal;
+}
+
+/**
  * Calculates core financial parameters for a chit plan
  */
 export function calculateChitParameters({
@@ -212,7 +249,7 @@ export function generateChitSchedule({
     const monthName = `${MONTH_NAMES[d.getMonth()]} ${yyyy}`;
     const monthNameShort = `${MONTH_NAMES_SHORT[d.getMonth()]} ${yyyy}`;
 
-    let defaultPayout = totalChitValue;
+    let defaultPayout = getDefaultPayoutForMonth(m, totalChitValue, dur, div);
     let defaultMonthly = baseInstallment;
     let monthDiv = 0;
 
@@ -223,16 +260,6 @@ export function generateChitSchedule({
       monthDiv = 0;
     } else if (dur === 20 && div === 0) {
       // EXACT MSR CHITS 20-MONTH REFERENCE BUSINESS MODEL (Flagship ₹1L / 20M Reference)
-      if (m >= 2 && m <= 16) {
-        // Months 2 to 16: Payout = ₹70,000 + (m - 2)*₹1,500 (scaled by chit value)
-        const baseP = 70000 + (m - 2) * 1500;
-        defaultPayout = Math.round(baseP * scale);
-      } else {
-        // Months 17 to 20: Payout = ₹92,000 + (m - 17)*₹1,000 (scaled by chit value)
-        const baseP = 92000 + (m - 17) * 1000;
-        defaultPayout = Math.round(baseP * scale);
-      }
-      // Core formula: Monthly Chit = (Payout + Commission) / Members
       defaultMonthly = calculateMonthlyChitFromPayout({
         payoutAmount: defaultPayout,
         commissionAmount: commAmt,
@@ -254,8 +281,9 @@ export function generateChitSchedule({
 
     // Use existing overrides if explicitly modified by user, otherwise use calculated defaults
     let finalPayoutAmount = defaultPayout;
-    if (existing.payoutAmount !== undefined && existing.payoutAmount !== null && Number(existing.payoutAmount) > 0) {
-      finalPayoutAmount = Number(existing.payoutAmount);
+    const existingPayoutNum = Number(existing.payoutAmount);
+    if (!isNaN(existingPayoutNum) && existingPayoutNum > 0 && (m === 1 || existingPayoutNum >= 10000 || existingPayoutNum !== Number(existing.monthlyAmount || existing.amount))) {
+      finalPayoutAmount = existingPayoutNum;
     }
 
     let finalMonthlyAmount = defaultMonthly;

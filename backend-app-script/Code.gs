@@ -557,7 +557,7 @@ function getChitDetails(chitId) {
       const monthPayouts = allPayouts.filter(po => Number(po.monthNumber || po.month) === monthNum);
 
       let payoutAmount = Number(s.payoutAmount);
-      if (isNaN(payoutAmount) || payoutAmount <= 0) {
+      if (isNaN(payoutAmount) || payoutAmount <= 0 || (payoutAmount <= 5000 && monthNum > 1)) {
         if (monthPayouts.length > 0) {
           payoutAmount = monthPayouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
         } else if (monthNum === 1) {
@@ -566,7 +566,20 @@ function getChitDetails(chitId) {
           const div = Number(chit.dividend) || 0;
           const dur = Number(chit.duration || chit.durationMonths) || 20;
           const totVal = Number(chit.chitValue || chit.totalAmount) || 100000;
-          payoutAmount = div > 0 ? Math.max(0, totVal - (div * dur)) : totVal;
+          const scale = totVal / 100000;
+          if (dur === 20 && div === 0) {
+            if (monthNum >= 2 && monthNum <= 16) {
+              payoutAmount = Math.round((70000 + (monthNum - 2) * 1500) * scale);
+            } else {
+              payoutAmount = Math.round((92000 + (monthNum - 17) * 1000) * scale);
+            }
+          } else if (div > 0) {
+            const ratio = dur > 2 ? (dur - monthNum) / (dur - 2) : 1;
+            const monthDiv = Math.round(div * Math.max(0, ratio));
+            payoutAmount = Math.max(0, totVal - (monthDiv * dur));
+          } else {
+            payoutAmount = totVal;
+          }
         }
       }
 
