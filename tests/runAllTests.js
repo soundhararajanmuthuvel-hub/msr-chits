@@ -1816,6 +1816,244 @@ assert(
   `M1Due=${payMonth1Due}, M2Due=${payMonth2Due}, M3Due=${payMonth3Due}`
 );
 
+// ============================================================================
+// SECTION 30: MONTHLY PAYMENT REMINDER & BANK/UPI SETTINGS VERIFICATION SUITE
+// ============================================================================
+console.log('\n----------------------------------------------------');
+console.log('SECTION 30: MONTHLY PAYMENT REMINDER & BANK/UPI SETTINGS');
+console.log('----------------------------------------------------');
+
+// Test Settings Configurations
+const initialBankSettings = {
+  upiId: 'test@upi',
+  accountHolderName: 'MSR CHITS',
+  bankName: 'Example Bank',
+  accountNumber: '1234567890',
+  ifscCode: 'EXAMPLE0001',
+  branch: 'Main Branch',
+  paymentInstructions: 'Please mention Chit No in remarks'
+};
+
+// TEST 1: November 2026 (Month 2) reminder contains Month 2 / 20 and ₹3,750 (NOT ₹5,000, NOT static)
+const month2ScheduleMap = { 1: 5000, 2: 3750, 3: 3825, 4: 3900, 20: 5000 };
+const memberAmma = {
+  name: 'Amma',
+  mobile: '9840123456',
+  chits: [
+    { chitNo: 'MSR261L05', chitValue: 100000, durationMonths: 20, status: 'Active' }
+  ]
+};
+
+const novReminderMsg = generatePaymentReminderMessage(memberAmma, {
+  month: 2,
+  currentMonth: 2,
+  monthName: 'November 2026',
+  dueDate: '20 Nov 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: initialBankSettings
+});
+
+assert(
+  novReminderMsg.includes('November 2026') &&
+  novReminderMsg.includes('20 Nov 2026') &&
+  novReminderMsg.includes('Chit Month: 2 / 20') &&
+  novReminderMsg.includes('Amount Due: ₹3,750') &&
+  novReminderMsg.includes('Total Amount Due: ₹3,750') &&
+  !novReminderMsg.includes('Amount Due: ₹5,000'),
+  'MONTHLY REMINDER TEST 1: November 2026 reminder resolves to Month 2 / 20 and ₹3,750 (NOT ₹5,000)',
+  `Nov Message:\n${novReminderMsg}`
+);
+
+// TEST 2: December 2026 (Month 3) reminder automatically changes to Month 3 / 20 and ₹3,825
+const decReminderMsg = generatePaymentReminderMessage(memberAmma, {
+  month: 3,
+  currentMonth: 3,
+  monthName: 'December 2026',
+  dueDate: '20 Dec 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: initialBankSettings
+});
+
+assert(
+  decReminderMsg.includes('December 2026') &&
+  decReminderMsg.includes('20 Dec 2026') &&
+  decReminderMsg.includes('Chit Month: 3 / 20') &&
+  decReminderMsg.includes('Amount Due: ₹3,825') &&
+  decReminderMsg.includes('Total Amount Due: ₹3,825') &&
+  !decReminderMsg.includes('Amount Due: ₹3,750'),
+  'MONTHLY REMINDER TEST 2: December 2026 reminder automatically updates to Month 3 / 20 and ₹3,825',
+  `Dec Message:\n${decReminderMsg}`
+);
+
+// TEST 3: Multiple Chits for a single member (MSR261L06, MSR261L14, MSR261L07) in November 2026
+const multiChitMember = {
+  name: 'Chinna Periyappa',
+  mobile: '9840999888',
+  chits: [
+    { chitNo: 'MSR261L06', chitValue: 100000, durationMonths: 20, status: 'Active' },
+    { chitNo: 'MSR261L14', chitValue: 100000, durationMonths: 20, status: 'Active' },
+    { chitNo: 'MSR261L07', chitValue: 100000, durationMonths: 20, status: 'Active' }
+  ]
+};
+
+const multiChitNovMsg = generatePaymentReminderMessage(multiChitMember, {
+  month: 2,
+  currentMonth: 2,
+  monthName: 'November 2026',
+  dueDate: '20 Nov 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: initialBankSettings
+});
+
+assert(
+  multiChitNovMsg.includes('MSR261L06') &&
+  multiChitNovMsg.includes('MSR261L14') &&
+  multiChitNovMsg.includes('MSR261L07') &&
+  multiChitNovMsg.includes('Total Amount Due: ₹11,250'), // 3,750 * 3 = 11,250
+  'MONTHLY REMINDER TEST 3: Consolidated multi-chit reminder (3 chits) sums to ₹11,250 for Month 2',
+  `Multi-Chit Message:\n${multiChitNovMsg}`
+);
+
+// TEST 4: Multiple Chits for a single member in December 2026 (3 chits @ ₹3,825 = ₹11,475)
+const multiChitDecMsg = generatePaymentReminderMessage(multiChitMember, {
+  month: 3,
+  currentMonth: 3,
+  monthName: 'December 2026',
+  dueDate: '20 Dec 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: initialBankSettings
+});
+
+assert(
+  multiChitDecMsg.includes('MSR261L06') &&
+  multiChitDecMsg.includes('MSR261L14') &&
+  multiChitDecMsg.includes('MSR261L07') &&
+  multiChitDecMsg.includes('Total Amount Due: ₹11,475'), // 3,825 * 3 = 11,475
+  'MONTHLY REMINDER TEST 4: Consolidated multi-chit reminder (3 chits) sums to ₹11,475 for Month 3',
+  `Multi-Chit Dec Message:\n${multiChitDecMsg}`
+);
+
+// TEST 5: Bank Settings Integration: Verify configured values in reminder
+assert(
+  novReminderMsg.includes('UPI ID:\ntest@upi') &&
+  novReminderMsg.includes('Bank:\nExample Bank') &&
+  novReminderMsg.includes('Account Name:\nMSR CHITS') &&
+  novReminderMsg.includes('Account No:\n1234567890') &&
+  novReminderMsg.includes('IFSC:\nEXAMPLE0001'),
+  'MONTHLY REMINDER TEST 5: Message reads configured bank & UPI details from Settings',
+  `Bank details verification`
+);
+
+// TEST 6: Change UPI in Settings -> Update propagates dynamically
+const updatedBankSettings = {
+  ...initialBankSettings,
+  upiId: 'newupi@upi'
+};
+
+const updatedUpiReminder = generatePaymentReminderMessage(memberAmma, {
+  month: 2,
+  currentMonth: 2,
+  monthName: 'November 2026',
+  dueDate: '20 Nov 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: updatedBankSettings
+});
+
+assert(
+  updatedUpiReminder.includes('UPI ID:\nnewupi@upi') &&
+  !updatedUpiReminder.includes('test@upi'),
+  'MONTHLY REMINDER TEST 6: Updating UPI ID in Settings reflects immediately in next reminder',
+  `New UPI verified: ${updatedUpiReminder.includes('newupi@upi')}`
+);
+
+// TEST 7: Only UPI Configured (No bank fields) -> Hides blank bank fields cleanly
+const upiOnlySettings = {
+  upiId: 'onlyupi@okhdfc'
+};
+const upiOnlyReminder = generatePaymentReminderMessage(memberAmma, {
+  month: 2,
+  currentMonth: 2,
+  monthName: 'November 2026',
+  dueDate: '20 Nov 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: upiOnlySettings
+});
+
+assert(
+  upiOnlyReminder.includes('UPI ID:\nonlyupi@okhdfc') &&
+  !upiOnlyReminder.includes('Bank:') &&
+  !upiOnlyReminder.includes('Account No:'),
+  'MONTHLY REMINDER TEST 7: If only UPI configured, blank bank fields are hidden',
+  `UPI Only:\n${upiOnlyReminder}`
+);
+
+// TEST 8: Neither UPI nor Bank Configured -> Shows fallback notice without inventing details
+const emptySettingsReminder = generatePaymentReminderMessage(memberAmma, {
+  month: 2,
+  currentMonth: 2,
+  monthName: 'November 2026',
+  dueDate: '20 Nov 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: {}
+});
+
+assert(
+  emptySettingsReminder.includes('Payment details are not configured. Please contact MSR CHITS.'),
+  'MONTHLY REMINDER TEST 8: Fallback message displayed when no payment methods configured',
+  `Empty settings message verified`
+);
+
+// TEST 9: Cancelled Chits Exclusion: Cancelled chit is NOT included in monthly reminder
+const memberWithCancelledChit = {
+  name: 'Soundhararajan',
+  mobile: '9840123456',
+  chits: [
+    { chitNo: 'MSR261L01', status: 'Active', chitValue: 100000, durationMonths: 20 },
+    { chitNo: 'MSR261L02', status: 'CANCELLED', chitValue: 100000, durationMonths: 20 }
+  ]
+};
+
+const cancelledExcludedReminder = generatePaymentReminderMessage(memberWithCancelledChit, {
+  month: 2,
+  currentMonth: 2,
+  monthName: 'November 2026',
+  dueDate: '20 Nov 2026',
+  monthSchedule: month2ScheduleMap,
+  settings: initialBankSettings
+});
+
+assert(
+  cancelledExcludedReminder.includes('MSR261L01') &&
+  !cancelledExcludedReminder.includes('MSR261L02') &&
+  cancelledExcludedReminder.includes('Total Amount Due: ₹3,750'),
+  'MONTHLY REMINDER TEST 9: Cancelled memberships (status = CANCELLED) are strictly excluded from reminder',
+  `Message with cancelled check:\n${cancelledExcludedReminder}`
+);
+
+// TEST 10: Partial Payment Reminder displays Amount Due, Paid, and Balance Due
+const partialPaymentReminder = generatePaymentReminderMessage({
+  memberName: 'Periya Periyappa',
+  mobile: '9840555444',
+  chitNo: 'MSR261L05',
+  durationMonths: 20,
+  amount: 3750,
+  paidAmount: 2000,
+  month: 2,
+  currentMonth: 2,
+  monthName: 'November 2026',
+  dueDate: '20 Nov 2026',
+  settings: initialBankSettings
+});
+
+assert(
+  partialPaymentReminder.includes('Amount Due: ₹3,750') &&
+  partialPaymentReminder.includes('Paid: ₹2,000') &&
+  partialPaymentReminder.includes('Balance Due: ₹1,750') &&
+  partialPaymentReminder.includes('Total Amount Due: ₹1,750'),
+  'MONTHLY REMINDER TEST 10: Partial payment displays Amount Due, Paid, and Balance Due accurately',
+  `Partial Payment Msg:\n${partialPaymentReminder}`
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');

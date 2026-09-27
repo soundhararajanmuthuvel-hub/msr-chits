@@ -34,6 +34,7 @@ export const Payments = () => {
   const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
   const [selectedWhatsAppMember, setSelectedWhatsAppMember] = useState(null);
   const [selectedPaymentForWA, setSelectedPaymentForWA] = useState(null);
+  const [selectedWhatsAppType, setSelectedWhatsAppType] = useState('payment_confirmation');
 
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
@@ -174,21 +175,30 @@ export const Payments = () => {
       header: 'WhatsApp',
       accessor: 'actions',
       render: (row) => {
-        const member = members.find(m => m.id === row.memberId || m.name === row.memberName);
+        const member = members.find(m => m.id === row.memberId || m.memberId === row.memberId || m.name === row.memberName);
+        const isPaid = row.status === 'Paid';
+
         return (
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedPaymentForWA(row);
-              setSelectedWhatsAppMember(member || { name: row.memberName, phone: '' });
-              setWhatsAppModalOpen(true);
-            }}
-            title={member?.phone ? "Send WhatsApp Payment Confirmation" : "Phone number required"}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] hover:bg-[#003524] hover:text-white transition-colors"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
-            <span className="hidden sm:inline">Receipt</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedPaymentForWA(row);
+                setSelectedWhatsAppMember(member || { name: row.memberName, memberId: row.memberId, mobile: row.phone || '' });
+                setSelectedWhatsAppType(isPaid ? 'payment_confirmation' : 'reminder');
+                setWhatsAppModalOpen(true);
+              }}
+              title={member?.mobile || member?.phone ? (isPaid ? "Send WhatsApp Payment Confirmation" : "Send WhatsApp Payment Reminder") : "Phone number required"}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                isPaid
+                  ? 'bg-[#F0FCF4] text-[#003524] border-[#DCE8E0] hover:bg-[#003524] hover:text-white'
+                  : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-600 hover:text-white'
+              }`}
+            >
+              <MessageSquare className={`w-3.5 h-3.5 ${isPaid ? 'text-[#25D366]' : 'text-amber-600'}`} />
+              <span className="hidden sm:inline">{isPaid ? 'Receipt' : 'Reminder'}</span>
+            </button>
+          </div>
         );
       }
     }
@@ -321,9 +331,8 @@ export const Payments = () => {
           isOpen={whatsAppModalOpen}
           onClose={() => setWhatsAppModalOpen(false)}
           member={selectedWhatsAppMember}
-          initialCategory="payment_received"
-          relatedPayment={selectedPaymentForWA}
-          prefilledChitNo={selectedPaymentForWA?.chitNo}
+          initialMessageType={selectedWhatsAppType}
+          paymentRecord={selectedPaymentForWA}
         />
       )}
     </div>

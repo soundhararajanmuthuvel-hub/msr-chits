@@ -11,7 +11,10 @@ import {
   ExternalLink,
   CheckCircle2,
   Calendar,
-  Sparkles
+  Sparkles,
+  Receipt,
+  CreditCard,
+  Info
 } from 'lucide-react';
 import {
   normalizeIndianPhone,
@@ -24,6 +27,12 @@ import {
   buildPayoutReminderMessage,
   buildPayoutConfirmationMessage
 } from '../../utils/whatsapp';
+import {
+  generateChitSchedule,
+  getCurrentChitMonth,
+  getChitInstallmentInfo
+} from '../../utils/chitCalculations';
+import { formatINR } from '../../utils/currency';
 import { api } from '../../services/api';
 import { useChit } from '../../context/ChitContext';
 
@@ -56,14 +65,16 @@ export const WhatsAppComposerModal = ({
     api.getSettings().then(s => setSettings(s)).catch(() => {});
   }, []);
 
-  // Member's chits
+  // Filter member's active chits (exclude cancelled/inactive)
   const memberChits = useMemo(() => {
     if (!member) return [];
-    if (member.chits && member.chits.length > 0) return member.chits;
-    if (member.assignedMonths && member.assignedMonths.length > 0) {
+    let list = [];
+    if (member.chits && member.chits.length > 0) {
+      list = member.chits;
+    } else if (member.assignedMonths && member.assignedMonths.length > 0) {
       const chitVal = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
       const monthlyPay = Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0);
-      return member.assignedMonths.map(m => ({
+      list = member.assignedMonths.map(m => ({
         chitNo: `MSR261L${String(m).padStart(2, '0')}`,
         payoutMonth: m,
         chitValue: chitVal,
@@ -72,8 +83,62 @@ export const WhatsAppComposerModal = ({
         status: 'Active'
       }));
     }
-    return [];
+    return list.filter(c => {
+      const s = String(c?.status || '').toUpperCase();
+      return s !== 'CANCELLED' && s !== 'INACTIVE';
+    });
   }, [member, activeChit]);
+
+  // Generate master monthly schedule and installment data
+  const scheduleData = useMemo(() => {
+    const chitObj = activeChit || {
+      chitValue: 100000,
+      duration: 20,
+      totalMembers: 20,
+      startDate: '2026-10-01',
+      paymentDay: 20,
+      commissionPercent: 5,
+      dividend: 0
+    };
+
+    const sched = generateChitSchedule({
+      chitId: chitObj.chitId || 'CHIT-100K-01',
+      chitValue: chitObj.chitValue || 100000,
+      multiple: chitObj.multiple || 1,
+      duration: chitObj.duration || 20,
+      totalMembers: chitObj.totalMembers || 20,
+      commissionPercent: chitObj.commissionPercent || 5,
+      dividend: chitObj.dividend || 0,
+      startDate: chitObj.startDate || '2026-10-01',
+      paymentDay: chitObj.paymentDay || 20
+    });
+
+    const currentMonthNum = getCurrentChitMonth(chitObj, new Date());
+    const currentItem = sched.find(s => Number(s.month || s.monthNumber) === currentMonthNum) || sched[0] || {};
+    
+    // Build quick month -> amount lookup table
+    const monthScheduleMap = {};
+    sched.forEach(s => {
+      monthScheduleMap[s.month] = Number(s.monthlyAmount || s.amount) || 3750;
+    });
+
+    // Calculate total due across all member active chits for this month
+    const totalDue = memberChits.reduce((sum, chit) => {
+      const chitMonth = Number(chit.currentMonth || currentMonthNum);
+      const amountForMonth = monthScheduleMap[chitMonth] || (chitMonth === 1 ? 5000 : 3750);
+      const paid = Number(chit.paidAmount || 0);
+      return sum + Math.max(0, amountForMonth - paid);
+    }, 0);
+
+    return {
+      schedule: sched,
+      currentMonthNum,
+      monthName: currentItem.monthName || `Month ${currentMonthNum}`,
+      dueDate: currentItem.dueDate ? `${currentItem.dueDate.split('-')[2]} ${currentItem.monthNameShort}` : `20th of Month ${currentMonthNum}`,
+      monthScheduleMap,
+      totalDue
+    };
+  }, [activeChit, memberChits]);
 
   // Set default selected chit on open
   useEffect(() => {
@@ -114,18 +179,26 @@ export const WhatsAppComposerModal = ({
         msg = buildPaymentReminderMessage({
           memberName,
           chits: memberChits,
-          currentMonth: activeChit?.currentMonth || 1,
-          upiId: settings?.upiId || ''
+          currentMonth: scheduleData.currentMonthNum,
+          monthName: scheduleData.monthName,
+          dueDate: scheduleData.dueDate,
+          monthSchedule: scheduleData.monthScheduleMap,
+          settings: settings || {}
         });
         break;
 
       case 'payment_confirmation': {
         const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
+        const payMonth = paymentRecord?.month || paymentRecord?.monthNumber || scheduleData.currentMonthNum || 1;
+        const expectedAmt = scheduleData.monthScheduleMap[payMonth] || (payMonth === 1 ? 5000 : 3750);
+        
         msg = buildPaymentConfirmationMessage({
           memberName,
           chitNo: paymentRecord?.chitNo || chit.chitNo || selectedChitNo || 'N/A',
-          month: paymentRecord?.month || paymentRecord?.monthNumber || activeChit?.currentMonth || 1,
-          amount: paymentRecord?.amount || paymentRecord?.paidAmount || chit.monthlyPayment || chit.monthlyAmount || 0,
+          month: payMonth,
+          duration: activeChit?.duration || 20,
+          amount: paymentRecord?.amount || paymentRecord?.paidAmount || expectedAmt,
+          paidAmount: paymentRecord?.paidAmount || paymentRecord?.amount || expectedAmt,
           paymentDate: paymentRecord?.paymentDate || new Date().toISOString().split('T')[0],
           reference: paymentRecord?.reference || paymentRecord?.referenceNumber || ''
         });
@@ -137,7 +210,7 @@ export const WhatsAppComposerModal = ({
         msg = buildPayoutDetailMessage({
           memberName,
           chitNo: chit.chitNo || selectedChitNo || 'N/A',
-          chitValue: chit.chitValue || Number(activeChit?.chitValue || 0),
+          chitValue: chit.chitValue || Number(activeChit?.chitValue || 100000),
           payoutMonth: chit.payoutMonth || 1
         });
         break;
@@ -148,7 +221,7 @@ export const WhatsAppComposerModal = ({
         msg = buildPayoutReminderMessage({
           memberName,
           chitNo: chit.chitNo || selectedChitNo || 'N/A',
-          chitValue: chit.chitValue || Number(activeChit?.chitValue || 0),
+          chitValue: chit.chitValue || Number(activeChit?.chitValue || 100000),
           payoutMonth: chit.payoutMonth || 1
         });
         break;
@@ -173,7 +246,7 @@ export const WhatsAppComposerModal = ({
     }
 
     setCustomMessage(msg);
-  }, [messageType, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, activeChit, isOpen, settings]);
+  }, [messageType, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, activeChit, isOpen, settings, scheduleData]);
 
   const handleCopy = () => {
     if (!customMessage) return;
@@ -327,8 +400,53 @@ export const WhatsAppComposerModal = ({
           </div>
         </div>
 
-        {/* Assigned Chit Selector (When relevant) */}
-        {memberChits.length > 0 && (
+        {/* Payment Reminder Preview Card (Requirement 15) */}
+        {messageType === 'reminder' && (
+          <div className="p-4 rounded-xl bg-[#F0FCF4] border border-[#DCE8E0] space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-[#DCE8E0]/70">
+              <span className="text-xs font-bold text-[#003524] uppercase tracking-wider flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-[#174D38]" />
+                Payment Reminder Preview
+              </span>
+              <span className="text-[10px] font-bold bg-white text-[#174D38] px-2 py-0.5 rounded border border-[#DCE8E0]">
+                {scheduleData.monthName}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0]">
+                <span className="text-[#5B7065] text-[10px] block font-semibold">Member</span>
+                <span className="font-bold text-[#003524] truncate block">
+                  {member.name}
+                </span>
+              </div>
+
+              <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0]">
+                <span className="text-[#5B7065] text-[10px] block font-semibold">Month</span>
+                <span className="font-bold text-[#003524] block">
+                  {scheduleData.monthName}
+                </span>
+              </div>
+
+              <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0]">
+                <span className="text-[#5B7065] text-[10px] block font-semibold">Active Chits</span>
+                <span className="font-bold text-[#003524] block">
+                  {memberChits.length}
+                </span>
+              </div>
+
+              <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-300">
+                <span className="text-emerald-800 text-[10px] block font-semibold">Total Due</span>
+                <span className="font-extrabold text-emerald-950 text-sm block">
+                  {formatINR(scheduleData.totalDue)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Assigned Chit Selector (When relevant and not reminder) */}
+        {messageType !== 'reminder' && memberChits.length > 0 && (
           <div>
             <label className="block text-xs font-bold text-[#003524] mb-1">
               Active Member Chits
