@@ -981,6 +981,273 @@ export const api = {
     };
   },
 
+  // Profit & Loss Analysis (Single Source of Truth)
+  async getProfitLoss(filters = {}) {
+    if (API_URL) {
+      try {
+        const queryParams = new URLSearchParams();
+        if (filters.chitId && filters.chitId !== 'all') queryParams.append('chitId', filters.chitId);
+        if (filters.memberId && filters.memberId !== 'all') queryParams.append('memberId', filters.memberId);
+        if (filters.month && filters.month !== 'all') queryParams.append('month', filters.month);
+        if (filters.fundingSource && filters.fundingSource !== 'all') queryParams.append('fundingSource', filters.fundingSource);
+        if (filters.dateFrom) queryParams.append('dateFrom', filters.dateFrom);
+        if (filters.dateTo) queryParams.append('dateTo', filters.dateTo);
+
+        const qs = queryParams.toString();
+        const action = qs ? `getProfitLoss&${qs}` : 'getProfitLoss';
+        return await getApi(action);
+      } catch (e) {
+        console.warn('getProfitLoss API error, computing from local cache:', e.message);
+      }
+    }
+
+    const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+    const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
+    const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
+    const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
+    const schedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const extraInvestments = getCache(STORAGE_KEYS.EXTRA_INVESTMENT_CACHE) || [];
+    const memberships = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
+
+    // 1. Filter Payments
+    const filteredPayments = payments.filter(p => {
+      if (filters.chitId && filters.chitId !== 'all' && String(p.chitId) !== String(filters.chitId)) return false;
+      if (filters.memberId && filters.memberId !== 'all' && String(p.memberId) !== String(filters.memberId)) return false;
+      if (filters.month && filters.month !== 'all' && Number(p.monthNumber || p.month) !== Number(filters.month)) return false;
+      if (filters.dateFrom && p.paymentDate && p.paymentDate < filters.dateFrom) return false;
+      if (filters.dateTo && p.paymentDate && p.paymentDate > filters.dateTo) return false;
+      return true;
+    });
+
+    // 2. Filter Payouts
+    const filteredPayouts = payouts.filter(po => {
+      if (filters.chitId && filters.chitId !== 'all' && po.chitId && String(po.chitId) !== String(filters.chitId)) return false;
+      if (filters.memberId && filters.memberId !== 'all' && po.memberId && String(po.memberId) !== String(filters.memberId)) return false;
+      if (filters.month && filters.month !== 'all' && Number(po.monthNumber || po.month) !== Number(filters.month)) return false;
+      if (filters.fundingSource && filters.fundingSource !== 'all') {
+        const isExtra = String(po.fundingSource || '').toUpperCase().includes('EXTRA');
+        if (filters.fundingSource === 'EXTRA_INVESTMENT' && !isExtra) return false;
+        if (filters.fundingSource === 'CHIT_FUND' && isExtra) return false;
+      }
+      if (filters.dateFrom && po.payoutDate && po.payoutDate < filters.dateFrom) return false;
+      if (filters.dateTo && po.payoutDate && po.payoutDate > filters.dateTo) return false;
+      return true;
+    });
+
+    // 3. Filter Extra Investments
+    const filteredExtra = extraInvestments.filter(inv => {
+      if (filters.dateFrom && inv.investmentDate && inv.investmentDate < filters.dateFrom) return false;
+      if (filters.dateTo && inv.investmentDate && inv.investmentDate > filters.dateTo) return false;
+      return true;
+    });
+
+    const totalCollection = filteredPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+    const totalPayout = filteredPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+    
+    // Extra Investment calculations (strictly when recovery exists)
+    const totalExtraInvested = filteredExtra.reduce((s, inv) => s + (Number(inv.investmentAmount) || 0), 0);
+    const totalExtraAllocated = filteredExtra.reduce((s, inv) => s + (Number(inv.usedAmount || inv.allocatedAmount || inv.investmentAmount) || 0), 0);
+    const totalExtraRecovered = filteredExtra.reduce((s, inv) => s + (Number(inv.returnedAmount) || 0), 0);
+    const totalExtraProfit = filteredExtra.reduce((s, inv) => {
+      const ret = Number(inv.returnedAmount) || 0;
+      const invAmt = Number(inv.investmentAmount) || 0;
+      return ret > 0 ? s + (ret - invAmt) : s;
+    }, 0);
+    const totalExtraRemaining = Math.max(0, totalExtraInvested - totalExtraAllocated);
+    const extraROI = totalExtraInvested > 0 ? ((totalExtraProfit / totalExtraInvested) * 100) : 0;
+
+    // Commission & Dividend calculations from active chit plans and schedule
+    let totalCommission = 0;
+    let totalDividend = 0;
+    let totalExpectedDue = 0;
+
+    const targetChits = (filters.chitId && filters.chitId !== 'all')
+      ? chits.filter(c => String(c.chitId) === String(filters.chitId))
+      : (chits.length > 0 ? chits : [{ chitId: 'CHIT-100K-01', chitValue: 100000, duration: 20, requiredMembers: 20, commissionPercent: 5, dividend: 1250 }]);
+
+    targetChits.forEach(c => {
+      const cVal = Number(c.chitValue || c.totalAmount) || 100000;
+      const dur = Number(c.duration || c.durationMonths) || 20;
+      const memCount = Number(c.requiredMembers || c.totalMembers) || dur;
+      const commPct = Number(c.commissionPercent) || 5;
+      const commAmt = Math.round(cVal * (commPct / 100));
+      const normalMonthly = memCount > 0 ? Math.round(cVal / memCount) : 5000;
+
+      const startM = (filters.month && filters.month !== 'all') ? Number(filters.month) : 1;
+      const endM = (filters.month && filters.month !== 'all') ? Number(filters.month) : dur;
+
+      for (let m = startM; m <= endM; m++) {
+        const schItem = schedule.find(s => String(s.chitId) === String(c.chitId) && Number(s.monthNumber || s.month) === m);
+        const actualMonthly = schItem ? (Number(schItem.amount || schItem.monthlyAmount) || normalMonthly) : normalMonthly;
+        const monthDiv = schItem && schItem.dividend !== undefined ? Number(schItem.dividend) : Math.max(0, normalMonthly - actualMonthly);
+        
+        totalCommission += (m === 1 ? 0 : commAmt);
+        totalDividend += (m === 1 ? 0 : (monthDiv * memCount));
+        totalExpectedDue += (actualMonthly * memCount);
+      }
+    });
+
+    const totalPending = Math.max(0, totalExpectedDue - totalCollection);
+    const collectionRate = totalExpectedDue > 0 ? ((totalCollection / totalExpectedDue) * 100) : 100;
+    
+    // Net Cash Flow & Operational Profit definitions
+    const netCashFlow = (totalCollection + totalExtraRecovered) - (totalPayout + totalExtraInvested);
+    const operationalProfit = totalCommission + totalExtraProfit;
+
+    // Monthly Breakdown (Months 1 to 20)
+    const maxMonth = 20;
+    const monthlyBreakdown = [];
+    for (let m = 1; m <= maxMonth; m++) {
+      if (filters.month && filters.month !== 'all' && Number(filters.month) !== m) continue;
+
+      const mPayments = filteredPayments.filter(p => Number(p.monthNumber || p.month) === m);
+      const mPayouts = filteredPayouts.filter(po => Number(po.monthNumber || po.month) === m);
+      const mExtra = filteredExtra.filter(inv => {
+        if (!inv.investmentDate) return false;
+        const d = new Date(inv.investmentDate);
+        return (d.getMonth() + 1) === m;
+      });
+
+      const mCollection = mPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+      const mPayout = mPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+      const mExtraInv = mExtra.reduce((s, inv) => s + (Number(inv.investmentAmount) || 0), 0);
+      const mRecovery = mExtra.reduce((s, inv) => s + (Number(inv.returnedAmount) || 0), 0);
+      const mExtraProfit = mExtra.reduce((s, inv) => {
+        const ret = Number(inv.returnedAmount) || 0;
+        return ret > 0 ? s + (ret - Number(inv.investmentAmount || 0)) : s;
+      }, 0);
+
+      const schItem = schedule.find(s => Number(s.monthNumber || s.month) === m);
+      const defaultComm = m === 1 ? 0 : 5000;
+      const mCommission = schItem ? (Number(schItem.commissionAmount) || defaultComm) : defaultComm;
+      const mDividend = schItem && schItem.dividend !== undefined ? Number(schItem.dividend) : (m === 1 ? 0 : 1250);
+
+      const mCashFlow = (mCollection + mRecovery) - (mPayout + mExtraInv);
+      const mProfit = mCommission + mExtraProfit;
+
+      monthlyBreakdown.push({
+        month: m,
+        collection: mCollection,
+        payout: mPayout,
+        commission: mCommission,
+        dividend: mDividend,
+        extraInvestment: mExtraInv,
+        recovery: mRecovery,
+        profit: mProfit,
+        cashFlow: mCashFlow,
+        paymentsCount: mPayments.length,
+        payoutsCount: mPayouts.length
+      });
+    }
+
+    // Chit-Wise Analysis
+    const chitWise = targetChits.map(c => {
+      const cId = c.chitId;
+      const cPayments = filteredPayments.filter(p => String(p.chitId) === String(cId));
+      const cPayouts = filteredPayouts.filter(po => !po.chitId || String(po.chitId) === String(cId));
+      const cCol = cPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+      const cPay = cPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+      const cVal = Number(c.chitValue || c.totalAmount) || 100000;
+      const dur = Number(c.duration || c.durationMonths) || 20;
+      const memCount = Number(c.requiredMembers || c.totalMembers) || dur;
+      const commPct = Number(c.commissionPercent) || 5;
+      const cComm = Math.round(cVal * (commPct / 100)) * (dur - 1);
+      const cDiv = Number(c.dividend || 1250) * (dur - 1) * memCount;
+
+      return {
+        chitId: cId,
+        chitName: c.chitName || cId,
+        chitValue: cVal,
+        duration: dur,
+        members: memCount,
+        totalCollection: cCol,
+        totalPayout: cPay,
+        commission: cComm,
+        dividend: cDiv,
+        extraInvestment: 0,
+        profit: cComm,
+        cashFlow: cCol - cPay
+      };
+    });
+
+    // Member-Wise Analysis
+    const memberWise = members.map(m => {
+      const mId = m.memberId;
+      const mPayments = filteredPayments.filter(p => String(p.memberId) === String(mId));
+      const mPayouts = filteredPayouts.filter(po => String(po.memberId) === String(mId));
+      const mPaid = mPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+      const mPayoutTotal = mPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+      const mMemberships = memberships.filter(ms => String(ms.memberId) === String(mId));
+      const extraInvPayouts = mPayouts.filter(po => String(po.fundingSource || '').toUpperCase().includes('EXTRA')).length;
+
+      return {
+        memberId: mId,
+        name: m.name,
+        phone: m.phone || m.mobile || '',
+        totalPayments: mPaid,
+        totalPayoutsReceived: mPayoutTotal,
+        pendingAmount: Number(m.pendingAmount || m.totalPending) || 0,
+        chitCount: mMemberships.length || 1,
+        extraInvestmentPayouts: extraInvPayouts,
+        status: m.status || 'Active'
+      };
+    });
+
+    // Funding Source Breakdown
+    const chitFundPayouts = filteredPayouts.filter(po => !String(po.fundingSource || '').toUpperCase().includes('EXTRA'));
+    const extraInvPayouts = filteredPayouts.filter(po => String(po.fundingSource || '').toUpperCase().includes('EXTRA'));
+
+    const fundingSource = [
+      {
+        source: 'CHIT_FUND',
+        label: 'Chit Fund Collections',
+        totalAmount: chitFundPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0),
+        count: chitFundPayouts.length
+      },
+      {
+        source: 'EXTRA_INVESTMENT',
+        label: 'Extra Investment',
+        totalAmount: extraInvPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0),
+        count: extraInvPayouts.length
+      }
+    ];
+
+    return {
+      success: true,
+      filters: filters,
+      timestamp: new Date().toISOString(),
+      summary: {
+        totalCollection: totalCollection,
+        totalDue: totalExpectedDue,
+        totalPending: totalPending,
+        collectionRate: collectionRate,
+        totalPayout: totalPayout,
+        completedPayouts: filteredPayouts.filter(po => po.status === 'Completed').length,
+        pendingPayouts: filteredPayouts.filter(po => po.status !== 'Completed').length,
+        totalCommission: totalCommission,
+        totalDividend: totalDividend,
+        extraInvestment: totalExtraInvested,
+        extraAllocated: totalExtraAllocated,
+        extraRemaining: totalExtraRemaining,
+        recoveredAmount: totalExtraRecovered,
+        investmentProfit: totalExtraProfit,
+        roiPercent: extraROI,
+        netProfit: operationalProfit,
+        operationalProfit: operationalProfit,
+        netCashFlow: netCashFlow,
+        numberPayments: filteredPayments.length,
+        numberPayouts: filteredPayouts.length
+      },
+      monthlyBreakdown: monthlyBreakdown,
+      chitWise: chitWise,
+      memberWise: memberWise,
+      fundingSource: fundingSource,
+      payments: filteredPayments,
+      payouts: filteredPayouts,
+      extraInvestments: filteredExtra
+    };
+  },
+
   // Settings
   async getSettings() {
     if (API_URL) {

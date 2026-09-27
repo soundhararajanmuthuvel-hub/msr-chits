@@ -7,6 +7,7 @@ import {
   CreditCard,
   Send,
   FileText,
+  TrendingUp,
   Settings,
   LogOut,
   RefreshCw,
@@ -35,6 +36,7 @@ export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
     { to: '/payouts', label: 'Payouts', icon: Send },
     { to: '/whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { to: '/reports', label: 'Reports', icon: FileText },
+    { to: '/reports/profit-loss', label: 'Profit & Loss', icon: TrendingUp },
     { to: '/settings', label: 'Settings', icon: Settings },
   ];
 

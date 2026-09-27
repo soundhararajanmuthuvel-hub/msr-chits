@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   FileText,
   Download,
@@ -9,7 +10,8 @@ import {
   Users,
   CheckCircle2,
   AlertCircle,
-  Layers
+  Layers,
+  TrendingUp
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
@@ -23,6 +25,7 @@ import ExtraInvestmentTracker from '../components/investments/ExtraInvestmentTra
 import { useChit } from '../context/ChitContext';
 
 export const Reports = () => {
+  const navigate = useNavigate();
   const { showToast } = useChit();
   const [data, setData] = useState(null);
   const [chits, setChits] = useState([]);
@@ -169,7 +172,15 @@ export const Reports = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => navigate('/reports/profit-loss')}
+            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-[#003524] border border-emerald-300 text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+          >
+            <TrendingUp className="w-4 h-4 text-[#174D38]" />
+            <span>Profit & Loss Analysis</span>
+          </button>
           <button
             type="button"
             onClick={handlePrint}

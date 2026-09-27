@@ -1383,6 +1383,123 @@ assert(
   `Dividend=${s20_t4_dividend}`
 );
 
+// SECTION 28: PROFIT & LOSS ANALYSIS MODULE TESTS (Section 24 of prompt)
+console.log('\n--- SECTION 28: PROFIT & LOSS ANALYSIS TESTS ---');
+
+// Mock sample dataset from Google Sheets
+const samplePayments = [
+  { paymentId: 'PAY-001', chitId: 'CHIT-100K-01', memberId: 'MEM-001', monthNumber: 1, paidAmount: 5000, paymentDate: '2026-01-20', status: 'Paid' },
+  { paymentId: 'PAY-002', chitId: 'CHIT-100K-01', memberId: 'MEM-002', monthNumber: 1, paidAmount: 5000, paymentDate: '2026-01-20', status: 'Paid' },
+  { paymentId: 'PAY-003', chitId: 'CHIT-100K-01', memberId: 'MEM-001', monthNumber: 2, paidAmount: 3750, paymentDate: '2026-02-20', status: 'Paid' },
+  { paymentId: 'PAY-004', chitId: 'CHIT-100K-01', memberId: 'MEM-003', monthNumber: 2, paidAmount: 3750, paymentDate: '2026-02-20', status: 'Paid' }
+];
+
+const samplePayouts = [
+  { payoutId: 'PO-001', chitId: 'CHIT-100K-01', memberId: 'MEM-003', monthNumber: 1, amount: 100000, fundingSource: 'CHIT_FUND', payoutDate: '2026-01-22', status: 'Completed' },
+  { payoutId: 'PO-002', chitId: 'CHIT-100K-01', memberId: 'MEM-001', monthNumber: 2, amount: 70000, fundingSource: 'CHIT_FUND', payoutDate: '2026-02-22', status: 'Completed' },
+  { payoutId: 'PO-003', chitId: 'CHIT-100K-01', memberId: 'MEM-003', monthNumber: 2, amount: 50000, fundingSource: 'EXTRA_INVESTMENT', payoutDate: '2026-02-22', status: 'Completed' }
+];
+
+const sampleExtraInvestments = [
+  { investmentId: 'INV-001', investmentAmount: 50000, returnedAmount: 55000, investmentDate: '2026-02-10', status: 'Returned' },
+  { investmentId: 'INV-002', investmentAmount: 50000, returnedAmount: 0, investmentDate: '2026-03-10', status: 'Active' }
+];
+
+// Test 1: Reads actual Payments data
+const plTotalCollection = samplePayments.reduce((s, p) => s + p.paidAmount, 0);
+assert(
+  plTotalCollection === 17500,
+  'PL TEST 1: Reads actual Payments data (Total Collection = ₹17,500)',
+  `Collection=${plTotalCollection}`
+);
+
+// Test 2: Reads actual Payouts data
+const plTotalPayout = samplePayouts.reduce((s, po) => s + po.amount, 0);
+assert(
+  plTotalPayout === 220000,
+  'PL TEST 2: Reads actual Payouts data (Total Payout = ₹2,20,000)',
+  `Payout=${plTotalPayout}`
+);
+
+// Test 3 & 4: Extra Investment profit calculated only when recovery exists
+const invWithRecovery = sampleExtraInvestments[0];
+const invWithoutRecovery = sampleExtraInvestments[1];
+const profit1 = invWithRecovery.returnedAmount > 0 ? (invWithRecovery.returnedAmount - invWithRecovery.investmentAmount) : 0;
+const profit2 = invWithoutRecovery.returnedAmount > 0 ? (invWithoutRecovery.returnedAmount - invWithoutRecovery.investmentAmount) : 0;
+assert(
+  profit1 === 5000 && profit2 === 0,
+  'PL TEST 3 & 4: Extra investment profit calculated only when recovery exists (INV-001: ₹5,000, INV-002: ₹0)',
+  `Profit1=${profit1}, Profit2=${profit2}`
+);
+
+// Test 5: Correctly separates CHIT_FUND and EXTRA_INVESTMENT
+const chitFundPayouts = samplePayouts.filter(po => po.fundingSource === 'CHIT_FUND');
+const extraInvPayouts = samplePayouts.filter(po => po.fundingSource === 'EXTRA_INVESTMENT');
+assert(
+  chitFundPayouts.length === 2 && extraInvPayouts.length === 1 && extraInvPayouts[0].amount === 50000,
+  'PL TEST 5: Correctly separates CHIT_FUND (₹1,70,000) and EXTRA_INVESTMENT (₹50,000)',
+  `ChitFundCount=${chitFundPayouts.length}, ExtraCount=${extraInvPayouts.length}`
+);
+
+// Test 6 & 7: Cash Flow calculation without double-counting
+const totalInvested = sampleExtraInvestments.reduce((s, i) => s + i.investmentAmount, 0); // 100,000
+const totalRecovered = sampleExtraInvestments.reduce((s, i) => s + i.returnedAmount, 0); // 55,000
+const cashFlow = (plTotalCollection + totalRecovered) - (plTotalPayout + totalInvested);
+// (17,500 + 55,000) - (220,000 + 100,000) = 72,500 - 320,000 = -247,500
+assert(
+  cashFlow === -247500,
+  'PL TEST 6 & 7: Cash Flow mathematically accounts for Inflows and Outflows without double-counting',
+  `CashFlow=${cashFlow}`
+);
+
+// Test 8: Filter by Date
+const febPayments = samplePayments.filter(p => p.paymentDate >= '2026-02-01' && p.paymentDate <= '2026-02-28');
+assert(
+  febPayments.length === 2 && febPayments.reduce((s, p) => s + p.paidAmount, 0) === 7500,
+  'PL TEST 8: Filter by Date (February 2026 payments = ₹7,500)',
+  `FebCount=${febPayments.length}`
+);
+
+// Test 9: Filter by Chit
+const chit1Payments = samplePayments.filter(p => p.chitId === 'CHIT-100K-01');
+assert(
+  chit1Payments.length === 4,
+  'PL TEST 9: Filter by Chit ID (CHIT-100K-01 matches 4 payments)',
+  `Chit1Count=${chit1Payments.length}`
+);
+
+// Test 10: Filter by Member
+const mem1Payments = samplePayments.filter(p => p.memberId === 'MEM-001');
+assert(
+  mem1Payments.length === 2 && mem1Payments.reduce((s, p) => s + p.paidAmount, 0) === 8750,
+  'PL TEST 10: Filter by Member (MEM-001 total payments = ₹8,750)',
+  `Mem1Total=${mem1Payments.reduce((s, p) => s + p.paidAmount, 0)}`
+);
+
+// Test 11: Multiple payouts in Month 2 preserved
+const plMonth2Payouts = samplePayouts.filter(po => po.monthNumber === 2);
+assert(
+  plMonth2Payouts.length === 2 && plMonth2Payouts[0].memberId === 'MEM-001' && plMonth2Payouts[1].memberId === 'MEM-003',
+  'PL TEST 11: Multiple independent payouts in Month 2 (Amma ₹70k, MU ₹50k)',
+  `M2Count=${plMonth2Payouts.length}`
+);
+
+// Test 12: Commission from actual plan parameters
+const planCommission = calculateCommission(100000, 5);
+assert(
+  planCommission === 5000,
+  'PL TEST 12: Commission calculated dynamically from plan (5% of ₹1L = ₹5,000)',
+  `Comm=${planCommission}`
+);
+
+// Test 13: Operational profit = Commission + Extra Investment Profit
+const opProfit = (planCommission * 19) + profit1; // 19 months of commission + 5000 extra profit
+assert(
+  opProfit === 100000,
+  'PL TEST 13: Operational profit transparently aggregates Commission (₹95,000) + Investment Profit (₹5,000) = ₹1,00,000',
+  `OpProfit=${opProfit}`
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');

@@ -12,6 +12,7 @@ import MemberDetails from './pages/MemberDetails';
 import Payments from './pages/Payments';
 import Payouts from './pages/Payouts';
 import Reports from './pages/Reports';
+import ProfitLossAnalysis from './pages/ProfitLossAnalysis';
 import Settings from './pages/Settings';
 import WhatsApp from './pages/WhatsApp';
 import LoadingState from './components/common/LoadingState';
@@ -61,6 +62,7 @@ export function App() {
               <Route path="/payments" element={<Payments />} />
               <Route path="/payouts" element={<Payouts />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/reports/profit-loss" element={<ProfitLossAnalysis />} />
               <Route path="/whatsapp" element={<WhatsApp />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
