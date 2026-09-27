@@ -29,6 +29,7 @@ import ChitForm from '../components/chits/ChitForm';
 import AddMemberToChitModal from '../components/chits/AddMemberToChitModal';
 import PreLaunchValidationModal from '../components/chits/PreLaunchValidationModal';
 import LoadingState from '../components/common/LoadingState';
+import { useChit } from '../context/ChitContext';
 import { getChitCapacityStats, getChitLifecycleStatus, getDefaultPayoutForMonth } from '../utils/chitCalculations';
 import { generateChitNumber } from '../utils/chitNumber';
 import { buildWelcomeMessage, generateWhatsAppUrl } from '../utils/whatsapp';
