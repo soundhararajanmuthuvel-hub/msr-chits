@@ -1347,7 +1347,11 @@ export const api = {
 
   async cancelMembership(membershipId) {
     if (API_URL) {
-      await postApi('cancelMembership', { membershipId });
+      try {
+        await postApi('cancelMembership', { membershipId });
+      } catch (e) {
+        console.warn('cancelMembership API error, using local fallback:', e.message);
+      }
     }
     const cached = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
     const updated = cached.map(m => String(m.membershipId) === String(membershipId) ? { ...m, status: 'Cancelled' } : m);
