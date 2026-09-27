@@ -23,13 +23,20 @@ import {
   PieChart,
   BarChart3,
   ExternalLink,
-  ShieldCheck
+  ShieldCheck,
+  Plus,
+  Edit3,
+  Trash2
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
+import { formatDate } from '../utils/date';
 import StatCard from '../components/common/StatCard';
 import LoadingState from '../components/common/LoadingState';
 import { useChit } from '../context/ChitContext';
+import AddExtraInvestmentModal from '../components/investments/AddExtraInvestmentModal';
+import AllocateInvestmentModal from '../components/investments/AllocateInvestmentModal';
+import RecordRecoveryModal from '../components/investments/RecordRecoveryModal';
 
 export const ProfitLossAnalysis = () => {
   const navigate = useNavigate();
@@ -40,7 +47,15 @@ export const ProfitLossAnalysis = () => {
   const [data, setData] = useState(null);
   const [chits, setChits] = useState([]);
   const [members, setMembers] = useState([]);
+  const [extraInvestments, setExtraInvestments] = useState([]);
+  const [schedule, setSchedule] = useState([]);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
+
+  // Modal States
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAllocateModalOpen, setIsAllocateModalOpen] = useState(false);
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+  const [selectedInvestment, setSelectedInvestment] = useState(null);
 
   // Active Filter States
   const [filters, setFilters] = useState({
@@ -59,15 +74,19 @@ export const ProfitLossAnalysis = () => {
     setLoading(true);
     setError(null);
     try {
-      const [plRes, chitsRes, memsRes] = await Promise.all([
+      const [plRes, chitsRes, memsRes, extraRes, schRes] = await Promise.all([
         api.getProfitLoss(customFilters),
         api.getChits(),
-        api.getMembers()
+        api.getMembers(),
+        api.getExtraInvestments(),
+        api.getMonthlySchedule('CHIT-100K-01')
       ]);
 
       setData(plRes);
       setChits(Array.isArray(chitsRes) ? chitsRes : (chitsRes?.chits || []));
       setMembers(Array.isArray(memsRes) ? memsRes : (memsRes?.members || []));
+      setExtraInvestments(Array.isArray(extraRes) ? extraRes : []);
+      setSchedule(Array.isArray(schRes) ? schRes : []);
       setLastRefreshed(new Date());
     } catch (err) {
       console.error('Failed to load profit and loss analysis:', err);
@@ -132,9 +151,15 @@ export const ProfitLossAnalysis = () => {
         csv += `${m.memberId},"${m.name}",${m.phone},${m.totalPayments},${m.totalPayoutsReceived},${m.pendingAmount},${m.chitCount},${m.extraInvestmentPayouts},${m.status}\n`;
       });
     } else if (activeTab === 'fundingSource') {
-      csv += 'Funding Source,Total Payout Amount,Disbursements Count\n';
-      (data.fundingSource || []).forEach(fs => {
-        csv += `"${fs.label}",${fs.totalAmount},${fs.count}\n`;
+      csv += 'Investment ID,Date,Investor/Source,Purpose,Invested,Allocated,Remaining,Recovered,Profit,ROI %,Status\n';
+      extraInvestments.forEach(inv => {
+        const invest = Number(inv.investmentAmount) || 0;
+        const alloc = Number(inv.allocatedAmount !== undefined ? inv.allocatedAmount : inv.usedAmount) || 0;
+        const rem = Math.max(0, invest - alloc);
+        const rec = Number(inv.returnedAmount !== undefined ? inv.returnedAmount : inv.recoveredAmount) || 0;
+        const profit = rec > 0 ? (rec - invest) : 'N/A';
+        const roi = (rec > 0 && invest > 0) ? `${((profit / invest) * 100).toFixed(1)}%` : 'N/A';
+        csv += `${inv.investmentId},${inv.investmentDate},"${inv.investor || inv.investorSource || inv.beneficiary || ''}","${inv.purpose || ''}",${invest},${alloc},${rem},${rec},${profit},${roi},${inv.status || 'Active'}\n`;
       });
     }
 
@@ -146,6 +171,65 @@ export const ProfitLossAnalysis = () => {
     link.click();
     document.body.removeChild(link);
     showToast(`Exported ${filename} successfully!`, 'success');
+  };
+
+  // Extra Investment CRUD Handlers
+  const handleSaveInvestment = async (record) => {
+    try {
+      if (record.investmentId && extraInvestments.some(inv => inv.investmentId === record.investmentId)) {
+        await api.updateExtraInvestment(record.investmentId, record);
+        showToast('Extra Investment updated successfully!', 'success');
+      } else {
+        await api.createExtraInvestment(record);
+        showToast('Extra Investment added successfully!', 'success');
+      }
+      await loadProfitLoss(filters);
+    } catch (err) {
+      showToast(err.message || 'Failed to save investment', 'error');
+      throw err;
+    }
+  };
+
+  const handleAllocateInvestment = async (allocationData) => {
+    try {
+      await api.allocateExtraInvestment(allocationData);
+      showToast(`Successfully allocated ${formatINR(allocationData.payoutAmount)} to ${allocationData.memberName}!`, 'success');
+      await loadProfitLoss(filters);
+    } catch (err) {
+      showToast(err.message || 'Failed to allocate investment', 'error');
+      throw err;
+    }
+  };
+
+  const handleRecordRecovery = async (recoveryData) => {
+    try {
+      await api.recordInvestmentRecovery(recoveryData);
+      showToast(`Recovery of ${formatINR(recoveryData.recoveredAmount)} recorded successfully!`, 'success');
+      await loadProfitLoss(filters);
+    } catch (err) {
+      showToast(err.message || 'Failed to record recovery', 'error');
+      throw err;
+    }
+  };
+
+  const handleDeleteInvestment = async (investmentId) => {
+    const inv = extraInvestments.find(i => String(i.investmentId) === String(investmentId));
+    const alloc = Number(inv?.allocatedAmount !== undefined ? inv?.allocatedAmount : inv?.usedAmount) || 0;
+    const rec = Number(inv?.returnedAmount !== undefined ? inv?.returnedAmount : inv?.recoveredAmount) || 0;
+    if (alloc > 0 || rec > 0) {
+      alert(`Cannot delete investment ${investmentId} because it has ₹${alloc.toLocaleString('en-IN')} allocated or ₹${rec.toLocaleString('en-IN')} recovery recorded. Please update its status instead.`);
+      return;
+    }
+
+    if (window.confirm(`Are you sure you want to delete investment ${investmentId}?`)) {
+      try {
+        await api.deleteExtraInvestment(investmentId);
+        showToast('Investment record deleted successfully', 'success');
+        await loadProfitLoss(filters);
+      } catch (err) {
+        showToast(err.message || 'Failed to delete record', 'error');
+      }
+    }
   };
 
   const activeFilterCount = useMemo(() => {
@@ -213,6 +297,20 @@ export const ProfitLossAnalysis = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Prominent + Add Extra Investment Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedInvestment(null);
+              setIsAddModalOpen(true);
+            }}
+            className="px-4 py-2 bg-gradient-to-r from-emerald-800 to-[#003524] hover:from-emerald-700 hover:to-[#174D38] text-white text-xs font-extrabold rounded-xl shadow-xs transition-all flex items-center gap-1.5 border border-emerald-600/30 active:scale-95"
+            title="Add new extra investment"
+          >
+            <Plus className="w-4 h-4 text-[#C9A227]" />
+            <span>+ Add Extra Investment</span>
+          </button>
+
           <button
             type="button"
             onClick={() => loadProfitLoss(filters)}
@@ -362,7 +460,7 @@ export const ProfitLossAnalysis = () => {
         </div>
       </form>
 
-      {/* 11 TOP SUMMARY STAT CARDS (Section 4) */}
+      {/* 11 TOP SUMMARY STAT CARDS */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard
           title="Total Collection"
@@ -407,7 +505,7 @@ export const ProfitLossAnalysis = () => {
         <StatCard
           title="Investment Profit"
           value={summary.extraInvestment > 0 && summary.recoveredAmount > 0 ? formatINR(summary.investmentProfit) : 'Data not available'}
-          subtitle={summary.extraInvestment > 0 ? `ROI: ${(summary.roiPercent || 0).toFixed(1)}%` : 'No recovery recorded'}
+          subtitle={summary.extraInvestment > 0 && summary.recoveredAmount > 0 ? `ROI: ${(summary.roiPercent || 0).toFixed(1)}%` : 'No recovery recorded'}
           icon={TrendingUp}
           accentColor="emerald"
         />
@@ -554,7 +652,7 @@ export const ProfitLossAnalysis = () => {
         </div>
       </div>
 
-      {/* 6 VISUAL FINANCIAL CHARTS (Section 16) */}
+      {/* 6 VISUAL FINANCIAL CHARTS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Chart 1: Monthly Collection vs Payout Dual Bar */}
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#DCE8E0] shadow-xs space-y-3">
@@ -568,101 +666,116 @@ export const ProfitLossAnalysis = () => {
                 <span className="w-2 h-2 rounded bg-emerald-600" /> Collection
               </span>
               <span className="flex items-center gap-1 text-amber-900 font-bold">
-                <span className="w-2 h-2 rounded bg-[#003524]" /> Payout
+                <span className="w-2 h-2 rounded bg-amber-600" /> Payout
               </span>
             </div>
           </div>
 
-          <div className="space-y-2 pt-2 max-h-56 overflow-y-auto pr-1">
+          <div className="h-44 flex items-end gap-1 pt-4 border-b border-[#EAF2EC]">
             {monthly.slice(0, 10).map((m) => {
-              const maxVal = Math.max(100000, ...monthly.map(x => Math.max(x.collection, x.payout)));
-              const colPct = (m.collection / maxVal) * 100;
-              const payPct = (m.payout / maxVal) * 100;
+              const maxVal = Math.max(...monthly.map(x => Math.max(x.collection, x.payout))) || 100000;
+              const colHeight = Math.max(6, Math.min(100, (m.collection / maxVal) * 100));
+              const payHeight = Math.max(6, Math.min(100, (m.payout / maxVal) * 100));
 
               return (
-                <div key={m.month} className="space-y-1">
-                  <div className="flex justify-between text-[11px] font-bold">
-                    <span className="text-[#003524]">Month {m.month}</span>
-                    <span className="text-[#5B7065] text-[10px]">
-                      In: {formatINR(m.collection)} | Out: {formatINR(m.payout)}
-                    </span>
+                <div key={m.month} className="flex-1 flex flex-col items-center gap-1 h-full justify-end group relative">
+                  <div className="w-full flex items-end justify-center gap-0.5 h-full">
+                    <div
+                      className="w-1/2 bg-emerald-600 rounded-t transition-all group-hover:bg-emerald-700"
+                      style={{ height: `${colHeight}%` }}
+                      title={`Month ${m.month} Collection: ${formatINR(m.collection)}`}
+                    />
+                    <div
+                      className="w-1/2 bg-amber-600 rounded-t transition-all group-hover:bg-amber-700"
+                      style={{ height: `${payHeight}%` }}
+                      title={`Month ${m.month} Payout: ${formatINR(m.payout)}`}
+                    />
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5 h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="bg-emerald-600 rounded-full" style={{ width: `${Math.min(100, colPct)}%` }} />
-                    <div className="bg-[#003524] rounded-full" style={{ width: `${Math.min(100, payPct)}%` }} />
-                  </div>
+                  <span className="text-[9px] font-bold text-[#5B7065]">M{m.month}</span>
                 </div>
               );
             })}
           </div>
+          <span className="text-[10px] text-[#5B7065] block text-center">Months 1 to 10 Cash Flow Trajectory</span>
         </div>
 
-        {/* Chart 2: Net Cash Flow & Operational Profit Trend */}
+        {/* Chart 2: Net Cash Flow Trend Line */}
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#DCE8E0] shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-bold uppercase tracking-wider text-[#003524] flex items-center gap-1.5">
               <TrendingUp className="w-3.5 h-3.5 text-[#174D38]" />
-              Profit & Cash Flow Trend
+              Net Cash Flow Trend
             </h4>
-            <span className="text-[10px] font-bold text-[#003524] bg-[#F0FCF4] px-2 py-0.5 rounded border border-[#DCE8E0]">
-              Monthly Cash Health
+            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${summary.netCashFlow >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+              Net: {formatINR(summary.netCashFlow)}
             </span>
           </div>
 
-          <div className="space-y-2 pt-2 max-h-56 overflow-y-auto pr-1">
-            {monthly.slice(0, 10).map((m) => (
-              <div key={m.month} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-[#DCE8E0] text-xs">
-                <div>
-                  <span className="font-bold text-[#003524] block">Month {m.month}</span>
-                  <span className="text-[10px] text-[#5B7065]">Commission: {formatINR(m.commission)}</span>
+          <div className="h-44 flex items-center justify-between gap-1 pt-4 border-b border-[#EAF2EC]">
+            {monthly.slice(0, 10).map((m) => {
+              const isPositive = m.cashFlow >= 0;
+              const absVal = Math.abs(m.cashFlow);
+              const maxAbs = Math.max(...monthly.map(x => Math.abs(x.cashFlow))) || 100000;
+              const barHeight = Math.max(8, Math.min(80, (absVal / maxAbs) * 80));
+
+              return (
+                <div key={m.month} className="flex-1 flex flex-col items-center justify-center h-full group relative">
+                  <div
+                    className={`w-3.5 rounded transition-all ${
+                      isPositive ? 'bg-emerald-600 group-hover:bg-emerald-700' : 'bg-rose-500 group-hover:bg-rose-600'
+                    }`}
+                    style={{ height: `${barHeight}%` }}
+                    title={`Month ${m.month} Cash Flow: ${formatINR(m.cashFlow)}`}
+                  />
+                  <span className="text-[9px] font-bold text-[#5B7065] mt-1">M{m.month}</span>
                 </div>
-                <div className="text-right">
-                  <span className={`font-extrabold text-xs block ${m.cashFlow >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                    {m.cashFlow >= 0 ? '+' : ''}{formatINR(m.cashFlow)}
-                  </span>
-                  <span className="text-[10px] text-amber-800 font-semibold">Profit: {formatINR(m.profit)}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+          <span className="text-[10px] text-[#5B7065] block text-center">Green: Inflow Surplus • Red: Disbursement Deficit</span>
         </div>
 
-        {/* Chart 3: Commission & Dividend Distribution */}
+        {/* Chart 3: Commission & Extra Profit Revenue */}
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#DCE8E0] shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-bold uppercase tracking-wider text-[#003524] flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#174D38]" />
-              Commission vs Dividend
+              <Sparkles className="w-3.5 h-3.5 text-[#C9A227]" />
+              Earnings Composition
             </h4>
-            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-              Total Comm: {formatINR(summary.totalCommission)}
+            <span className="text-[10px] font-extrabold text-[#003524] bg-gold-50 px-2 py-0.5 rounded border border-[#C9A227]/30">
+              Total: {formatINR(summary.netProfit || summary.operationalProfit)}
             </span>
           </div>
 
-          <div className="space-y-2 pt-2 max-h-56 overflow-y-auto pr-1">
-            {monthly.slice(0, 10).map((m) => (
-              <div key={m.month} className="p-2 rounded-xl bg-[#F0FCF4]/40 border border-[#DCE8E0] flex items-center justify-between text-xs">
-                <span className="font-bold text-[#003524]">Month {m.month}</span>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <span className="text-[10px] text-[#5B7065] block">Commission:</span>
-                    <span className="font-bold text-[#003524]">{formatINR(m.commission)}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-amber-900 block">Dividend:</span>
-                    <span className="font-extrabold text-amber-900">{formatINR(m.dividend)}</span>
-                  </div>
-                </div>
+          <div className="h-44 flex flex-col justify-center space-y-4 px-2">
+            <div>
+              <div className="flex justify-between text-xs font-bold mb-1">
+                <span className="text-[#003524]">Chit Commission Earnings</span>
+                <span>{formatINR(summary.totalCommission)}</span>
               </div>
-            ))}
+              <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-[#003524] rounded-full" style={{ width: '85%' }} />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-xs font-bold mb-1">
+                <span className="text-emerald-900">Extra Investment Realized Profit</span>
+                <span>{formatINR(summary.investmentProfit)}</span>
+              </div>
+              <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${Math.min(100, Math.max(10, (summary.investmentProfit / (summary.totalCommission || 1)) * 100))}%` }} />
+              </div>
+            </div>
           </div>
+          <span className="text-[10px] text-[#5B7065] block text-center">Organized Enterprise Margin Breakdown</span>
         </div>
       </div>
 
-      {/* DETAILED ANALYSIS TABS & TABLES (Sections 13, 14, 15) */}
+      {/* 4 INTERACTIVE FINANCIAL TABLES (Sections 13, 14, 15 & 10) */}
       <div className="bg-white rounded-2xl border border-[#DCE8E0] shadow-xs overflow-hidden">
-        {/* Tab Selector Header */}
-        <div className="p-3 bg-[#F0FCF4]/60 border-b border-[#DCE8E0] flex items-center gap-2 overflow-x-auto no-print">
+        {/* TAB SWITCHER */}
+        <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-[#DCE8E0] overflow-x-auto no-print">
           <button
             type="button"
             onClick={() => setActiveTab('monthly')}
@@ -675,7 +788,7 @@ export const ProfitLossAnalysis = () => {
             <Calendar className="w-3.5 h-3.5" />
             <span>Monthly P&L Ledger</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20 text-white font-mono">
-              {monthly.length}
+              20M
             </span>
           </button>
 
@@ -722,10 +835,13 @@ export const ProfitLossAnalysis = () => {
           >
             <DollarSign className="w-3.5 h-3.5" />
             <span>Funding & Extra Investments</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20 text-white font-mono">
+              {extraInvestments.length}
+            </span>
           </button>
         </div>
 
-        {/* TAB 1: MONTHLY P&L LEDGER TABLE (Section 13) */}
+        {/* TAB 1: MONTHLY P&L LEDGER TABLE */}
         {activeTab === 'monthly' && (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -760,41 +876,28 @@ export const ProfitLossAnalysis = () => {
                     <td className="py-3 px-4 font-bold text-amber-800">
                       {formatINR(row.dividend)}
                     </td>
-                    <td className="py-3 px-4 text-purple-800 font-semibold">
-                      {row.extraInvestment > 0 ? formatINR(row.extraInvestment) : '—'}
+                    <td className="py-3 px-4 text-purple-900 font-semibold">
+                      {formatINR(row.extraInvestment)}
                     </td>
-                    <td className="py-3 px-4 text-indigo-800 font-semibold">
-                      {row.recovery > 0 ? formatINR(row.recovery) : '—'}
+                    <td className="py-3 px-4 text-indigo-900 font-semibold">
+                      {formatINR(row.recovery)}
                     </td>
                     <td className="py-3 px-4 font-extrabold text-emerald-800">
                       {formatINR(row.profit)}
                     </td>
-                    <td className={`py-3 px-4 text-right font-extrabold ${row.cashFlow >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                      {row.cashFlow >= 0 ? '+' : ''}{formatINR(row.cashFlow)}
+                    <td className="py-3 px-4 text-right">
+                      <span className={`font-extrabold ${row.cashFlow >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>
+                        {row.cashFlow >= 0 ? '+' : ''}{formatINR(row.cashFlow)}
+                      </span>
                     </td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot>
-                <tr className="bg-[#F0FCF4] border-t-2 border-[#DCE8E0] text-xs font-extrabold text-[#003524]">
-                  <td className="py-3 px-4 uppercase">Total</td>
-                  <td className="py-3 px-4 text-emerald-800">{formatINR(summary.totalCollection)}</td>
-                  <td className="py-3 px-4 text-[#003524]">{formatINR(summary.totalPayout)}</td>
-                  <td className="py-3 px-4 text-[#5B7065]">{formatINR(summary.totalCommission)}</td>
-                  <td className="py-3 px-4 text-amber-800">{formatINR(summary.totalDividend)}</td>
-                  <td className="py-3 px-4 text-purple-800">{formatINR(summary.extraInvestment)}</td>
-                  <td className="py-3 px-4 text-indigo-800">{formatINR(summary.recoveredAmount)}</td>
-                  <td className="py-3 px-4 text-emerald-800">{formatINR(summary.netProfit)}</td>
-                  <td className={`py-3 px-4 text-right ${summary.netCashFlow >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                    {summary.netCashFlow >= 0 ? '+' : ''}{formatINR(summary.netCashFlow)}
-                  </td>
-                </tr>
-              </tfoot>
             </table>
           </div>
         )}
 
-        {/* TAB 2: CHIT-WISE PERFORMANCE TABLE (Section 14) */}
+        {/* TAB 2: CHIT-WISE P&L ANALYSIS TABLE */}
         {activeTab === 'chitWise' && (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -859,7 +962,7 @@ export const ProfitLossAnalysis = () => {
           </div>
         )}
 
-        {/* TAB 3: MEMBER-WISE FINANCIAL STATEMENT (Section 15) */}
+        {/* TAB 3: MEMBER-WISE FINANCIAL STATEMENT */}
         {activeTab === 'memberWise' && (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -922,9 +1025,10 @@ export const ProfitLossAnalysis = () => {
           </div>
         )}
 
-        {/* TAB 4: FUNDING SOURCE & EXTRA INVESTMENT (Section 10 & 9) */}
+        {/* TAB 4: FUNDING SOURCE & COMPLETE EXTRA INVESTMENT TABLE */}
         {activeTab === 'fundingSource' && (
-          <div className="p-5 space-y-4">
+          <div className="p-5 space-y-6">
+            {/* Top Cards: Funding Distribution */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-2">
                 <div className="flex items-center justify-between">
@@ -961,12 +1065,18 @@ export const ProfitLossAnalysis = () => {
               </div>
             </div>
 
-            {/* Extra Investment Ledger */}
+            {/* Extra Investment Performance KPI Summary */}
             <div className="bg-white rounded-xl border border-[#DCE8E0] p-4 space-y-2">
-              <h5 className="text-xs font-bold uppercase tracking-wider text-[#003524]">
-                Extra Investment Isolated Performance
-              </h5>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-[#EAF2EC]">
+                <h5 className="text-xs font-bold uppercase tracking-wider text-[#003524] flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-[#174D38]" />
+                  Extra Investment Portfolio Metrics
+                </h5>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">
+                  Isolated Accounting
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs pt-1">
                 <div className="p-2.5 bg-slate-50 rounded-lg border border-[#DCE8E0]">
                   <span className="text-[10px] text-[#5B7065] block">Invested Capital</span>
                   <span className="font-extrabold text-[#003524]">{formatINR(summary.extraInvestment)}</span>
@@ -985,13 +1095,230 @@ export const ProfitLossAnalysis = () => {
                 </div>
                 <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-200">
                   <span className="text-[10px] text-emerald-900 block">Isolated Profit (ROI)</span>
-                  <span className="font-extrabold text-emerald-950">{formatINR(summary.investmentProfit)} ({(summary.roiPercent || 0).toFixed(1)}%)</span>
+                  <span className="font-extrabold text-emerald-950">
+                    {summary.recoveredAmount > 0 ? `${formatINR(summary.investmentProfit)} (${(summary.roiPercent || 0).toFixed(1)}%)` : 'Data not available'}
+                  </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Extra Investment Ledger Table Header with Add Button */}
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-bold text-[#003524] flex items-center gap-1.5">
+                    <TrendingUp className="w-4 h-4 text-[#174D38]" />
+                    Extra Investment Ledger Records
+                  </h4>
+                  <p className="text-[11px] text-[#5B7065]">
+                    Manage external investments, allocate capital to member payouts, and record actual recoveries.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedInvestment(null);
+                    setIsAddModalOpen(true);
+                  }}
+                  className="px-3.5 py-1.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#C9A227]" />
+                  <span>+ Add Extra Investment</span>
+                </button>
+              </div>
+
+              {/* TABLE */}
+              <div className="overflow-x-auto rounded-xl border border-[#DCE8E0]">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-[#003524] text-white text-[11px] uppercase font-bold tracking-wider">
+                    <tr>
+                      <th className="py-3 px-3.5">Investment ID</th>
+                      <th className="py-3 px-3">Date</th>
+                      <th className="py-3 px-3">Investor / Source</th>
+                      <th className="py-3 px-3">Purpose</th>
+                      <th className="py-3 px-3 text-right">Invested</th>
+                      <th className="py-3 px-3 text-right">Allocated</th>
+                      <th className="py-3 px-3 text-right">Remaining</th>
+                      <th className="py-3 px-3 text-right">Recovered</th>
+                      <th className="py-3 px-3 text-right">Profit</th>
+                      <th className="py-3 px-3 text-center">ROI %</th>
+                      <th className="py-3 px-3 text-center">Status</th>
+                      <th className="py-3 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EAF2EC] bg-white">
+                    {extraInvestments.length === 0 ? (
+                      <tr>
+                        <td colSpan={12} className="py-8 text-center text-xs text-[#5B7065]">
+                          No extra investments recorded yet. Click <strong className="text-[#003524]">+ Add Extra Investment</strong> to get started.
+                        </td>
+                      </tr>
+                    ) : (
+                      extraInvestments.map((inv) => {
+                        const investAmt = Number(inv.investmentAmount) || 0;
+                        const allocAmt = Number(inv.allocatedAmount !== undefined ? inv.allocatedAmount : inv.usedAmount) || 0;
+                        const remaining = Math.max(0, investAmt - allocAmt);
+                        const recAmt = Number(inv.returnedAmount !== undefined ? inv.returnedAmount : inv.recoveredAmount) || 0;
+                        const hasRecovery = recAmt > 0;
+                        const profit = hasRecovery ? (recAmt - investAmt) : null;
+                        const roiPercent = (hasRecovery && investAmt > 0) ? ((profit / investAmt) * 100).toFixed(1) : null;
+
+                        return (
+                          <tr key={inv.investmentId} className="hover:bg-[#F0FCF4]/50 transition-colors">
+                            <td className="py-3 px-3.5 font-mono font-bold text-[#003524]">
+                              <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                {inv.investmentId}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-[#5B7065] whitespace-nowrap">
+                              {formatDate(inv.investmentDate)}
+                            </td>
+                            <td className="py-3 px-3 font-semibold text-[#131E19]">
+                              {inv.investor || inv.investorSource || inv.beneficiary || 'Director Capital'}
+                            </td>
+                            <td className="py-3 px-3 text-[#5B7065] max-w-xs truncate" title={inv.purpose}>
+                              {inv.purpose || 'Capital Deployment'}
+                            </td>
+                            <td className="py-3 px-3 font-bold text-[#003524] text-right whitespace-nowrap">
+                              {formatINR(investAmt)}
+                            </td>
+                            <td className="py-3 px-3 font-semibold text-blue-900 text-right whitespace-nowrap">
+                              {formatINR(allocAmt)}
+                            </td>
+                            <td className="py-3 px-3 font-bold text-amber-800 text-right whitespace-nowrap">
+                              {formatINR(remaining)}
+                            </td>
+                            <td className="py-3 px-3 font-bold text-indigo-950 text-right whitespace-nowrap">
+                              {recAmt > 0 ? formatINR(recAmt) : <span className="text-slate-400 font-normal italic">Pending</span>}
+                            </td>
+                            <td className="py-3 px-3 font-extrabold text-right whitespace-nowrap">
+                              {hasRecovery ? (
+                                <span className={profit >= 0 ? 'text-emerald-800' : 'text-rose-700'}>
+                                  {profit >= 0 ? '+' : ''}{formatINR(profit)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-normal italic">Data not available</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-center whitespace-nowrap">
+                              {roiPercent !== null ? (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${profit >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                                  {roiPercent}%
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[10px] italic">—</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-center whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                inv.status === 'Closed' || recAmt >= investAmt
+                                  ? 'bg-slate-100 text-slate-700'
+                                  : (allocAmt >= investAmt && investAmt > 0
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : 'bg-emerald-100 text-emerald-800')
+                              }`}>
+                                {inv.status || (recAmt >= investAmt ? 'Closed' : (allocAmt >= investAmt ? 'Fully Allocated' : 'Active'))}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1">
+                                {remaining > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedInvestment(inv);
+                                      setIsAllocateModalOpen(true);
+                                    }}
+                                    className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 rounded-lg text-[10px] font-bold transition-colors"
+                                    title="Allocate to Member Payout"
+                                  >
+                                    Allocate
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedInvestment(inv);
+                                    setIsRecoveryModalOpen(true);
+                                  }}
+                                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-[10px] font-bold transition-colors"
+                                  title="Record Recovery"
+                                >
+                                  Recovery
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedInvestment(inv);
+                                    setIsAddModalOpen(true);
+                                  }}
+                                  className="p-1 text-[#5B7065] hover:text-[#003524] hover:bg-slate-100 rounded-lg transition-colors"
+                                  title="Edit Investment"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteInvestment(inv.investmentId)}
+                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                                  title="Delete Record"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* MODALS */}
+      {isAddModalOpen && (
+        <AddExtraInvestmentModal
+          isOpen={isAddModalOpen}
+          onClose={() => {
+            setIsAddModalOpen(false);
+            setSelectedInvestment(null);
+          }}
+          investmentToEdit={selectedInvestment}
+          onSave={handleSaveInvestment}
+        />
+      )}
+
+      {isAllocateModalOpen && (
+        <AllocateInvestmentModal
+          isOpen={isAllocateModalOpen}
+          onClose={() => {
+            setIsAllocateModalOpen(false);
+            setSelectedInvestment(null);
+          }}
+          investment={selectedInvestment}
+          chits={chits}
+          members={members}
+          schedule={schedule}
+          onAllocate={handleAllocateInvestment}
+        />
+      )}
+
+      {isRecoveryModalOpen && (
+        <RecordRecoveryModal
+          isOpen={isRecoveryModalOpen}
+          onClose={() => {
+            setIsRecoveryModalOpen(false);
+            setSelectedInvestment(null);
+          }}
+          investment={selectedInvestment}
+          onRecord={handleRecordRecovery}
+        />
+      )}
     </div>
   );
 };

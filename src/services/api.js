@@ -1418,6 +1418,237 @@ export const api = {
     return { success: true };
   },
 
+  // Profit & Loss Financial Analysis (Google Sheets Source of Truth)
+  async getProfitLoss(filters = {}) {
+    if (API_URL) {
+      try {
+        const res = await postApi('getProfitLoss', filters);
+        if (res && res.summary) {
+          return res;
+        }
+      } catch (e) {
+        if (!e.message?.includes('Unknown API action')) {
+          console.warn('getProfitLoss POST failed, trying GET fallback:', e.message);
+        }
+        try {
+          const getRes = await getApi('getProfitLoss', filters);
+          if (getRes && getRes.summary) {
+            return getRes;
+          }
+        } catch (getErr) {
+          console.warn('getProfitLoss GET also failed:', getErr.message);
+        }
+      }
+    }
+
+    // Offline / Local fallback: Compute full P&L metrics from local cached sheets data
+    const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
+    const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
+    const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
+    const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+    const extraInvestments = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+    const schedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+
+    const filteredPayments = payments.filter(p => {
+      if (filters.chitId && filters.chitId !== 'all' && String(p.chitId) !== String(filters.chitId)) return false;
+      if (filters.memberId && filters.memberId !== 'all' && String(p.memberId) !== String(filters.memberId)) return false;
+      if (filters.month && filters.month !== 'all' && Number(p.monthNumber || p.month) !== Number(filters.month)) return false;
+      if (filters.dateFrom && p.paymentDate && p.paymentDate < filters.dateFrom) return false;
+      if (filters.dateTo && p.paymentDate && p.paymentDate > filters.dateTo) return false;
+      return true;
+    });
+
+    const filteredPayouts = payouts.filter(po => {
+      if (filters.chitId && filters.chitId !== 'all' && po.chitId && String(po.chitId) !== String(filters.chitId)) return false;
+      if (filters.memberId && filters.memberId !== 'all' && po.memberId && String(po.memberId) !== String(filters.memberId)) return false;
+      if (filters.month && filters.month !== 'all' && Number(po.monthNumber || po.month) !== Number(filters.month)) return false;
+      if (filters.fundingSource && filters.fundingSource !== 'all') {
+        const isExtra = String(po.fundingSource || '').toUpperCase().includes('EXTRA');
+        if (filters.fundingSource === 'EXTRA_INVESTMENT' && !isExtra) return false;
+        if (filters.fundingSource === 'CHIT_FUND' && isExtra) return false;
+      }
+      if (filters.dateFrom && po.payoutDate && po.payoutDate < filters.dateFrom) return false;
+      if (filters.dateTo && po.payoutDate && po.payoutDate > filters.dateTo) return false;
+      return true;
+    });
+
+    const filteredExtra = extraInvestments.filter(inv => {
+      if (filters.dateFrom && inv.investmentDate && inv.investmentDate < filters.dateFrom) return false;
+      if (filters.dateTo && inv.investmentDate && inv.investmentDate > filters.dateTo) return false;
+      return true;
+    });
+
+    const totalCollection = filteredPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+    const totalPayout = filteredPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+
+    const totalExtraInvested = filteredExtra.reduce((s, inv) => s + (Number(inv.investmentAmount) || 0), 0);
+    const totalExtraAllocated = filteredExtra.reduce((s, inv) => {
+      const alloc = (inv.allocatedAmount !== undefined && inv.allocatedAmount !== '') ? Number(inv.allocatedAmount) : (Number(inv.usedAmount) || 0);
+      return s + (isNaN(alloc) ? 0 : alloc);
+    }, 0);
+    const totalExtraRecovered = filteredExtra.reduce((s, inv) => s + (Number(inv.returnedAmount !== undefined ? inv.returnedAmount : inv.recoveredAmount) || 0), 0);
+    const hasAnyRecovery = filteredExtra.some(inv => Number(inv.returnedAmount || inv.recoveredAmount || 0) > 0);
+    const totalExtraProfit = filteredExtra.reduce((s, inv) => {
+      const ret = Number(inv.returnedAmount !== undefined ? inv.returnedAmount : inv.recoveredAmount) || 0;
+      const invAmt = Number(inv.investmentAmount) || 0;
+      return ret > 0 ? s + (ret - invAmt) : s;
+    }, 0);
+    const totalExtraRemaining = Math.max(0, totalExtraInvested - totalExtraAllocated);
+    const extraROI = (totalExtraInvested > 0 && hasAnyRecovery) ? ((totalExtraProfit / totalExtraInvested) * 100) : 0;
+
+    let totalCommission = 0;
+    let totalDividend = 0;
+    let totalExpectedDue = 0;
+
+    const targetChits = (filters.chitId && filters.chitId !== 'all')
+      ? chits.filter(c => String(c.chitId) === String(filters.chitId))
+      : chits;
+
+    targetChits.forEach(c => {
+      const cVal = Number(c.chitValue || c.totalAmount) || 100000;
+      const dur = Number(c.duration || c.durationMonths) || 20;
+      const memCount = Number(c.requiredMembers || c.totalMembers) || dur;
+      const commPct = Number(c.commissionPercent) || 5;
+      const commAmt = Math.round(cVal * (commPct / 100));
+      const normalMonthly = memCount > 0 ? Math.round(cVal / memCount) : 5000;
+
+      const startM = (filters.month && filters.month !== 'all') ? Number(filters.month) : 1;
+      const endM = (filters.month && filters.month !== 'all') ? Number(filters.month) : dur;
+
+      for (let m = startM; m <= endM; m++) {
+        const schItem = schedule.find(s => String(s.chitId) === String(c.chitId) && Number(s.monthNumber || s.month) === m);
+        const actualMonthly = schItem ? (Number(schItem.amount || schItem.monthlyAmount) || normalMonthly) : normalMonthly;
+        const monthDiv = schItem && schItem.dividend !== undefined ? Number(schItem.dividend) : Math.max(0, normalMonthly - actualMonthly);
+
+        totalCommission += (m === 1 ? 0 : commAmt);
+        totalDividend += (m === 1 ? 0 : (monthDiv * memCount));
+        totalExpectedDue += (actualMonthly * memCount);
+      }
+    });
+
+    const totalPending = Math.max(0, totalExpectedDue - totalCollection);
+    const collectionRate = totalExpectedDue > 0 ? ((totalCollection / totalExpectedDue) * 100) : 100;
+    const netCashFlow = (totalCollection + totalExtraRecovered) - (totalPayout + totalExtraInvested);
+    const operationalProfit = totalCommission + (hasAnyRecovery ? totalExtraProfit : 0);
+
+    const maxMonth = 20;
+    const monthlyBreakdown = [];
+    for (let m = 1; m <= maxMonth; m++) {
+      if (filters.month && filters.month !== 'all' && Number(filters.month) !== m) continue;
+
+      const mPayments = filteredPayments.filter(p => Number(p.monthNumber || p.month) === m);
+      const mPayouts = filteredPayouts.filter(po => Number(po.monthNumber || po.month) === m);
+      const mCollection = mPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+      const mPayout = mPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+      const defaultComm = m === 1 ? 0 : 5000;
+      const mDividend = m === 1 ? 0 : 1250;
+      const mCashFlow = mCollection - mPayout;
+      const mProfit = defaultComm;
+
+      monthlyBreakdown.push({
+        month: m,
+        collection: mCollection,
+        payout: mPayout,
+        commission: defaultComm,
+        dividend: mDividend,
+        extraInvestment: 0,
+        recovery: 0,
+        profit: mProfit,
+        cashFlow: mCashFlow,
+        paymentsCount: mPayments.length,
+        payoutsCount: mPayouts.length
+      });
+    }
+
+    const chitWise = chits.map(c => {
+      const cPayments = filteredPayments.filter(p => String(p.chitId) === String(c.chitId));
+      const cPayouts = filteredPayouts.filter(po => !po.chitId || String(po.chitId) === String(c.chitId));
+      const cCol = cPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+      const cPay = cPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+      return {
+        chitId: c.chitId,
+        chitName: c.chitName || c.chitId,
+        chitValue: Number(c.totalAmount || c.chitValue) || 100000,
+        duration: Number(c.durationMonths || c.duration) || 20,
+        members: Number(c.totalMembers || c.memberCount) || 20,
+        totalCollection: cCol,
+        totalPayout: cPay,
+        commission: 95000,
+        dividend: 1250 * 19 * 20,
+        profit: 95000,
+        cashFlow: cCol - cPay
+      };
+    });
+
+    const memberWise = members.map(m => {
+      const mPayments = filteredPayments.filter(p => String(p.memberId) === String(m.memberId));
+      const mPayouts = filteredPayouts.filter(po => String(po.memberId) === String(m.memberId));
+      const mPaid = mPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+      const mPayoutTotal = mPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0);
+      const extraInvPayouts = mPayouts.filter(po => String(po.fundingSource || '').toUpperCase().includes('EXTRA')).length;
+
+      return {
+        memberId: m.memberId,
+        name: m.name,
+        phone: m.phone || m.mobile || '',
+        totalPayments: mPaid,
+        totalPayoutsReceived: mPayoutTotal,
+        pendingAmount: Number(m.pendingAmount || m.totalPending) || 0,
+        chitCount: m.chitCount || 1,
+        extraInvestmentPayouts: extraInvPayouts,
+        status: m.status || 'Active'
+      };
+    });
+
+    const chitFundPayouts = filteredPayouts.filter(po => !String(po.fundingSource || '').toUpperCase().includes('EXTRA'));
+    const extraInvPayouts = filteredPayouts.filter(po => String(po.fundingSource || '').toUpperCase().includes('EXTRA'));
+
+    return {
+      success: true,
+      filters: filters,
+      timestamp: new Date().toISOString(),
+      summary: {
+        totalCollection: totalCollection,
+        totalDue: totalExpectedDue,
+        totalPending: totalPending,
+        collectionRate: collectionRate,
+        totalPayout: totalPayout,
+        completedPayouts: filteredPayouts.filter(po => po.status === 'Completed').length,
+        pendingPayouts: filteredPayouts.filter(po => po.status !== 'Completed').length,
+        totalCommission: totalCommission,
+        totalDividend: totalDividend,
+        extraInvestment: totalExtraInvested,
+        extraAllocated: totalExtraAllocated,
+        extraRemaining: totalExtraRemaining,
+        recoveredAmount: totalExtraRecovered,
+        investmentProfit: hasAnyRecovery ? totalExtraProfit : 0,
+        roiPercent: hasAnyRecovery ? extraROI : 0,
+        netProfit: operationalProfit,
+        operationalProfit: operationalProfit,
+        netCashFlow: netCashFlow,
+        numberPayments: filteredPayments.length,
+        numberPayouts: filteredPayouts.length
+      },
+      monthlyBreakdown: monthlyBreakdown,
+      chitWise: chitWise,
+      memberWise: memberWise,
+      fundingSource: [
+        {
+          source: 'CHIT_FUND',
+          label: 'Chit Fund Collections',
+          totalAmount: chitFundPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0),
+          count: chitFundPayouts.length
+        },
+        {
+          source: 'EXTRA_INVESTMENT',
+          label: 'Extra Investment',
+          totalAmount: extraInvPayouts.reduce((s, po) => s + (Number(po.amount) || 0), 0),
+          count: extraInvPayouts.length
+        }
+      ]
+    };
+  },
+
   // Extra Investment System (Completely Isolated from Normal Chit Calculations)
   async getExtraInvestments() {
     if (API_URL) {
@@ -1438,22 +1669,31 @@ export const api = {
 
   async createExtraInvestment(investmentData) {
     const investAmt = Number(investmentData.investmentAmount) || 0;
-    const retAmt = Number(investmentData.returnedAmount) || 0;
+    const retAmt = Number(investmentData.returnedAmount !== undefined ? investmentData.returnedAmount : investmentData.recoveredAmount) || 0;
+    const allocAmt = Number(investmentData.allocatedAmount !== undefined ? investmentData.allocatedAmount : investmentData.usedAmount) || 0;
     const calc = calculateExtraInvestment({ investmentAmount: investAmt, returnedAmount: retAmt });
 
     const newInvestment = {
       investmentId: `INV-${Date.now().toString().slice(-6)}`,
       investmentAmount: investAmt,
       investmentDate: investmentData.investmentDate || new Date().toISOString().split('T')[0],
-      usedAmount: Number(investmentData.usedAmount) || 0,
-      beneficiary: investmentData.beneficiary || '',
-      payout: Number(investmentData.payout) || 0,
+      investor: investmentData.investor || investmentData.investorSource || investmentData.beneficiary || '',
+      investorSource: investmentData.investor || investmentData.investorSource || investmentData.beneficiary || '',
+      beneficiary: investmentData.investor || investmentData.investorSource || investmentData.beneficiary || '',
+      purpose: investmentData.purpose || 'Capital Deployment',
+      expectedReturn: Number(investmentData.expectedReturn) || '',
+      allocatedAmount: allocAmt,
+      usedAmount: allocAmt,
+      remainingAmount: Math.max(0, investAmt - allocAmt),
       returnedAmount: retAmt,
+      recoveredAmount: retAmt,
       profit: calc.profit,
       profitPercent: calc.profitPercent,
+      profitPercentage: calc.profitPercent,
       notes: investmentData.notes || '',
-      status: investmentData.status || (retAmt >= investAmt ? 'Closed' : 'Active'),
-      createdAt: new Date().toISOString()
+      status: investmentData.status || (retAmt >= investAmt && retAmt > 0 ? 'Closed' : (allocAmt >= investAmt && investAmt > 0 ? 'Fully Allocated' : 'Active')),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     if (API_URL) {
@@ -1474,15 +1714,21 @@ export const api = {
 
   async updateExtraInvestment(investmentId, investmentData) {
     const investAmt = Number(investmentData.investmentAmount) || 0;
-    const retAmt = Number(investmentData.returnedAmount) || 0;
+    const retAmt = Number(investmentData.returnedAmount !== undefined ? investmentData.returnedAmount : investmentData.recoveredAmount) || 0;
+    const allocAmt = Number(investmentData.allocatedAmount !== undefined ? investmentData.allocatedAmount : investmentData.usedAmount) || 0;
     const calc = calculateExtraInvestment({ investmentAmount: investAmt, returnedAmount: retAmt });
 
     const updateObj = {
       ...investmentData,
       investmentAmount: investAmt,
+      allocatedAmount: allocAmt,
+      usedAmount: allocAmt,
+      remainingAmount: Math.max(0, investAmt - allocAmt),
       returnedAmount: retAmt,
+      recoveredAmount: retAmt,
       profit: calc.profit,
       profitPercent: calc.profitPercent,
+      profitPercentage: calc.profitPercent,
       updatedAt: new Date().toISOString()
     };
 
@@ -1500,7 +1746,138 @@ export const api = {
     return updateObj;
   },
 
+  async allocateExtraInvestment(allocationData) {
+    const { investmentId, payoutAmount, chitId, monthNumber, memberId, memberName, chitNo, notes, payoutDate, paymentMethod } = allocationData;
+    const allocNum = Number(payoutAmount) || 0;
+
+    const cachedInvestments = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+    const targetInv = cachedInvestments.find(inv => String(inv.investmentId) === String(investmentId));
+
+    if (targetInv) {
+      const currentInvested = Number(targetInv.investmentAmount) || 0;
+      const currentAlloc = Number(targetInv.allocatedAmount !== undefined ? targetInv.allocatedAmount : targetInv.usedAmount) || 0;
+      const remaining = Math.max(0, currentInvested - currentAlloc);
+
+      if (allocNum > remaining) {
+        throw new Error(`Allocation exceeds remaining investment amount. Maximum available is ₹${remaining.toLocaleString('en-IN')}.`);
+      }
+    }
+
+    let result = { success: true };
+
+    if (API_URL) {
+      try {
+        result = await postApi('allocateExtraInvestment', allocationData);
+      } catch (e) {
+        console.warn('allocateExtraInvestment API error, using local fallback:', e.message);
+      }
+    }
+
+    // Update local investment cache
+    const updatedInvestments = cachedInvestments.map(inv => {
+      if (String(inv.investmentId) === String(investmentId)) {
+        const investAmt = Number(inv.investmentAmount) || 0;
+        const oldAlloc = Number(inv.allocatedAmount !== undefined ? inv.allocatedAmount : inv.usedAmount) || 0;
+        const newAlloc = oldAlloc + allocNum;
+        const newRem = Math.max(0, investAmt - newAlloc);
+        return {
+          ...inv,
+          allocatedAmount: newAlloc,
+          usedAmount: newAlloc,
+          remainingAmount: newRem,
+          status: newAlloc >= investAmt ? 'Fully Allocated' : 'Active',
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return inv;
+    });
+    setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, updatedInvestments);
+
+    // Create corresponding payout record with fundingSource = 'EXTRA_INVESTMENT'
+    const newPayout = {
+      payoutId: result.payoutId || `PAYOUT-EXT-${Date.now().toString().slice(-4)}`,
+      chitId: chitId || 'CHIT-100K-01',
+      memberId: memberId || 'MEM-000',
+      memberName: memberName || 'Member',
+      chitNo: chitNo || `CHIT-${chitId}-M${monthNumber}`,
+      monthNumber: Number(monthNumber) || 1,
+      amount: allocNum,
+      payoutDate: payoutDate || new Date().toISOString().split('T')[0],
+      paymentMethod: paymentMethod || 'Bank Transfer',
+      status: 'Completed',
+      fundingSource: 'EXTRA_INVESTMENT',
+      extraInvestmentId: investmentId,
+      notes: notes || `Funded via Extra Investment ${investmentId}`,
+      createdAt: new Date().toISOString()
+    };
+
+    const cachedPayouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
+    setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...cachedPayouts]);
+
+    return {
+      success: true,
+      payoutId: newPayout.payoutId,
+      investmentId,
+      allocatedAmount: allocNum
+    };
+  },
+
+  async recordInvestmentRecovery(recoveryData) {
+    const { investmentId, recoveredAmount, totalRecovered, recoveryDate, notes } = recoveryData;
+    const recNum = Number(recoveredAmount) || 0;
+
+    let result = { success: true };
+
+    if (API_URL) {
+      try {
+        result = await postApi('recordInvestmentRecovery', recoveryData);
+      } catch (e) {
+        console.warn('recordInvestmentRecovery API error, using local fallback:', e.message);
+      }
+    }
+
+    const cachedInvestments = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+    const updatedInvestments = cachedInvestments.map(inv => {
+      if (String(inv.investmentId) === String(investmentId)) {
+        const investAmt = Number(inv.investmentAmount) || 0;
+        const prevRec = Number(inv.returnedAmount !== undefined ? inv.returnedAmount : inv.recoveredAmount) || 0;
+        const newTotal = (totalRecovered !== undefined && Number(totalRecovered) > 0) ? Number(totalRecovered) : (prevRec + recNum);
+        const profit = newTotal - investAmt;
+        const profitPercent = investAmt > 0 ? Number(((profit / investAmt) * 100).toFixed(2)) : 0;
+        return {
+          ...inv,
+          returnedAmount: newTotal,
+          recoveredAmount: newTotal,
+          profit: profit,
+          profitPercent: profitPercent,
+          profitPercentage: profitPercent,
+          status: newTotal >= investAmt ? 'Closed' : 'Recovered',
+          notes: (inv.notes ? `${inv.notes} | ` : '') + (notes || `Recovery on ${recoveryDate}`),
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return inv;
+    });
+    setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, updatedInvestments);
+
+    return {
+      success: true,
+      investmentId,
+      recoveredAmount: recNum
+    };
+  },
+
   async deleteExtraInvestment(investmentId) {
+    const cached = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+    const matched = cached.find(inv => String(inv.investmentId) === String(investmentId));
+    if (matched) {
+      const allocated = Number(matched.allocatedAmount || matched.usedAmount) || 0;
+      const recovered = Number(matched.returnedAmount || matched.recoveredAmount) || 0;
+      if (allocated > 0 || recovered > 0) {
+        throw new Error('Cannot delete an investment that has active allocations or recovery history. Please update its status instead.');
+      }
+    }
+
     if (API_URL) {
       try {
         await postApi('deleteExtraInvestment', { investmentId });
@@ -1508,7 +1885,7 @@ export const api = {
         console.warn('deleteExtraInvestment API error:', e.message);
       }
     }
-    const cached = getCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE) || [];
+
     const updated = cached.filter(inv => String(inv.investmentId) !== String(investmentId));
     setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, updated);
     return { success: true };
@@ -1528,3 +1905,4 @@ export const api = {
 };
 
 export default api;
+

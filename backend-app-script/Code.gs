@@ -1636,15 +1636,19 @@ function getProfitLossAnalysis(filters) {
   
   // Extra Investment calculations (strictly when recovery exists)
   const totalExtraInvested = filteredExtra.reduce((s, inv) => s + (Number(inv.investmentAmount) || 0), 0);
-  const totalExtraAllocated = filteredExtra.reduce((s, inv) => s + (Number(inv.usedAmount || inv.allocatedAmount || inv.investmentAmount) || 0), 0);
-  const totalExtraRecovered = filteredExtra.reduce((s, inv) => s + (Number(inv.returnedAmount) || 0), 0);
+  const totalExtraAllocated = filteredExtra.reduce((s, inv) => {
+    const alloc = (inv.allocatedAmount !== undefined && inv.allocatedAmount !== '') ? Number(inv.allocatedAmount) : (Number(inv.usedAmount) || 0);
+    return s + (isNaN(alloc) ? 0 : alloc);
+  }, 0);
+  const totalExtraRecovered = filteredExtra.reduce((s, inv) => s + (Number(inv.returnedAmount !== undefined ? inv.returnedAmount : inv.recoveredAmount) || 0), 0);
+  const hasAnyRecovery = filteredExtra.some(inv => Number(inv.returnedAmount || inv.recoveredAmount || 0) > 0);
   const totalExtraProfit = filteredExtra.reduce((s, inv) => {
-    const ret = Number(inv.returnedAmount) || 0;
+    const ret = Number(inv.returnedAmount !== undefined ? inv.returnedAmount : inv.recoveredAmount) || 0;
     const invAmt = Number(inv.investmentAmount) || 0;
     return ret > 0 ? s + (ret - invAmt) : s;
   }, 0);
   const totalExtraRemaining = Math.max(0, totalExtraInvested - totalExtraAllocated);
-  const extraROI = totalExtraInvested > 0 ? ((totalExtraProfit / totalExtraInvested) * 100) : 0;
+  const extraROI = (totalExtraInvested > 0 && hasAnyRecovery) ? ((totalExtraProfit / totalExtraInvested) * 100) : 0;
 
   // Commission & Dividend calculations from active chit plans and schedule
   let totalCommission = 0;
@@ -1977,14 +1981,19 @@ function createExtraInvestment(data) {
 
 function updateExtraInvestment(investmentId, data) {
   const investAmt = Number(data.investmentAmount) || 0;
-  const retAmt = Number(data.returnedAmount) || 0;
+  const retAmt = Number(data.returnedAmount !== undefined ? data.returnedAmount : data.recoveredAmount) || 0;
   const profit = retAmt - investAmt;
   const profitPercent = investAmt > 0 ? Math.round((profit / investAmt) * 1000) / 10 : 0;
+  const allocAmt = Number(data.allocatedAmount !== undefined ? data.allocatedAmount : data.usedAmount) || 0;
 
   const updateObj = {
     ...data,
     investmentAmount: investAmt,
+    allocatedAmount: allocAmt,
+    usedAmount: allocAmt,
+    remainingAmount: Math.max(0, investAmt - allocAmt),
     returnedAmount: retAmt,
+    recoveredAmount: retAmt,
     profit: profit,
     profitPercent: profitPercent,
     updatedAt: new Date().toISOString()
@@ -1995,7 +2004,137 @@ function updateExtraInvestment(investmentId, data) {
   return { success: true };
 }
 
+function allocateExtraInvestment(data) {
+  const investmentId = data.investmentId;
+  if (!investmentId) throw new Error('Investment ID is required for allocation.');
+
+  const payoutAmt = Number(data.payoutAmount || data.amount) || 0;
+  if (payoutAmt <= 0) throw new Error('Payout allocation amount must be greater than 0.');
+
+  const investments = getExtraInvestments();
+  const matched = investments.find(inv => String(inv.investmentId) === String(investmentId));
+  if (!matched) throw new Error('Extra Investment record ' + investmentId + ' not found.');
+
+  const totalInvested = Number(matched.investmentAmount) || 0;
+  const currentAllocated = Number(matched.allocatedAmount || matched.usedAmount) || 0;
+  const remaining = Math.max(0, totalInvested - currentAllocated);
+
+  if (payoutAmt > remaining) {
+    throw new Error('Allocation exceeds remaining investment amount. Maximum available: ₹' + remaining);
+  }
+
+  // 1. Create a separate Payout record funded by EXTRA_INVESTMENT
+  const ss = getSpreadsheet();
+  ensureSheetWithHeaders(ss, SHEET_NAMES.PAYOUTS, [
+    'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName', 'fundingSource', 'extraInvestmentId'
+  ]);
+
+  const payoutId = generateSequentialId(SHEET_NAMES.PAYOUTS, 'PAYOUT', 'payoutId');
+  const chitId = data.chitId || 'CHIT-100K-01';
+  const monthNum = Number(data.monthNumber) || 1;
+  const memId = data.memberId || 'MEM-000';
+  const memName = data.memberName || 'Member';
+  const chitNo = data.chitNo || ('CHIT-' + chitId + '-M' + monthNum);
+  const payoutDate = data.payoutDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd');
+
+  const payoutRecord = {
+    payoutId: payoutId,
+    chitId: chitId,
+    memberId: memId,
+    monthNumber: monthNum,
+    amount: payoutAmt,
+    payoutDate: payoutDate,
+    paymentMethod: data.paymentMethod || 'Bank Transfer',
+    referenceNumber: data.referenceNumber || ('REF-' + Utilities.getUuid().slice(0, 8)),
+    status: 'Completed',
+    notes: data.notes || ('Funded via Extra Investment ' + investmentId),
+    createdAt: new Date().toISOString(),
+    chitNo: chitNo,
+    memberName: memName,
+    fundingSource: 'EXTRA_INVESTMENT',
+    extraInvestmentId: investmentId
+  };
+
+  appendRow(SHEET_NAMES.PAYOUTS, payoutRecord);
+
+  // 2. Update ExtraInvestment record
+  const newAllocated = currentAllocated + payoutAmt;
+  const newRemaining = Math.max(0, totalInvested - newAllocated);
+  const newStatus = newAllocated >= totalInvested ? 'Fully Allocated' : 'Active';
+
+  updateRow(SHEET_NAMES.EXTRA_INVESTMENT, 'investmentId', investmentId, {
+    usedAmount: newAllocated,
+    allocatedAmount: newAllocated,
+    remainingAmount: newRemaining,
+    beneficiary: (matched.beneficiary ? matched.beneficiary + ', ' : '') + memName + ' (M' + monthNum + ')',
+    status: newStatus,
+    updatedAt: new Date().toISOString()
+  });
+
+  logActivity('Extra Investment Allocated', 'Allocated ₹' + payoutAmt + ' from ' + investmentId + ' to ' + memName + ' (Month ' + monthNum + ')', 'Admin');
+
+  return {
+    success: true,
+    message: 'Allocation successful',
+    payoutId: payoutId,
+    investmentId: investmentId,
+    allocatedAmount: newAllocated,
+    remainingAmount: newRemaining
+  };
+}
+
+function recordInvestmentRecovery(data) {
+  const investmentId = data.investmentId;
+  if (!investmentId) throw new Error('Investment ID is required.');
+
+  const recoveredAmt = Number(data.recoveredAmount || data.amount) || 0;
+  if (recoveredAmt <= 0) throw new Error('Recovered amount must be greater than 0.');
+
+  const investments = getExtraInvestments();
+  const matched = investments.find(inv => String(inv.investmentId) === String(investmentId));
+  if (!matched) throw new Error('Extra Investment record ' + investmentId + ' not found.');
+
+  const totalInvested = Number(matched.investmentAmount) || 0;
+  const prevRecovered = Number(matched.returnedAmount || matched.recoveredAmount) || 0;
+  const newTotalRecovered = (data.totalRecovered !== undefined && Number(data.totalRecovered) > 0) ? Number(data.totalRecovered) : (prevRecovered + recoveredAmt);
+  const profit = newTotalRecovered - totalInvested;
+  const profitPercent = totalInvested > 0 ? Math.round((profit / totalInvested) * 1000) / 10 : 0;
+  const newStatus = newTotalRecovered >= totalInvested ? 'Closed' : 'Recovered';
+
+  updateRow(SHEET_NAMES.EXTRA_INVESTMENT, 'investmentId', investmentId, {
+    returnedAmount: newTotalRecovered,
+    recoveredAmount: newTotalRecovered,
+    profit: profit,
+    profitPercent: profitPercent,
+    status: newStatus,
+    notes: (matched.notes ? matched.notes + ' | ' : '') + (data.notes || ('Recovery recorded on ' + (data.recoveryDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd')))),
+    updatedAt: new Date().toISOString()
+  });
+
+  logActivity('Investment Recovery Recorded', 'Recorded recovery of ₹' + recoveredAmt + ' for ' + investmentId + ' (Profit: ₹' + profit + ')', 'Admin');
+
+  return {
+    success: true,
+    message: 'Recovery recorded successfully',
+    investmentId: investmentId,
+    totalRecovered: newTotalRecovered,
+    profit: profit,
+    profitPercent: profitPercent,
+    status: newStatus
+  };
+}
+
 function deleteExtraInvestment(investmentId) {
+  const investments = getExtraInvestments();
+  const matched = investments.find(inv => String(inv.investmentId) === String(investmentId));
+  if (matched) {
+    const allocated = Number(matched.allocatedAmount || matched.usedAmount) || 0;
+    const recovered = Number(matched.returnedAmount || matched.recoveredAmount) || 0;
+    if (allocated > 0 || recovered > 0) {
+      throw new Error('Cannot delete an investment that has active allocations or recovery history. Please update status instead.');
+    }
+  }
+
   const sheet = getSheet(SHEET_NAMES.EXTRA_INVESTMENT);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: false };
@@ -2199,6 +2338,15 @@ function handleRequest(e, method) {
 
       case 'deleteExtraInvestment':
         result = deleteExtraInvestment(payload.investmentId);
+        break;
+
+      case 'allocateExtraInvestment':
+        result = allocateExtraInvestment(payload);
+        break;
+
+      case 'recordInvestmentRecovery':
+      case 'recordRecovery':
+        result = recordInvestmentRecovery(payload);
         break;
 
       default:
