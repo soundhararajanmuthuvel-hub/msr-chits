@@ -3,10 +3,10 @@ import Modal from '../common/Modal';
 import { api } from '../../services/api';
 import { useChit } from '../../context/ChitContext';
 import { formatINR } from '../../utils/currency';
-import { calculateCommission, calculatePayoutFromMonthlyChit, calculateMonthlyChitFromPayout } from '../../utils/chitCalculations';
-import { Calendar, IndianRupee, ShieldCheck, CheckCircle2, AlertCircle, Percent, Users, Calculator } from 'lucide-react';
+import { calculateCommission, calculateMonthlyChitFromPayout } from '../../utils/chitCalculations';
+import { Calendar, IndianRupee, ShieldCheck, CheckCircle2, AlertCircle, Percent, Users, Calculator, Sparkles } from 'lucide-react';
 
-export const EditMonthlyChitModal = ({
+export const EditDividendModal = ({
   isOpen,
   onClose,
   scheduleItem,
@@ -14,17 +14,17 @@ export const EditMonthlyChitModal = ({
   onSuccess
 }) => {
   const { showToast } = useChit();
-  const [monthlyAmount, setMonthlyAmount] = useState('');
-  const [syncPayout, setSyncPayout] = useState(false);
+  const [dividend, setDividend] = useState('');
+  const [syncPayout, setSyncPayout] = useState(true);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (isOpen && scheduleItem) {
-      setMonthlyAmount(String(scheduleItem.monthlyAmount || scheduleItem.amount || ''));
+      setDividend(String(scheduleItem.dividend || ''));
       setNotes(scheduleItem.notes || '');
-      setSyncPayout(false);
+      setSyncPayout(true);
       setError(null);
     }
   }, [isOpen, scheduleItem]);
@@ -38,24 +38,27 @@ export const EditMonthlyChitModal = ({
   const totalMembers = Number(chit?.totalMembers || chit?.memberCount || duration || 20);
   const commPercent = Number(chit?.commissionPercent || 5);
   const commissionAmount = Number(chit?.commissionAmount) || calculateCommission(chitValue, commPercent);
-  const currentPayout = Number(scheduleItem.payoutAmount || 70000);
-
+  
   // Normal Monthly Chit = Chit Value / Members (e.g. ₹5,000)
   const normalMonthlyChit = totalMembers > 0 ? Math.round(chitValue / totalMembers) : 5000;
-
+  
   // Live Dependent Values:
-  const numEnteredMonthly = Number(monthlyAmount) || 0;
-  // Dividend = Normal Monthly Chit - Actual Monthly Chit
-  const calculatedDividend = Math.max(0, normalMonthlyChit - numEnteredMonthly);
+  // Actual Monthly Chit = Normal Monthly Chit - Dividend
+  const numDividend = Number(dividend) || 0;
+  const calculatedActualMonthly = Math.max(0, normalMonthlyChit - numDividend);
   // Derived Payout = Actual Monthly Chit * Members - Commission
-  const calculatedPayout = Math.max(0, numEnteredMonthly * totalMembers - commissionAmount);
+  const calculatedPayout = Math.max(0, calculatedActualMonthly * totalMembers - commissionAmount);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const numAmt = Number(monthlyAmount);
+    const numDiv = Number(dividend);
 
-    if (isNaN(numAmt) || numAmt <= 0) {
-      setError('Please enter a valid positive monthly chit collection amount (e.g. 4000)');
+    if (isNaN(numDiv) || numDiv < 0) {
+      setError('Please enter a valid positive dividend amount (e.g. 1000)');
+      return;
+    }
+    if (numDiv > normalMonthlyChit) {
+      setError(`Dividend cannot exceed normal monthly installment (${formatINR(normalMonthlyChit)})`);
       return;
     }
 
@@ -66,10 +69,10 @@ export const EditMonthlyChitModal = ({
       const payload = {
         chitId,
         month,
-        monthlyAmount: numAmt,
-        amount: numAmt,
-        dividend: calculatedDividend,
-        payoutAmount: syncPayout ? calculatedPayout : currentPayout,
+        dividend: numDiv,
+        monthlyAmount: calculatedActualMonthly,
+        amount: calculatedActualMonthly,
+        payoutAmount: syncPayout ? calculatedPayout : Number(scheduleItem.payoutAmount || 70000),
         commissionAmount,
         totalMembers,
         notes
@@ -77,13 +80,13 @@ export const EditMonthlyChitModal = ({
 
       await api.updateMonthlyScheduleItem(payload);
 
-      showToast(`Month ${month} Monthly Chit updated to ${formatINR(numAmt)} (Dividend: ${formatINR(calculatedDividend)}) successfully!`, 'success');
+      showToast(`Month ${month} Dividend updated to ${formatINR(numDiv)} (Monthly Chit: ${formatINR(calculatedActualMonthly)}) successfully!`, 'success');
       if (onSuccess) onSuccess();
       onClose();
     } catch (err) {
-      console.error('Update monthly chit error:', err);
-      setError(err.message || 'Failed to update monthly chit amount');
-      showToast(err.message || 'Failed to update monthly chit amount', 'error');
+      console.error('Update dividend error:', err);
+      setError(err.message || 'Failed to update dividend');
+      showToast(err.message || 'Failed to update dividend', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -93,12 +96,12 @@ export const EditMonthlyChitModal = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Edit Month ${month} Monthly Chit`}
-      subtitle={`Configure collection amount per member for Month ${month} • Scheme: ${chit?.chitName || 'MSR Chit'}`}
+      title={`Edit Month ${month} Dividend`}
+      subtitle={`Configure auction dividend discount for Month ${month} • Scheme: ${chit?.chitName || 'MSR Chit'}`}
       maxWidth="max-w-md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Plan Parameters Overview */}
+        {/* Core Financial Plan Overview */}
         <div className="p-3.5 bg-[#F0FCF4] border border-[#DCE8E0] rounded-xl space-y-2 text-xs">
           <div className="flex items-center justify-between py-1 border-b border-[#DCE8E0]/70">
             <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
@@ -140,16 +143,16 @@ export const EditMonthlyChitModal = ({
           </div>
         </div>
 
-        {/* Editable Monthly Chit Amount */}
+        {/* Editable Dividend Field */}
         <div>
           <label className="block text-xs font-bold text-[#003524] mb-1 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <IndianRupee className="w-3.5 h-3.5 text-[#174D38]" />
-              <span>Actual Monthly Chit (Collection per Member) *</span>
+              <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+              <span>Dividend (Discount per Member) *</span>
             </span>
-            {monthlyAmount && !isNaN(Number(monthlyAmount)) && Number(monthlyAmount) > 0 && (
-              <span className="text-xs font-extrabold text-emerald-800">
-                {formatINR(Number(monthlyAmount))}
+            {dividend && !isNaN(Number(dividend)) && (
+              <span className="text-xs font-extrabold text-amber-800">
+                {formatINR(Number(dividend))}
               </span>
             )}
           </label>
@@ -157,12 +160,13 @@ export const EditMonthlyChitModal = ({
             <span className="absolute left-3 top-2.5 text-xs font-bold text-[#5B7065]">₹</span>
             <input
               type="number"
-              min={1}
+              min={0}
+              max={normalMonthlyChit}
               step={1}
-              placeholder="e.g. 4000"
-              value={monthlyAmount}
+              placeholder="e.g. 1250"
+              value={dividend}
               onChange={(e) => {
-                setMonthlyAmount(e.target.value);
+                setDividend(e.target.value);
                 if (error) setError(null);
               }}
               className={`w-full pl-8 pr-3 py-2 bg-white border rounded-lg text-xs sm:text-sm font-bold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] ${
@@ -179,39 +183,39 @@ export const EditMonthlyChitModal = ({
             </p>
           )}
           <p className="text-[11px] text-[#5B7065] mt-1">
-            The exact installment amount collected from each member for Month {month}.
+            Amount reduced from the normal {formatINR(normalMonthlyChit)} installment.
           </p>
         </div>
 
         {/* Live Recalculation Dependency Box */}
-        {numEnteredMonthly > 0 && (
-          <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[#174D38]">Resulting Dividend (Discount):</span>
-              <span className="font-extrabold text-amber-900 text-sm">
-                {formatINR(calculatedDividend)}
-              </span>
-            </div>
-            <p className="text-[11px] text-[#2D5A43] font-mono leading-relaxed">
-              Dividend = Normal ({formatINR(normalMonthlyChit)}) - Actual ({formatINR(numEnteredMonthly)}) = {formatINR(calculatedDividend)}
-            </p>
-            <label className="flex items-center gap-2 pt-1 cursor-pointer text-[11px] text-[#003524] font-semibold select-none">
-              <input
-                type="checkbox"
-                checked={syncPayout}
-                onChange={(e) => setSyncPayout(e.target.checked)}
-                className="w-3.5 h-3.5 text-[#003524] rounded border-emerald-300 focus:ring-0"
-              />
-              <span>Sync Payout to {formatINR(calculatedPayout)} ({formatINR(numEnteredMonthly)} × {totalMembers} - {formatINR(commissionAmount)})</span>
-            </label>
+        <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-[#174D38]">Resulting Actual Monthly Chit:</span>
+            <span className="font-extrabold text-emerald-900 text-sm">
+              {formatINR(calculatedActualMonthly)}
+            </span>
           </div>
-        )}
+          <p className="text-[11px] text-[#2D5A43] font-mono leading-relaxed">
+            Actual Monthly Chit = Normal ({formatINR(normalMonthlyChit)}) - Dividend ({formatINR(numDividend)})
+            <br />
+            = {formatINR(calculatedActualMonthly)} per member
+          </p>
+          <label className="flex items-center gap-2 pt-1 cursor-pointer text-[11px] text-[#003524] font-semibold select-none">
+            <input
+              type="checkbox"
+              checked={syncPayout}
+              onChange={(e) => setSyncPayout(e.target.checked)}
+              className="w-3.5 h-3.5 text-[#003524] rounded border-emerald-300 focus:ring-0"
+            />
+            <span>Sync Payout to {formatINR(calculatedPayout)} ({formatINR(calculatedActualMonthly)} × {totalMembers} - {formatINR(commissionAmount)})</span>
+          </label>
+        </div>
 
-        {/* Safety Note */}
+        {/* Safety Notice */}
         <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-[#5B7065] flex items-start gap-2">
           <ShieldCheck className="w-4 h-4 text-[#174D38] shrink-0 mt-0.5" />
           <p>
-            <strong>Financial Integrity:</strong> Manual adjustment preserves member assignments and historical recorded payments.
+            <strong>Dependency Rule:</strong> Changing dividend recalculates dependent monthly collection and payout while protecting historical payments.
           </p>
         </div>
 
@@ -232,7 +236,7 @@ export const EditMonthlyChitModal = ({
           >
             {submitting && <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
             <CheckCircle2 className="w-4 h-4 text-[#C9A227]" />
-            <span>Save Monthly Chit</span>
+            <span>Save Dividend</span>
           </button>
         </div>
       </form>
@@ -240,4 +244,4 @@ export const EditMonthlyChitModal = ({
   );
 };
 
-export default EditMonthlyChitModal;
+export default EditDividendModal;

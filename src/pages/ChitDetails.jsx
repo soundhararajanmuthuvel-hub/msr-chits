@@ -23,6 +23,7 @@ import ChitSchedule from '../components/chits/ChitSchedule';
 import AssignChitModal from '../components/chits/AssignChitModal';
 import EditPayoutModal from '../components/chits/EditPayoutModal';
 import EditMonthlyChitModal from '../components/chits/EditMonthlyChitModal';
+import EditDividendModal from '../components/chits/EditDividendModal';
 import PayoutForm from '../components/payouts/PayoutForm';
 import ChitForm from '../components/chits/ChitForm';
 import AddMemberToChitModal from '../components/chits/AddMemberToChitModal';
@@ -51,6 +52,8 @@ export const ChitDetails = () => {
   const [payoutToEdit, setPayoutToEdit] = useState(null);
   const [isEditMonthlyOpen, setIsEditMonthlyOpen] = useState(false);
   const [monthlyItemToEdit, setMonthlyItemToEdit] = useState(null);
+  const [isEditDividendOpen, setIsEditDividendOpen] = useState(false);
+  const [dividendItemToEdit, setDividendItemToEdit] = useState(null);
   const [isPayoutOpen, setIsPayoutOpen] = useState(false);
   const [selectedPayoutMonth, setSelectedPayoutMonth] = useState(2);
   const [isAddMemberToChitOpen, setIsAddMemberToChitOpen] = useState(false);
@@ -149,6 +152,11 @@ export const ChitDetails = () => {
   const handleOpenEditMonthly = (schItem) => {
     setMonthlyItemToEdit(schItem);
     setIsEditMonthlyOpen(true);
+  };
+
+  const handleOpenEditDividend = (schItem) => {
+    setDividendItemToEdit(schItem);
+    setIsEditDividendOpen(true);
   };
 
   const handleOpenPayout = (schItem) => {
@@ -612,6 +620,7 @@ export const ChitDetails = () => {
         onAssign={handleOpenAssign}
         onEditPayout={handleOpenEditPayout}
         onEditMonthlyChit={handleOpenEditMonthly}
+        onEditDividend={handleOpenEditDividend}
         onPayout={handleOpenPayout}
       />
 
@@ -635,6 +644,18 @@ export const ChitDetails = () => {
           setMonthlyItemToEdit(null);
         }}
         scheduleItem={monthlyItemToEdit}
+        chit={chit}
+        onSuccess={loadChitDetails}
+      />
+
+      {/* Edit Dividend Modal */}
+      <EditDividendModal
+        isOpen={isEditDividendOpen}
+        onClose={() => {
+          setIsEditDividendOpen(false);
+          setDividendItemToEdit(null);
+        }}
+        scheduleItem={dividendItemToEdit}
         chit={chit}
         onSuccess={loadChitDetails}
       />

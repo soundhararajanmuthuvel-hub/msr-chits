@@ -1345,6 +1345,44 @@ assert(
   `M2=${JSON.stringify(testScheduleItem)}`
 );
 
+// SECTION 20 EXPLICIT TESTS:
+// Test 1: Month 2: Payout ₹70,000, Commission ₹5,000, Members 20, Actual Monthly = ₹3,750, Dividend = ₹1,250
+const s20_t1_normal = 100000 / 20; // 5000
+const s20_t1_actual = calculateMonthlyChitFromPayout({ payoutAmount: 70000, commissionAmount: 5000, totalMembers: 20 });
+const s20_t1_dividend = s20_t1_normal - s20_t1_actual;
+assert(
+  s20_t1_actual === 3750 && s20_t1_dividend === 1250,
+  'SECTION 20 - TEST 1: Month 2 Payout ₹70k, Comm ₹5k, Members 20 -> Actual Monthly = ₹3,750, Dividend = ₹1,250',
+  `Actual=${s20_t1_actual}, Div=${s20_t1_dividend}`
+);
+
+// Test 2: Change Payout: ₹70,000 -> ₹75,000 -> Monthly = ₹4,000, Dividend = ₹1,000
+const s20_t2_actual = calculateMonthlyChitFromPayout({ payoutAmount: 75000, commissionAmount: 5000, totalMembers: 20 });
+const s20_t2_dividend = s20_t1_normal - s20_t2_actual;
+assert(
+  s20_t2_actual === 4000 && s20_t2_dividend === 1000,
+  'SECTION 20 - TEST 2: Change Payout ₹70k -> ₹75k -> Monthly = ₹4,000, Dividend = ₹1,000',
+  `Actual=${s20_t2_actual}, Div=${s20_t2_dividend}`
+);
+
+// Test 3: Change Dividend: ₹1,250 -> ₹1,000 -> Monthly = ₹4,000
+const s20_t3_dividend = 1000;
+const s20_t3_actual = s20_t1_normal - s20_t3_dividend;
+assert(
+  s20_t3_actual === 4000,
+  'SECTION 20 - TEST 3: Change Dividend ₹1,250 -> ₹1,000 -> Monthly = ₹4,000',
+  `Actual=${s20_t3_actual}`
+);
+
+// Test 4: Change Monthly: ₹3,750 -> ₹4,000 -> Dividend = ₹1,000
+const s20_t4_actual = 4000;
+const s20_t4_dividend = s20_t1_normal - s20_t4_actual;
+assert(
+  s20_t4_dividend === 1000,
+  'SECTION 20 - TEST 4: Change Monthly ₹3,750 -> ₹4,000 -> Dividend = ₹1,000',
+  `Dividend=${s20_t4_dividend}`
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');

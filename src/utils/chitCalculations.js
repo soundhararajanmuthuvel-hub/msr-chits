@@ -113,6 +113,10 @@ export function calculateChitParameters({
 
   const totalPayable = schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount) || 0), 0);
   const totalDividendBenefit = Math.max(0, totalChitValue - totalPayable);
+  const month2Item = schedule.find(s => s.month === 2) || schedule[1] || {};
+  const month2PayoutVal = month2Item.payoutAmount !== undefined ? month2Item.payoutAmount : month2DefaultPayout;
+  const month2MonthlyChitVal = month2Item.monthlyAmount !== undefined ? month2Item.monthlyAmount : monthlyAmount;
+  const month2DividendVal = month2Item.dividend !== undefined ? month2Item.dividend : Math.max(0, baseInstallment - month2MonthlyChitVal);
 
   return {
     chitValue: baseValue,
@@ -124,11 +128,14 @@ export function calculateChitParameters({
     commissionAmount: commAmt,
     dividend: div,
     baseInstallment,
+    normalMonthlyChit: baseInstallment,
     calculatedAmount: monthlyAmount,
     monthlyAmount,
     totalPayable,
     totalDividendBenefit,
-    month2Payout: month2DefaultPayout,
+    month2Payout: month2PayoutVal,
+    month2MonthlyChit: month2MonthlyChitVal,
+    month2Dividend: month2DividendVal,
     schedule
   };
 }
