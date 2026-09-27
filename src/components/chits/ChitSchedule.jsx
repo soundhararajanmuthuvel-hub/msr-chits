@@ -5,7 +5,14 @@ import StatusBadge from '../common/StatusBadge';
 import { UserCheck, Edit3, Send, IndianRupee, Layers } from 'lucide-react';
 import { useChit } from '../../context/ChitContext';
 
-export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayout, onEditPayout }) => {
+export const ChitSchedule = ({
+  schedule = [],
+  currentMonth = 2,
+  onAssign,
+  onPayout,
+  onEditPayout,
+  onEditMonthlyChit
+}) => {
   const { setIsRecordPayoutOpen } = useChit();
 
   const totalMonthlyAmount = schedule.reduce((sum, item) => sum + (Number(item.monthlyAmount || item.amount) || 0), 0);
@@ -82,7 +89,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
             Master {schedule.length || 20}-Month Chit Schedule
           </h3>
           <p className="text-xs text-[#5B7065]">
-            Complete installment amounts, auction dividends, member allocations, and independent payout disbursements
+            MSR Core Formula: (Payout + Commission) ÷ Members = Monthly Chit Collection per Member
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -99,11 +106,11 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
             <tr className="bg-[#F0FCF4] border-b border-[#DCE8E0] text-[11px] font-bold uppercase tracking-wider text-[#174D38]">
               <th className="py-3.5 px-4">Month</th>
               <th className="py-3.5 px-4">Monthly Chit</th>
-              <th className="py-3.5 px-4">Dividend</th>
-              <th className="py-3.5 px-4">Payout / Disbursement</th>
+              <th className="py-3.5 px-4">Commission</th>
+              <th className="py-3.5 px-4">Payout</th>
               <th className="py-3.5 px-4">Chit No</th>
               <th className="py-3.5 px-4">Status</th>
-              <th className="py-3.5 px-4">Assigned Member(s)</th>
+              <th className="py-3.5 px-4">Assigned Member</th>
               <th className="py-3.5 px-4 text-right">Actions</th>
             </tr>
           </thead>
@@ -113,6 +120,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
               const isCompleted = item.month < currentMonth;
               const permanentChitNo = item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month });
               const payoutList = getPayoutListForMonth(item);
+              const commVal = Number(item.commissionAmount || item.commission) || 5000;
 
               return (
                 <tr
@@ -141,14 +149,29 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                     </div>
                   </td>
 
-                  {/* Monthly Chit Amount (Collected from each member) */}
-                  <td className="py-3.5 px-4 font-bold text-[#003524]">
-                    {formatINR(item.monthlyAmount || item.amount)}
+                  {/* Monthly Chit Amount with Edit Trigger */}
+                  <td className="py-3.5 px-4">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-[#003524]">
+                        {formatINR(item.monthlyAmount || item.amount)}
+                      </span>
+                      {onEditMonthlyChit && (
+                        <button
+                          type="button"
+                          onClick={() => onEditMonthlyChit(item)}
+                          title={`Edit Month ${item.month} Monthly Chit`}
+                          className="px-1.5 py-0.5 text-[10px] font-bold text-[#174D38] bg-white hover:bg-[#DCE8E0] rounded border border-[#DCE8E0] transition-colors inline-flex items-center gap-0.5"
+                        >
+                          <Edit3 className="w-2.5 h-2.5" />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
 
-                  {/* Dividend Amount */}
-                  <td className="py-3.5 px-4 font-semibold text-amber-800">
-                    {item.dividend ? formatINR(item.dividend) : '—'}
+                  {/* Commission Amount */}
+                  <td className="py-3.5 px-4 font-semibold text-[#5B7065]">
+                    {formatINR(commVal)}
                   </td>
 
                   {/* Payout / Disbursement Column */}
@@ -276,7 +299,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                     />
                   </td>
 
-                  {/* Assigned Member(s) */}
+                  {/* Assigned Member */}
                   <td className="py-3.5 px-4">
                     {payoutList.length > 1 ? (
                       <div className="space-y-1 py-0.5">
@@ -318,7 +341,7 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
 
                   {/* Actions */}
                   <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                    <div className="flex items-center justify-end gap-1.5 flex-wrap">
                       <button
                         type="button"
                         onClick={() => onAssign && onAssign(item)}
@@ -328,6 +351,18 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
                         <Edit3 className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Assign</span>
                       </button>
+
+                      {onEditMonthlyChit && (
+                        <button
+                          type="button"
+                          onClick={() => onEditMonthlyChit(item)}
+                          title={`Edit Month ${item.month} Monthly Chit`}
+                          className="p-1.5 text-[#003524] hover:bg-[#F0FCF4] rounded-lg border border-[#DCE8E0] transition-colors flex items-center gap-1 text-xs font-semibold"
+                        >
+                          <IndianRupee className="w-3.5 h-3.5 text-[#174D38]" />
+                          <span className="hidden sm:inline">Edit Monthly Chit</span>
+                        </button>
+                      )}
 
                       {onEditPayout && (
                         <button
@@ -365,6 +400,9 @@ export const ChitSchedule = ({ schedule = [], currentMonth = 2, onAssign, onPayo
               </td>
               <td className="py-4 px-4 text-base font-extrabold text-[#003524]">
                 {formatINR(totalMonthlyAmount || 0)}
+              </td>
+              <td className="py-4 px-4 font-bold text-[#5B7065]">
+                {formatINR(schedule.reduce((sum, item) => sum + (Number(item.commissionAmount || item.commission) || 5000), 0))}
               </td>
               <td className="py-4 px-4" colSpan={5}>
                 <span className="text-xs font-normal text-[#5B7065]">

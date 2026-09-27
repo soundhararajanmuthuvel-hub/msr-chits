@@ -1,15 +1,58 @@
 /**
- * MSR CHITS — Master Calculation Engine
+ * MSR CHITS — Final Default Calculation Engine
  * 
- * Dynamic, Dividend-aware, Multiple-aware, Duration-aware, and Payout-aware.
- * Strictly adheres to MSR CHITS calculation methods:
- * 1. Base Chit Value × Multiple = Total Chit Value
- * 2. Base Installment = Total Chit Value / Duration
- * 3. Monthly Amount (bidding month) = Base Installment - Dividend
- * 4. Payout Amount (bidding month) = Total Chit Value - (Dividend × Duration)
- * 5. Dynamic generation of complete N-month schedule
- * 6. Isolated Extra Investment profit tracking
+ * Reference Business Calculation:
+ * 1. Chit Value: ₹1,00,000 (configurable)
+ * 2. Duration: 20 Months (configurable)
+ * 3. Members: 20 (configurable)
+ * 4. Commission: 5% of Chit Value = ₹5,000 (configurable)
+ * 
+ * CORE FORMULA for normal payout months (Month 2 to N):
+ * Monthly Chit Per Member = (Payout Amount + Commission Amount) / Number of Members
+ * 
+ * Dependency Rules:
+ * - If Payout changes: Monthly Chit = (Payout + Commission) / Members
+ * - If Commission changes: Commission = Chit Value × Commission%
+ * - If Members changes: Monthly Chit = (Payout + Commission) / Members
+ * - If Chit Value changes: Commission scales and dependent schedule recalculates
  */
+
+/**
+ * Calculates commission amount from chit value and percentage
+ */
+export function calculateCommission(chitValue = 100000, commissionPercent = 5) {
+  const val = Math.max(0, Number(chitValue) || 0);
+  const pct = Number(commissionPercent) || 5;
+  return Math.round(val * (pct / 100));
+}
+
+/**
+ * Calculates Monthly Chit per member from Payout, Commission, and Member count
+ */
+export function calculateMonthlyChitFromPayout({
+  payoutAmount = 70000,
+  commissionAmount = 5000,
+  totalMembers = 20
+}) {
+  const payout = Math.max(0, Number(payoutAmount) || 0);
+  const comm = Math.max(0, Number(commissionAmount) || 0);
+  const members = Math.max(1, Number(totalMembers) || 20);
+  return Math.round((payout + comm) / members);
+}
+
+/**
+ * Calculates Payout amount from Monthly Chit, Commission, and Member count
+ */
+export function calculatePayoutFromMonthlyChit({
+  monthlyAmount = 3750,
+  commissionAmount = 5000,
+  totalMembers = 20
+}) {
+  const monthly = Math.max(0, Number(monthlyAmount) || 0);
+  const comm = Math.max(0, Number(commissionAmount) || 0);
+  const members = Math.max(1, Number(totalMembers) || 20);
+  return Math.max(0, Math.round(monthly * members - comm));
+}
 
 /**
  * Calculates core financial parameters for a chit plan
@@ -18,6 +61,9 @@ export function calculateChitParameters({
   chitValue = 100000,
   multiple = 1,
   duration = 20,
+  totalMembers = null,
+  commissionPercent = 5,
+  commissionAmount = null,
   dividend = 0,
   startMonth = 1
 }) {
@@ -25,23 +71,43 @@ export function calculateChitParameters({
   const mult = Math.max(0.1, Number(multiple) || 1);
   const totalChitValue = Math.round(baseValue * mult);
   const dur = Math.max(1, parseInt(duration, 10) || 20);
+  const members = Math.max(1, parseInt(totalMembers, 10) || dur);
+  const commPct = Number(commissionPercent) !== undefined && !isNaN(Number(commissionPercent)) ? Number(commissionPercent) : 5;
+  const commAmt = commissionAmount !== null && commissionAmount !== undefined && !isNaN(Number(commissionAmount))
+    ? Number(commissionAmount)
+    : calculateCommission(totalChitValue, commPct);
   const div = Math.max(0, Number(dividend) || 0);
 
   // Base installment before auction discount
-  const baseInstallment = dur > 0 ? Math.floor(totalChitValue / dur) : 0;
+  const baseInstallment = members > 0 ? Math.floor(totalChitValue / members) : 0;
 
-  // Month 2 / bidding month installment after dividend deduction
-  const monthlyAmount = div > 0 ? Math.max(0, baseInstallment - div) : baseInstallment;
+  let monthlyAmount = baseInstallment;
+  let month2DefaultPayout = totalChitValue;
 
-  // Initial auction discount and payout
-  const totalAuctionDiscount = Math.round(div * dur);
-  const month2Payout = Math.max(0, totalChitValue - totalAuctionDiscount);
+  if (dur === 20 && div === 0) {
+    // Exact MSR 20-Month Plan Reference:
+    month2DefaultPayout = Math.round(70000 * (totalChitValue / 100000));
+    monthlyAmount = calculateMonthlyChitFromPayout({
+      payoutAmount: month2DefaultPayout,
+      commissionAmount: commAmt,
+      totalMembers: members
+    });
+  } else if (div > 0) {
+    monthlyAmount = Math.max(0, baseInstallment - div);
+    month2DefaultPayout = Math.max(0, totalChitValue - (div * dur));
+  } else {
+    monthlyAmount = baseInstallment;
+    month2DefaultPayout = totalChitValue;
+  }
 
-  // Generate schedule to calculate exact total payable over full duration
+  // Generate complete schedule
   const schedule = generateChitSchedule({
     chitValue: baseValue,
     multiple: mult,
     duration: dur,
+    totalMembers: members,
+    commissionPercent: commPct,
+    commissionAmount: commAmt,
     dividend: div
   });
 
@@ -53,25 +119,31 @@ export function calculateChitParameters({
     multiple: mult,
     totalChitValue,
     duration: dur,
+    totalMembers: members,
+    commissionPercent: commPct,
+    commissionAmount: commAmt,
     dividend: div,
     baseInstallment,
     calculatedAmount: monthlyAmount,
     monthlyAmount,
     totalPayable,
     totalDividendBenefit,
-    month2Payout,
+    month2Payout: month2DefaultPayout,
     schedule
   };
 }
 
 /**
- * Generates the complete N-month schedule for any chit value, multiple, duration, and dividend
+ * Generates the complete N-month schedule for any chit value, multiple, duration, commission, and members
  */
 export function generateChitSchedule({
   chitId = 'CHIT-NEW',
   chitValue = 100000,
   multiple = 1,
   duration = 20,
+  totalMembers = null,
+  commissionPercent = 5,
+  commissionAmount = null,
   dividend = 0,
   startDate = null,
   paymentDay = 20,
@@ -81,8 +153,13 @@ export function generateChitSchedule({
   const mult = Math.max(0.1, Number(multiple) || 1);
   const totalChitValue = Math.round(baseValue * mult);
   const dur = Math.max(1, parseInt(duration, 10) || 20);
+  const members = Math.max(1, parseInt(totalMembers, 10) || dur);
+  const commPct = Number(commissionPercent) !== undefined && !isNaN(Number(commissionPercent)) ? Number(commissionPercent) : 5;
+  const commAmt = commissionAmount !== null && commissionAmount !== undefined && !isNaN(Number(commissionAmount))
+    ? Number(commissionAmount)
+    : calculateCommission(totalChitValue, commPct);
   const div = Math.max(0, Number(dividend) || 0);
-  const baseInstallment = dur > 0 ? Math.floor(totalChitValue / dur) : 0;
+  const baseInstallment = members > 0 ? Math.floor(totalChitValue / members) : 0;
 
   // Parse start date for monthly date sequence
   let startYear = new Date().getFullYear();
@@ -104,7 +181,7 @@ export function generateChitSchedule({
   }
 
   const schedule = [];
-  let runningBaseSum = 0;
+  const scale = totalChitValue / 100000;
 
   for (let m = 1; m <= dur; m++) {
     const existing = existingMap[m] || {};
@@ -116,70 +193,69 @@ export function generateChitSchedule({
     const dd = String(d.getDate()).padStart(2, '0');
     const dueDate = `${yyyy}-${mm}-${dd}`;
 
+    let defaultPayout = totalChitValue;
+    let defaultMonthly = baseInstallment;
     let monthDiv = 0;
-    // Base monthly installment before dividend deduction (with zero rounding loss on month dur)
-    let curBase = (m === dur) ? (totalChitValue - runningBaseSum) : baseInstallment;
-    runningBaseSum += baseInstallment;
-
-    let monthlyAmount = curBase;
-    let payoutAmount = totalChitValue;
 
     if (m === 1) {
       // Month 1: Chit NIL / Organizer, full installment, full payout, zero dividend
+      defaultPayout = totalChitValue;
+      defaultMonthly = baseInstallment;
       monthDiv = 0;
-      monthlyAmount = curBase;
-      payoutAmount = totalChitValue;
     } else if (dur === 20 && div === 0) {
-      // EXACT MSR CHITS 20-MONTH REFERENCE BUSINESS MODEL (Flagship ₹1L, ₹2L, ₹3L, etc.)
-      const scale = totalChitValue / 100000;
+      // EXACT MSR CHITS 20-MONTH REFERENCE BUSINESS MODEL (Flagship ₹1L / 20M Reference)
       if (m >= 2 && m <= 16) {
-        // Months 2 to 16: Monthly Chit increases by ₹75*scale, Payout increases by ₹1,500*scale
-        const baseM = 3750 + (m - 2) * 75;
+        // Months 2 to 16: Payout = ₹70,000 + (m - 2)*₹1,500 (scaled by chit value)
         const baseP = 70000 + (m - 2) * 1500;
-        monthlyAmount = Math.round(baseM * scale);
-        payoutAmount = Math.round(baseP * scale);
-        monthDiv = Math.max(0, Math.round((5000 - baseM) * scale));
+        defaultPayout = Math.round(baseP * scale);
       } else {
-        // Months 17 to 20: Monthly Chit increases by ₹50*scale, Payout increases by ₹1,000*scale
-        const baseM = 4850 + (m - 17) * 50;
+        // Months 17 to 20: Payout = ₹92,000 + (m - 17)*₹1,000 (scaled by chit value)
         const baseP = 92000 + (m - 17) * 1000;
-        monthlyAmount = Math.round(baseM * scale);
-        payoutAmount = Math.round(baseP * scale);
-        monthDiv = Math.max(0, Math.round((5000 - baseM) * scale));
+        defaultPayout = Math.round(baseP * scale);
       }
-    } else if (div === 0) {
-      // Simple plan without dividend: exact basic installment with final-month zero-loss adjustment
-      monthDiv = 0;
-      monthlyAmount = curBase;
-      payoutAmount = totalChitValue;
-    } else if (dur <= 2) {
-      // 2-month chit edge case
-      monthDiv = div;
-      monthlyAmount = Math.max(0, curBase - monthDiv);
-      payoutAmount = Math.max(0, totalChitValue - (monthDiv * dur));
-    } else {
-      // Month 2 to Month N progressive tapering with user-specified dividend
-      const ratio = (dur - m) / (dur - 2);
+      // Core formula: Monthly Chit = (Payout + Commission) / Members
+      defaultMonthly = calculateMonthlyChitFromPayout({
+        payoutAmount: defaultPayout,
+        commissionAmount: commAmt,
+        totalMembers: members
+      });
+      monthDiv = Math.max(0, baseInstallment - defaultMonthly);
+    } else if (div > 0) {
+      // User specified dividend plan
+      const ratio = dur > 2 ? (dur - m) / (dur - 2) : 1;
       monthDiv = Math.round(div * Math.max(0, ratio));
-      monthlyAmount = Math.max(0, curBase - monthDiv);
-      payoutAmount = Math.max(0, totalChitValue - (monthDiv * dur));
+      defaultMonthly = Math.max(0, baseInstallment - monthDiv);
+      defaultPayout = Math.max(0, totalChitValue - (monthDiv * dur));
+    } else {
+      // Standard basic plan without dividend
+      defaultPayout = totalChitValue;
+      defaultMonthly = baseInstallment;
+      monthDiv = 0;
     }
 
-    let finalMonthlyAmount = monthlyAmount;
-    if (existing.amount !== undefined && existing.amount !== null && Number(existing.amount) > 0) {
-      finalMonthlyAmount = Number(existing.amount);
-    } else if (existing.monthlyAmount !== undefined && existing.monthlyAmount !== null && Number(existing.monthlyAmount) > 0) {
+    // Use existing overrides if explicitly modified by user, otherwise use calculated defaults
+    let finalPayoutAmount = defaultPayout;
+    if (existing.payoutAmount !== undefined && existing.payoutAmount !== null && Number(existing.payoutAmount) > 0) {
+      finalPayoutAmount = Number(existing.payoutAmount);
+    }
+
+    let finalMonthlyAmount = defaultMonthly;
+    if (existing.monthlyAmount !== undefined && existing.monthlyAmount !== null && Number(existing.monthlyAmount) > 0) {
       finalMonthlyAmount = Number(existing.monthlyAmount);
+    } else if (existing.amount !== undefined && existing.amount !== null && Number(existing.amount) > 0) {
+      finalMonthlyAmount = Number(existing.amount);
+    } else if (existing.payoutAmount !== undefined && Number(existing.payoutAmount) > 0 && m > 1) {
+      // If payout was edited, automatically recalculate monthly amount using core formula
+      finalMonthlyAmount = calculateMonthlyChitFromPayout({
+        payoutAmount: finalPayoutAmount,
+        commissionAmount: commAmt,
+        totalMembers: members
+      });
     }
 
     let finalDividend = monthDiv;
     if (existing.dividend !== undefined && existing.dividend !== null) {
       finalDividend = Number(existing.dividend);
-    }
-
-    let finalPayoutAmount = payoutAmount;
-    if (existing.payoutAmount !== undefined && existing.payoutAmount !== null && Number(existing.payoutAmount) > 0) {
-      finalPayoutAmount = Number(existing.payoutAmount);
     }
 
     schedule.push({
@@ -192,6 +268,9 @@ export function generateChitSchedule({
       chitNumber: existing.chitNumber || existing.chitNo || (m === 1 ? 'NIL' : String(m)),
       monthlyAmount: finalMonthlyAmount,
       amount: finalMonthlyAmount,
+      commission: commAmt,
+      commissionAmount: commAmt,
+      commissionPercent: commPct,
       dividend: finalDividend,
       payoutAmount: finalPayoutAmount,
       assignedMemberId: existing.assignedMemberId || existing.memberId || '',

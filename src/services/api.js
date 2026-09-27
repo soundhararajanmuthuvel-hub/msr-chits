@@ -757,7 +757,12 @@ export const api = {
       );
 
       if (matchesRecord) {
-        return { ...s, payoutAmount: numPayout };
+        return {
+          ...s,
+          payoutAmount: numPayout,
+          monthlyAmount: (payload.monthlyAmount && Number(payload.monthlyAmount) > 0) ? Number(payload.monthlyAmount) : s.monthlyAmount,
+          amount: (payload.monthlyAmount && Number(payload.monthlyAmount) > 0) ? Number(payload.monthlyAmount) : (s.amount || s.monthlyAmount)
+        };
       }
       return s;
     });
@@ -823,6 +828,43 @@ export const api = {
       payoutId: payload.payoutId || ('PO-M' + payload.month),
       payoutAmount: numPayout,
       message: 'Payout updated successfully'
+    };
+  },
+
+  async updateMonthlyScheduleItem(payload) {
+    const numMonthly = Number(payload.monthlyAmount || payload.amount);
+    let backendResult = null;
+
+    if (API_URL) {
+      try {
+        backendResult = await postApi('updateSchedulePayout', payload);
+      } catch (err) {
+        console.warn('[MSR CHITS API] updateMonthlyScheduleItem backend call note:', err.message);
+      }
+    }
+
+    // Update SCHEDULE_CACHE
+    const cachedSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const updatedSchedule = cachedSchedule.map(s => {
+      const isMonthMatch = (!s.chitId || String(s.chitId) === String(payload.chitId || 'CHIT-100K-01')) &&
+        Number(s.month || s.monthNumber) === Number(payload.month);
+      
+      if (!isMonthMatch) return s;
+
+      return {
+        ...s,
+        monthlyAmount: numMonthly,
+        amount: numMonthly,
+        payoutAmount: (payload.payoutAmount && Number(payload.payoutAmount) > 0) ? Number(payload.payoutAmount) : s.payoutAmount
+      };
+    });
+    setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
+
+    return backendResult || {
+      success: true,
+      month: payload.month,
+      monthlyAmount: numMonthly,
+      message: 'Monthly chit collection updated successfully'
     };
   },
 

@@ -22,6 +22,7 @@ import ChitTimeline from '../components/chits/ChitTimeline';
 import ChitSchedule from '../components/chits/ChitSchedule';
 import AssignChitModal from '../components/chits/AssignChitModal';
 import EditPayoutModal from '../components/chits/EditPayoutModal';
+import EditMonthlyChitModal from '../components/chits/EditMonthlyChitModal';
 import PayoutForm from '../components/payouts/PayoutForm';
 import ChitForm from '../components/chits/ChitForm';
 import AddMemberToChitModal from '../components/chits/AddMemberToChitModal';
@@ -48,6 +49,8 @@ export const ChitDetails = () => {
   const [selectedScheduleItem, setSelectedScheduleItem] = useState(null);
   const [isEditPayoutOpen, setIsEditPayoutOpen] = useState(false);
   const [payoutToEdit, setPayoutToEdit] = useState(null);
+  const [isEditMonthlyOpen, setIsEditMonthlyOpen] = useState(false);
+  const [monthlyItemToEdit, setMonthlyItemToEdit] = useState(null);
   const [isPayoutOpen, setIsPayoutOpen] = useState(false);
   const [selectedPayoutMonth, setSelectedPayoutMonth] = useState(2);
   const [isAddMemberToChitOpen, setIsAddMemberToChitOpen] = useState(false);
@@ -141,6 +144,11 @@ export const ChitDetails = () => {
   const handleOpenEditPayout = (schItem) => {
     setPayoutToEdit(schItem);
     setIsEditPayoutOpen(true);
+  };
+
+  const handleOpenEditMonthly = (schItem) => {
+    setMonthlyItemToEdit(schItem);
+    setIsEditMonthlyOpen(true);
   };
 
   const handleOpenPayout = (schItem) => {
@@ -603,6 +611,7 @@ export const ChitDetails = () => {
         currentMonth={chit.currentMonth || 1}
         onAssign={handleOpenAssign}
         onEditPayout={handleOpenEditPayout}
+        onEditMonthlyChit={handleOpenEditMonthly}
         onPayout={handleOpenPayout}
       />
 
@@ -614,6 +623,18 @@ export const ChitDetails = () => {
           setPayoutToEdit(null);
         }}
         scheduleItem={payoutToEdit}
+        chit={chit}
+        onSuccess={loadChitDetails}
+      />
+
+      {/* Edit Monthly Chit Modal */}
+      <EditMonthlyChitModal
+        isOpen={isEditMonthlyOpen}
+        onClose={() => {
+          setIsEditMonthlyOpen(false);
+          setMonthlyItemToEdit(null);
+        }}
+        scheduleItem={monthlyItemToEdit}
         chit={chit}
         onSuccess={loadChitDetails}
       />

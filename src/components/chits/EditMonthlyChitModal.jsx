@@ -3,10 +3,10 @@ import Modal from '../common/Modal';
 import { api } from '../../services/api';
 import { useChit } from '../../context/ChitContext';
 import { formatINR } from '../../utils/currency';
-import { generateChitNumber } from '../../utils/chitNumber';
-import { Calendar, Hash, User, IndianRupee, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
+import { calculateCommission, calculatePayoutFromMonthlyChit, calculateMonthlyChitFromPayout } from '../../utils/chitCalculations';
+import { Calendar, IndianRupee, ShieldCheck, CheckCircle2, AlertCircle, Percent, Users, Calculator } from 'lucide-react';
 
-export const EditPayoutModal = ({
+export const EditMonthlyChitModal = ({
   isOpen,
   onClose,
   scheduleItem,
@@ -14,15 +14,17 @@ export const EditPayoutModal = ({
   onSuccess
 }) => {
   const { showToast } = useChit();
-  const [payoutAmount, setPayoutAmount] = useState('');
+  const [monthlyAmount, setMonthlyAmount] = useState('');
+  const [syncPayout, setSyncPayout] = useState(false);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (isOpen && scheduleItem) {
-      setPayoutAmount(String(scheduleItem.payoutAmount || ''));
+      setMonthlyAmount(String(scheduleItem.monthlyAmount || scheduleItem.amount || ''));
       setNotes(scheduleItem.notes || '');
+      setSyncPayout(false);
       setError(null);
     }
   }, [isOpen, scheduleItem]);
@@ -35,26 +37,24 @@ export const EditPayoutModal = ({
   const duration = Number(chit?.duration || chit?.durationMonths || 20);
   const totalMembers = Number(chit?.totalMembers || chit?.memberCount || duration || 20);
   const commPercent = Number(chit?.commissionPercent || 5);
-  const commissionAmount = Number(chit?.commissionAmount) || Math.round(chitValue * (commPercent / 100));
-  const chitNo = scheduleItem.chitNo || generateChitNumber({ year: 2026, chitValue, sequenceNumber: month });
-  const memberName = scheduleItem.memberName || scheduleItem.assignedMemberName || 'Not Assigned';
-  const fundingSource = String(scheduleItem.fundingSource || '').toUpperCase().includes('EXTRA') ? 'EXTRA_INVESTMENT' : 'CHIT_FUND';
-  const currentMonthlyChit = Number(scheduleItem.monthlyAmount || scheduleItem.amount || 0);
+  const commissionAmount = Number(chit?.commissionAmount) || calculateCommission(chitValue, commPercent);
+  const currentPayout = Number(scheduleItem.payoutAmount || 70000);
 
-  const [recalculateMonthly, setRecalculateMonthly] = useState(true);
-
-  // Live dependency calculation: Monthly Chit = (Payout + Commission) / Members
-  const numEnteredPayout = Number(payoutAmount) || 0;
-  const calculatedNewMonthlyChit = (numEnteredPayout > 0 && totalMembers > 0)
-    ? Math.round((numEnteredPayout + commissionAmount) / totalMembers)
-    : currentMonthlyChit;
+  // Derived Payout if Monthly Amount changes and sync is checked
+  const derivedPayout = Number(monthlyAmount) > 0
+    ? calculatePayoutFromMonthlyChit({
+        monthlyAmount: Number(monthlyAmount),
+        commissionAmount,
+        totalMembers
+      })
+    : currentPayout;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const numAmt = Number(payoutAmount);
+    const numAmt = Number(monthlyAmount);
 
     if (isNaN(numAmt) || numAmt <= 0) {
-      setError('Please enter a valid positive payout amount (e.g. 70000)');
+      setError('Please enter a valid positive monthly chit collection amount (e.g. 3750)');
       return;
     }
 
@@ -62,29 +62,26 @@ export const EditPayoutModal = ({
     setError(null);
 
     try {
-      await api.updateSchedulePayout({
-        payoutId: scheduleItem.payoutId,
+      const payload = {
         chitId,
         month,
-        payoutAmount: numAmt,
-        monthlyAmount: recalculateMonthly ? calculatedNewMonthlyChit : currentMonthlyChit,
-        recalculateMonthly,
+        monthlyAmount: numAmt,
+        amount: numAmt,
+        payoutAmount: syncPayout ? derivedPayout : currentPayout,
         commissionAmount,
         totalMembers,
-        chitNo,
-        memberId: scheduleItem.memberId || scheduleItem.assignedMemberId,
-        memberName,
-        fundingSource,
         notes
-      });
+      };
 
-      showToast(`Month ${month} Payout for ${memberName} updated to ${formatINR(numAmt)} successfully!`, 'success');
+      await api.updateMonthlyScheduleItem(payload);
+
+      showToast(`Month ${month} Monthly Chit collection updated to ${formatINR(numAmt)} successfully!`, 'success');
       if (onSuccess) onSuccess();
       onClose();
     } catch (err) {
-      console.error('Update payout error:', err);
-      setError(err.message || 'Failed to update payout amount');
-      showToast(err.message || 'Failed to update payout amount', 'error');
+      console.error('Update monthly chit error:', err);
+      setError(err.message || 'Failed to update monthly chit amount');
+      showToast(err.message || 'Failed to update monthly chit amount', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -94,12 +91,12 @@ export const EditPayoutModal = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Edit Payout"
-      subtitle={`Month ${month} Payout Allocation for ${memberName} • Chit: ${chit?.chitName || 'MSR Chit'}`}
+      title={`Edit Month ${month} Monthly Chit`}
+      subtitle={`Configure collection amount per member for Month ${month} • Scheme: ${chit?.chitName || 'MSR Chit'}`}
       maxWidth="max-w-md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Read-Only Informational Fields */}
+        {/* Plan Parameters Overview */}
         <div className="p-3.5 bg-[#F0FCF4] border border-[#DCE8E0] rounded-xl space-y-2 text-xs">
           <div className="flex items-center justify-between py-1 border-b border-[#DCE8E0]/70">
             <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
@@ -113,26 +110,7 @@ export const EditPayoutModal = ({
 
           <div className="flex items-center justify-between py-1 border-b border-[#DCE8E0]/70">
             <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
-              <Hash className="w-3.5 h-3.5 text-[#174D38]" />
-              <span>Chit No:</span>
-            </span>
-            <span className="font-mono font-bold text-[#003524] px-1.5 py-0.5 bg-white border border-[#DCE8E0] rounded">
-              {chitNo}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between py-1 border-b border-[#DCE8E0]/70">
-            <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
-              <User className="w-3.5 h-3.5 text-[#174D38]" />
-              <span>Member:</span>
-            </span>
-            <span className="font-bold text-[#003524]">
-              {memberName}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between py-1 border-b border-[#DCE8E0]/70">
-            <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
+              <Percent className="w-3.5 h-3.5 text-[#174D38]" />
               <span>Commission ({commPercent}%):</span>
             </span>
             <span className="font-extrabold text-[#003524]">
@@ -142,39 +120,35 @@ export const EditPayoutModal = ({
 
           <div className="flex items-center justify-between py-1 border-b border-[#DCE8E0]/70">
             <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
-              <span>Funding Source:</span>
+              <Users className="w-3.5 h-3.5 text-[#174D38]" />
+              <span>Total Members:</span>
             </span>
-            <span
-              className={`font-extrabold text-[10px] px-2 py-0.5 rounded uppercase border ${
-                fundingSource === 'EXTRA_INVESTMENT'
-                  ? 'bg-purple-100 text-purple-900 border-purple-300'
-                  : 'bg-emerald-100 text-emerald-900 border-emerald-300'
-              }`}
-            >
-              {fundingSource === 'EXTRA_INVESTMENT' ? 'EXTRA INVESTMENT' : 'CHIT FUND'}
+            <span className="font-bold text-[#003524]">
+              {totalMembers} Members
             </span>
           </div>
 
           <div className="flex items-center justify-between py-1">
             <span className="text-[#5B7065] flex items-center gap-1.5 font-medium">
-              <span>Current Monthly Chit (Collection):</span>
+              <IndianRupee className="w-3.5 h-3.5 text-[#174D38]" />
+              <span>Current Payout Amount:</span>
             </span>
             <span className="font-extrabold text-[#174D38]">
-              {formatINR(currentMonthlyChit)}
+              {formatINR(currentPayout)}
             </span>
           </div>
         </div>
 
-        {/* Editable Payout Amount */}
+        {/* Editable Monthly Chit Amount */}
         <div>
           <label className="block text-xs font-bold text-[#003524] mb-1 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <IndianRupee className="w-3.5 h-3.5 text-[#174D38]" />
-              <span>Payout Amount (Disbursed to Member) *</span>
+              <span>Monthly Chit (Collection per Member) *</span>
             </span>
-            {payoutAmount && !isNaN(Number(payoutAmount)) && Number(payoutAmount) > 0 && (
+            {monthlyAmount && !isNaN(Number(monthlyAmount)) && Number(monthlyAmount) > 0 && (
               <span className="text-xs font-extrabold text-emerald-800">
-                {formatINR(Number(payoutAmount))}
+                {formatINR(Number(monthlyAmount))}
               </span>
             )}
           </label>
@@ -184,10 +158,10 @@ export const EditPayoutModal = ({
               type="number"
               min={1}
               step={1}
-              placeholder="e.g. 70000"
-              value={payoutAmount}
+              placeholder="e.g. 3750"
+              value={monthlyAmount}
               onChange={(e) => {
-                setPayoutAmount(e.target.value);
+                setMonthlyAmount(e.target.value);
                 if (error) setError(null);
               }}
               className={`w-full pl-8 pr-3 py-2 bg-white border rounded-lg text-xs sm:text-sm font-bold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] ${
@@ -203,37 +177,31 @@ export const EditPayoutModal = ({
               <span>{error}</span>
             </p>
           )}
+          <p className="text-[11px] text-[#5B7065] mt-1">
+            The exact installment amount collected from each member for Month {month}.
+          </p>
         </div>
 
-        {/* Live MSR Dependency Calculation Block */}
-        {numEnteredPayout > 0 && (
-          <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[#174D38]">Dependent Monthly Chit:</span>
-              <span className="font-extrabold text-emerald-900 text-sm">
-                {formatINR(calculatedNewMonthlyChit)}
-              </span>
-            </div>
-            <p className="text-[11px] text-[#2D5A43] font-mono leading-relaxed">
-              ({formatINR(numEnteredPayout)} Payout + {formatINR(commissionAmount)} Comm) ÷ {totalMembers} Members = {formatINR(calculatedNewMonthlyChit)}
-            </p>
-            <label className="flex items-center gap-2 pt-1 cursor-pointer text-[11px] text-[#003524] font-semibold select-none">
-              <input
-                type="checkbox"
-                checked={recalculateMonthly}
-                onChange={(e) => setRecalculateMonthly(e.target.checked)}
-                className="w-3.5 h-3.5 text-[#003524] rounded border-emerald-300 focus:ring-0"
-              />
-              <span>Update Monthly Chit collection to {formatINR(calculatedNewMonthlyChit)}</span>
-            </label>
+        {/* Core Calculation Dependency Helper */}
+        <div className="p-3 bg-emerald-50/50 border border-emerald-200 rounded-xl space-y-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-[#174D38]">
+            <Calculator className="w-3.5 h-3.5" />
+            <span>MSR Core Calculation Rule:</span>
           </div>
-        )}
+          <p className="text-[11px] text-[#2D5A43] font-mono leading-relaxed">
+            Monthly Chit = (Payout + Commission) ÷ Members
+            <br />
+            = ({formatINR(currentPayout)} + {formatINR(commissionAmount)}) ÷ {totalMembers}
+            <br />
+            = {formatINR(calculateMonthlyChitFromPayout({ payoutAmount: currentPayout, commissionAmount, totalMembers }))}
+          </p>
+        </div>
 
-        {/* Data Safety Notice */}
+        {/* Safety Note */}
         <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-[#5B7065] flex items-start gap-2">
           <ShieldCheck className="w-4 h-4 text-[#174D38] shrink-0 mt-0.5" />
           <p>
-            <strong>Financial Safety:</strong> Updating payout preserves historical payments, membership assignments, and permanent Chit Numbers without unintended side effects.
+            <strong>Financial Integrity:</strong> Manual adjustment preserves member assignments and historical recorded payments.
           </p>
         </div>
 
@@ -254,7 +222,7 @@ export const EditPayoutModal = ({
           >
             {submitting && <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
             <CheckCircle2 className="w-4 h-4 text-[#C9A227]" />
-            <span>Save Payout</span>
+            <span>Save Monthly Chit</span>
           </button>
         </div>
       </form>
@@ -262,4 +230,4 @@ export const EditPayoutModal = ({
   );
 };
 
-export default EditPayoutModal;
+export default EditMonthlyChitModal;

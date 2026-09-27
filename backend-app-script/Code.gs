@@ -1306,6 +1306,12 @@ function updateSchedulePayout(payload) {
     if (rowChitId === chitId && rowMonth === month) {
       const rowMemberName = headers.indexOf('memberName') !== -1 ? data[r][headers.indexOf('memberName')] : '';
       sheet.getRange(r + 2, payoutCol + 1).setValue(payoutAmount);
+      
+      const amtCol = headers.indexOf('amount') !== -1 ? headers.indexOf('amount') : headers.indexOf('monthlyAmount');
+      if (amtCol !== -1 && payload.monthlyAmount && Number(payload.monthlyAmount) > 0) {
+        sheet.getRange(r + 2, amtCol + 1).setValue(Number(payload.monthlyAmount));
+      }
+      
       if (!memberName) memberName = rowMemberName || '';
       updated = true;
       break;

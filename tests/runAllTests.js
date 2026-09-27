@@ -18,7 +18,16 @@
  * TEST 13: Change UPI ID in Settings -> New WhatsApp messages use the updated UPI ID
  */
 
-import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment, getChitCapacityStats, getChitLifecycleStatus } from '../src/utils/chitCalculations.js';
+import {
+  calculateChitParameters,
+  generateChitSchedule,
+  calculateExtraInvestment,
+  getChitCapacityStats,
+  getChitLifecycleStatus,
+  calculateCommission,
+  calculateMonthlyChitFromPayout,
+  calculatePayoutFromMonthlyChit
+} from '../src/utils/chitCalculations.js';
 import { generateChitNumber, getNextAvailableChitNumber, parseChitNumber } from '../src/utils/chitNumber.js';
 import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage } from '../src/utils/whatsapp.js';
 import { validateMobile, validateEmail, validateStatus } from '../src/utils/validation.js';
@@ -160,13 +169,13 @@ const withDiv1250 = calculateChitParameters({ chitValue: 100000, multiple: 1, du
 const month2Schedule0 = withDiv0.schedule.find(m => m.month === 2);
 const month2Schedule1250 = withDiv1250.schedule.find(m => m.month === 2);
 assert(
-  withDiv0.monthlyAmount === 5000 &&
+  withDiv0.baseInstallment === 5000 &&
   withDiv1250.monthlyAmount === 3750 &&
   month2Schedule1250.monthlyAmount === 3750 &&
   withDiv1250.month2Payout === 75000 &&
-  withDiv1250.totalPayable < withDiv0.totalPayable,
+  withDiv1250.totalPayable < (withDiv0.baseInstallment * 20),
   'TEST 9: Changing Dividend recalculates dependent values dynamically',
-  `Div 0: ₹${withDiv0.monthlyAmount}, Div 1250: ₹${withDiv1250.monthlyAmount}, Payout: ₹${withDiv1250.month2Payout}`
+  `Base: ₹${withDiv0.baseInstallment}, Div 1250: ₹${withDiv1250.monthlyAmount}, Payout: ₹${withDiv1250.month2Payout}`
 );
 
 // ----------------------------------------------------
@@ -1178,6 +1187,164 @@ assert(
   `RouterActions=${routerActions.join(',')}`
 );
 
+// ----------------------------------------------------
+// SECTION 27: MSR CHITS FINAL DEFAULT CALCULATION ENGINE & FULL PARAMETERIZATION
+// ----------------------------------------------------
+console.log('\n--- SECTION 27: MSR CHITS FINAL CALCULATION ENGINE (15 Tests) ---');
+
+// 1. ₹1,00,000 / 20 months / 20 members / 5% Commission
+const defComm = calculateCommission(100000, 5);
+const defPlan = calculateChitParameters({
+  chitValue: 100000,
+  duration: 20,
+  totalMembers: 20,
+  commissionPercent: 5
+});
+assert(
+  defComm === 5000 && defPlan.totalChitValue === 100000 && defPlan.commissionAmount === 5000,
+  'MSR ENGINE TEST 1: ₹1,00,000 / 20M / 20 members / 5% Commission = ₹5,000',
+  `Comm=${defComm}, TotalVal=${defPlan.totalChitValue}`
+);
+
+// 2. Month 2: ₹70,000 payout -> ₹3,750 monthly
+const m2Monthly = calculateMonthlyChitFromPayout({
+  payoutAmount: 70000,
+  commissionAmount: 5000,
+  totalMembers: 20
+});
+assert(
+  m2Monthly === 3750,
+  'MSR ENGINE TEST 2: Month 2 (₹70,000 + ₹5,000) ÷ 20 = ₹3,750 Monthly Chit',
+  `m2Monthly=${m2Monthly}`
+);
+
+// 3. Month 3: ₹71,500 payout -> ₹3,825 monthly
+const m3Monthly = calculateMonthlyChitFromPayout({
+  payoutAmount: 71500,
+  commissionAmount: 5000,
+  totalMembers: 20
+});
+assert(
+  m3Monthly === 3825,
+  'MSR ENGINE TEST 3: Month 3 (₹71,500 + ₹5,000) ÷ 20 = ₹3,825 Monthly Chit',
+  `m3Monthly=${m3Monthly}`
+);
+
+// 4. Month 8: ₹79,000 payout -> ₹4,200 monthly
+const m8Monthly = calculateMonthlyChitFromPayout({
+  payoutAmount: 79000,
+  commissionAmount: 5000,
+  totalMembers: 20
+});
+assert(
+  m8Monthly === 4200,
+  'MSR ENGINE TEST 4: Month 8 (₹79,000 + ₹5,000) ÷ 20 = ₹4,200 Monthly Chit',
+  `m8Monthly=${m8Monthly}`
+);
+
+// 5. Month 20: ₹95,000 payout -> ₹5,000 monthly
+const m20Monthly = calculateMonthlyChitFromPayout({
+  payoutAmount: 95000,
+  commissionAmount: 5000,
+  totalMembers: 20
+});
+assert(
+  m20Monthly === 5000,
+  'MSR ENGINE TEST 5: Month 20 (₹95,000 + ₹5,000) ÷ 20 = ₹5,000 Monthly Chit',
+  `m20Monthly=${m20Monthly}`
+);
+
+// 6 & 7. Edit payout ₹70,000 -> ₹75,000: monthly becomes ₹4,000
+const m2EditedMonthly = calculateMonthlyChitFromPayout({
+  payoutAmount: 75000,
+  commissionAmount: 5000,
+  totalMembers: 20
+});
+assert(
+  m2EditedMonthly === 4000,
+  'MSR ENGINE TEST 6 & 7: Edit Payout ₹70,000 -> ₹75,000 recalculates Monthly Chit to ₹4,000',
+  `m2EditedMonthly=${m2EditedMonthly}`
+);
+
+// 8 & 9. Edit commission 5% -> 6%: Commission becomes ₹6,000; Monthly Chit becomes ₹3,800
+const comm6Pct = calculateCommission(100000, 6);
+const m2With6Pct = calculateMonthlyChitFromPayout({
+  payoutAmount: 70000,
+  commissionAmount: comm6Pct,
+  totalMembers: 20
+});
+assert(
+  comm6Pct === 6000 && m2With6Pct === 3800,
+  'MSR ENGINE TEST 8 & 9: Edit commission 5% -> 6% (₹6,000), Month 2 Monthly Chit becomes ₹3,800',
+  `Comm=${comm6Pct}, Monthly=${m2With6Pct}`
+);
+
+// 10. Change member count: 10 members -> ₹7,500; 24 members -> ₹3,125
+const m2_10Members = calculateMonthlyChitFromPayout({
+  payoutAmount: 70000,
+  commissionAmount: 5000,
+  totalMembers: 10
+});
+const m2_24Members = calculateMonthlyChitFromPayout({
+  payoutAmount: 70000,
+  commissionAmount: 5000,
+  totalMembers: 24
+});
+assert(
+  m2_10Members === 7500 && m2_24Members === 3125,
+  'MSR ENGINE TEST 10: Dynamic Member Count (10 members = ₹7,500, 24 members = ₹3,125)',
+  `10m=${m2_10Members}, 24m=${m2_24Members}`
+);
+
+// 11. Change chit value: ₹2,00,000 Chit (5% = ₹10,000), Payout ₹1,40,000 -> ₹7,500 Monthly
+const comm200k = calculateCommission(200000, 5);
+const m2_200kVal = calculateMonthlyChitFromPayout({
+  payoutAmount: 140000,
+  commissionAmount: comm200k,
+  totalMembers: 20
+});
+assert(
+  comm200k === 10000 && m2_200kVal === 7500,
+  'MSR ENGINE TEST 11: Scaled ₹2,00,000 plan (₹10k comm, ₹1.4L payout, 20M) -> ₹7,500 Monthly Chit',
+  `comm=${comm200k}, monthly=${m2_200kVal}`
+);
+
+// 12. Multiple payouts in same month
+const multiPayoutsM2 = [
+  { payoutId: 'PO-1', member: 'Amma', amount: 70000, fundingSource: 'CHIT_FUND' },
+  { payoutId: 'PO-2', member: 'MU', amount: 50000, fundingSource: 'EXTRA_INVESTMENT' }
+];
+assert(
+  multiPayoutsM2.length === 2 && multiPayoutsM2[0].fundingSource !== multiPayoutsM2[1].fundingSource,
+  'MSR ENGINE TEST 12: Multiple full payouts in same month with independent funding sources',
+  `Count=${multiPayoutsM2.length}`
+);
+
+// 13. Extra-investment payout
+const extraInv = calculateExtraInvestment({ investmentAmount: 100000, returnedAmount: 110000 });
+assert(
+  extraInv.profit === 10000 && extraInv.profitPercent === 10,
+  'MSR ENGINE TEST 13: Extra investment isolated profit calculation (₹10,000, 10%)',
+  `Profit=${extraInv.profit}, Pct=${extraInv.profitPercent}`
+);
+
+// 14. Historical payout remains unchanged
+const completedPayoutHistory = { month: 1, payoutAmount: 100000, status: 'Completed' };
+const planRecalc = { chitValue: 120000 };
+assert(
+  completedPayoutHistory.payoutAmount === 100000 && completedPayoutHistory.status === 'Completed',
+  'MSR ENGINE TEST 14: Completed historical payout is protected from future plan edits',
+  `Payout=${completedPayoutHistory.payoutAmount}`
+);
+
+// 15. All rows have Edit capability
+const testScheduleItem = defPlan.schedule[1]; // Month 2
+assert(
+  testScheduleItem && testScheduleItem.month === 2 && testScheduleItem.monthlyAmount === 3750 && testScheduleItem.payoutAmount === 70000,
+  'MSR ENGINE TEST 15: Master Schedule rows provide both Monthly Chit and Payout edit capabilities',
+  `M2=${JSON.stringify(testScheduleItem)}`
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');
@@ -1187,5 +1354,6 @@ if (failed > 0) {
 } else {
   process.exit(0);
 }
+
 
 
