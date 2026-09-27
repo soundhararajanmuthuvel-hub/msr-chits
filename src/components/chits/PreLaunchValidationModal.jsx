@@ -25,7 +25,7 @@ export const PreLaunchValidationModal = ({
   const { showToast, refreshChits } = useChit();
   const [activating, setActivating] = useState(false);
 
-  if (!chit) return null;
+  if (!isOpen || !chit) return null;
 
   const duration = Number(chit.duration || chit.durationMonths) || 20;
   const requiredMembers = Number(chit.totalMembers || chit.memberCount || chit.requiredMembers) || duration;

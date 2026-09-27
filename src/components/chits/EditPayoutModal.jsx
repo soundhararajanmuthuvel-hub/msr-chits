@@ -16,6 +16,7 @@ export const EditPayoutModal = ({
   const { showToast } = useChit();
   const [payoutAmount, setPayoutAmount] = useState('');
   const [notes, setNotes] = useState('');
+  const [recalculateMonthly, setRecalculateMonthly] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -23,11 +24,12 @@ export const EditPayoutModal = ({
     if (isOpen && scheduleItem) {
       setPayoutAmount(String(scheduleItem.payoutAmount || ''));
       setNotes(scheduleItem.notes || '');
+      setRecalculateMonthly(true);
       setError(null);
     }
   }, [isOpen, scheduleItem]);
 
-  if (!scheduleItem) return null;
+  if (!isOpen || !scheduleItem) return null;
 
   const month = Number(scheduleItem.month || scheduleItem.monthNumber || 1);
   const chitId = chit?.chitId || scheduleItem.chitId || 'CHIT-100K-01';
@@ -40,8 +42,6 @@ export const EditPayoutModal = ({
   const memberName = scheduleItem.memberName || scheduleItem.assignedMemberName || 'Not Assigned';
   const fundingSource = String(scheduleItem.fundingSource || '').toUpperCase().includes('EXTRA') ? 'EXTRA_INVESTMENT' : 'CHIT_FUND';
   const currentMonthlyChit = Number(scheduleItem.monthlyAmount || scheduleItem.amount || 0);
-
-  const [recalculateMonthly, setRecalculateMonthly] = useState(true);
 
   // Live dependency calculation: Monthly Chit = (Payout + Commission) / Members
   const numEnteredPayout = Number(payoutAmount) || 0;

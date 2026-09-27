@@ -29,7 +29,7 @@ export const EditMonthlyChitModal = ({
     }
   }, [isOpen, scheduleItem]);
 
-  if (!scheduleItem) return null;
+  if (!isOpen || !scheduleItem) return null;
 
   const month = Number(scheduleItem.month || scheduleItem.monthNumber || 1);
   const chitId = chit?.chitId || scheduleItem.chitId || 'CHIT-100K-01';
