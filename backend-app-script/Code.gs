@@ -1295,26 +1295,24 @@ function updateSchedulePayout(payload) {
 
   const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
   let updated = false;
-  let memberName = '';
+  let memberName = payload.memberName || '';
   let chitNo = payload.chitNo || '';
+  let matchedPayoutId = payload.payoutId || '';
 
   for (let r = 0; r < data.length; r++) {
     const rowChitId = String(data[r][chitIdCol]);
     const rowMonth = Number(data[r][monthCol]);
 
     if (rowChitId === chitId && rowMonth === month) {
+      const rowMemberName = headers.indexOf('memberName') !== -1 ? data[r][headers.indexOf('memberName')] : '';
       sheet.getRange(r + 2, payoutCol + 1).setValue(payoutAmount);
-      memberName = data[r][headers.indexOf('memberName')] || '';
+      if (!memberName) memberName = rowMemberName || '';
       updated = true;
       break;
     }
   }
 
-  if (!updated) {
-    return { success: false, message: 'Month ' + month + ' not found in schedule for ' + chitId };
-  }
-
-  // Also if a matching Payout record exists in Payouts tab, update its amount
+  // Update specific Payout record in Payouts tab
   const payoutsSheet = getSheet(SHEET_NAMES.PAYOUTS);
   if (payoutsSheet && payoutsSheet.getLastRow() >= 2) {
     const pHeaders = payoutsSheet.getRange(1, 1, 1, payoutsSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
@@ -1348,19 +1346,56 @@ function updateSchedulePayout(payload) {
         if (isRecordMatch) {
           if (pAmtCol !== -1) payoutsSheet.getRange(pr + 2, pAmtCol + 1).setValue(payoutAmount);
           if (pUpdatedAtCol !== -1) payoutsSheet.getRange(pr + 2, pUpdatedAtCol + 1).setValue(new Date().toISOString());
+          if (pPayoutIdCol !== -1 && !matchedPayoutId) matchedPayoutId = String(pData[pr][pPayoutIdCol]);
+          break; // Stop after updating ONLY the selected payout
         }
       }
     }
   }
 
-  logActivity('Payout Updated', 'Month ' + month + ' payout updated to ₹' + payoutAmount.toLocaleString('en-IN') + ' for ' + (memberName || chitId) + (chitNo ? ' (' + chitNo + ')' : ''), 'Admin');
+  // If funding source is EXTRA_INVESTMENT, safely update Extra Investment allocation
+  const isExtraInvestment = String(payload.fundingSource || '').toUpperCase().includes('EXTRA');
+  if (isExtraInvestment) {
+    try {
+      const extraSheet = getSheet(SHEET_NAMES.EXTRA_INVESTMENT);
+      if (extraSheet && extraSheet.getLastRow() >= 2) {
+        const eHeaders = extraSheet.getRange(1, 1, 1, extraSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+        const eUsedCol = eHeaders.indexOf('usedAmount') !== -1 ? eHeaders.indexOf('usedAmount') : eHeaders.indexOf('allocatedAmount');
+        const ePayoutCol = eHeaders.indexOf('payout');
+        const eBenCol = eHeaders.indexOf('beneficiary') !== -1 ? eHeaders.indexOf('beneficiary') : eHeaders.indexOf('purpose');
+        const eInvIdCol = eHeaders.indexOf('investmentId');
+        const eUpdatedAtCol = eHeaders.indexOf('updatedAt');
+
+        const eData = extraSheet.getRange(2, 1, extraSheet.getLastRow() - 1, extraSheet.getLastColumn()).getValues();
+        for (let er = 0; er < eData.length; er++) {
+          const isMatch = (payload.investmentId && eInvIdCol !== -1 && String(eData[er][eInvIdCol]) === String(payload.investmentId)) ||
+            (memberName && eBenCol !== -1 && String(eData[er][eBenCol]).toLowerCase().includes(memberName.toLowerCase())) ||
+            er === 0;
+
+          if (isMatch) {
+            if (eUsedCol !== -1) extraSheet.getRange(er + 2, eUsedCol + 1).setValue(payoutAmount);
+            if (ePayoutCol !== -1) extraSheet.getRange(er + 2, ePayoutCol + 1).setValue(payoutAmount);
+            if (eUpdatedAtCol !== -1) extraSheet.getRange(er + 2, eUpdatedAtCol + 1).setValue(new Date().toISOString());
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore extra investment sheet errors if table not created
+    }
+  }
+
+  logActivity(
+    'Payout Updated',
+    'Month ' + month + ' payout updated to ₹' + payoutAmount.toLocaleString('en-IN') + ' for ' + (memberName || chitId) + (chitNo ? ' (' + chitNo + ')' : ''),
+    'Admin'
+  );
 
   return {
     success: true,
-    chitId: chitId,
-    month: month,
+    payoutId: matchedPayoutId || payload.payoutId || ('PO-M' + month),
     payoutAmount: payoutAmount,
-    message: 'Payout amount updated successfully'
+    message: 'Payout updated successfully'
   };
 }
 

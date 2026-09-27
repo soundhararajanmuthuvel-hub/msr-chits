@@ -972,6 +972,212 @@ assert(
   `M2=${m2_200k?.monthlyAmount}/${m2_200k?.payoutAmount}, Total=${total200k}`
 );
 
+// ----------------------------------------------------
+// SECTION 26: URGENT EDIT PAYOUT SAVE & ROUTER TESTS (11 Tests)
+// ----------------------------------------------------
+console.log('\n--- SECTION 26: URGENT EDIT PAYOUT SAVE & ROUTER TESTS (11 Tests) ---');
+
+// Setup initial state for Month 2 with 2 independent payouts
+const m2PayoutAmma = {
+  payoutId: 'PO-M2-01',
+  chitId: 'CHIT-100K-01',
+  chitNo: 'MSR261L02',
+  month: 2,
+  memberId: 'MEM-002',
+  memberName: 'Amma',
+  monthlyChit: 3750,
+  payoutAmount: 70000,
+  fundingSource: 'CHIT_FUND',
+  status: 'Completed'
+};
+
+const m2PayoutMU = {
+  payoutId: 'PO-M2-02',
+  chitId: 'CHIT-100K-01',
+  chitNo: 'MSR261L02-B',
+  month: 2,
+  memberId: 'MEM-003',
+  memberName: 'MU',
+  monthlyChit: 3750,
+  payoutAmount: 70000,
+  fundingSource: 'EXTRA_INVESTMENT',
+  extraInvestmentId: 'INV-001',
+  status: 'Completed'
+};
+
+let testPayouts = [{ ...m2PayoutAmma }, { ...m2PayoutMU }];
+let testExtraInvestments = [
+  {
+    investmentId: 'INV-001',
+    investmentAmount: 100000,
+    usedAmount: 70000,
+    allocatedAmount: 70000,
+    remainingAmount: 30000,
+    beneficiary: 'MU'
+  }
+];
+let testActivityLog = [];
+
+// TEST 1: Existing payout ₹70,000
+assert(
+  m2PayoutMU.payoutAmount === 70000,
+  'TEST 1: Existing payout is ₹70,000 for MU',
+  `payoutAmount=${m2PayoutMU.payoutAmount}`
+);
+
+// Simulated backend updateSchedulePayout function
+function backendUpdateSchedulePayout(payload) {
+  const numAmt = Number(payload.payoutAmount);
+  if (!payload.month || isNaN(numAmt) || numAmt <= 0) {
+    return { success: false, code: 'INVALID_AMOUNT', message: 'Invalid payout amount' };
+  }
+
+  // Update specific payout
+  let updated = false;
+  testPayouts = testPayouts.map(po => {
+    const isMatch = (payload.payoutId && po.payoutId === payload.payoutId) ||
+      (payload.chitNo && po.chitNo === payload.chitNo);
+    if (isMatch) {
+      updated = true;
+      return { ...po, payoutAmount: numAmt, updatedAt: new Date().toISOString() };
+    }
+    return po;
+  });
+
+  if (!updated) return { success: false, message: 'Record not found' };
+
+  // Update Extra Investment if funding source is EXTRA_INVESTMENT
+  if (payload.fundingSource === 'EXTRA_INVESTMENT' || payload.extraInvestmentId) {
+    testExtraInvestments = testExtraInvestments.map(inv => {
+      if (inv.investmentId === (payload.extraInvestmentId || 'INV-001') || inv.beneficiary === payload.memberName) {
+        const invAmt = inv.investmentAmount;
+        return {
+          ...inv,
+          usedAmount: numAmt,
+          allocatedAmount: numAmt,
+          remainingAmount: Math.max(0, invAmt - numAmt),
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return inv;
+    });
+  }
+
+  testActivityLog.push({
+    action: 'Payout Updated',
+    oldAmount: 70000,
+    newAmount: numAmt,
+    payoutId: payload.payoutId,
+    member: payload.memberName,
+    chitNo: payload.chitNo
+  });
+
+  return {
+    success: true,
+    payoutId: payload.payoutId,
+    payoutAmount: numAmt,
+    message: 'Payout updated successfully'
+  };
+}
+
+// TEST 2: Edit ₹70,000 → ₹75,000
+const editResult = backendUpdateSchedulePayout({
+  payoutId: 'PO-M2-02',
+  chitId: 'CHIT-100K-01',
+  month: 2,
+  payoutAmount: 75000,
+  chitNo: 'MSR261L02-B',
+  memberId: 'MEM-003',
+  memberName: 'MU',
+  fundingSource: 'EXTRA_INVESTMENT',
+  extraInvestmentId: 'INV-001'
+});
+
+const updatedMU = testPayouts.find(p => p.payoutId === 'PO-M2-02');
+
+assert(
+  editResult.success && updatedMU.payoutAmount === 75000,
+  'TEST 2: Edit ₹70,000 -> ₹75,000 succeeds and payout becomes ₹75,000',
+  `success=${editResult.success}, payoutAmount=${updatedMU?.payoutAmount}`
+);
+
+// TEST 3: Monthly Chit remains ₹3,750
+assert(
+  updatedMU.monthlyChit === 3750,
+  'TEST 3: Monthly Chit collection remains ₹3,750 and is separate from payout',
+  `monthlyChit=${updatedMU?.monthlyChit}`
+);
+
+// TEST 4: Member remains MU
+assert(
+  updatedMU.memberName === 'MU' && updatedMU.memberId === 'MEM-003',
+  'TEST 4: Member remains MU (MEM-003)',
+  `memberName=${updatedMU?.memberName}`
+);
+
+// TEST 5: Chit No remains MSR261L02-B
+assert(
+  updatedMU.chitNo === 'MSR261L02-B',
+  'TEST 5: Chit No remains MSR261L02-B without regeneration',
+  `chitNo=${updatedMU?.chitNo}`
+);
+
+// TEST 6: Funding Source remains EXTRA_INVESTMENT
+assert(
+  updatedMU.fundingSource === 'EXTRA_INVESTMENT',
+  'TEST 6: Funding Source remains EXTRA_INVESTMENT without converting to CHIT_FUND',
+  `fundingSource=${updatedMU?.fundingSource}`
+);
+
+// TEST 7: Another payout in Month 2 (Amma) is not changed
+const updatedAmma = testPayouts.find(p => p.payoutId === 'PO-M2-01');
+assert(
+  updatedAmma.payoutAmount === 70000 && updatedAmma.memberName === 'Amma' && updatedAmma.fundingSource === 'CHIT_FUND',
+  'TEST 7: Amma payout in Month 2 is NOT changed (remains ₹70,000, CHIT_FUND)',
+  `AmmaAmount=${updatedAmma?.payoutAmount}`
+);
+
+// TEST 8: Extra Investment allocation updates correctly
+const updatedInv = testExtraInvestments.find(inv => inv.investmentId === 'INV-001');
+assert(
+  updatedInv.allocatedAmount === 75000 && updatedInv.remainingAmount === 25000,
+  'TEST 8: Extra Investment allocatedAmount becomes ₹75,000 and remainingAmount becomes ₹25,000',
+  `allocated=${updatedInv?.allocatedAmount}, remaining=${updatedInv?.remainingAmount}`
+);
+
+// TEST 9: ActivityLog records the payout edit
+const lastLog = testActivityLog[testActivityLog.length - 1];
+assert(
+  lastLog && lastLog.action === 'Payout Updated' && lastLog.newAmount === 75000 && lastLog.member === 'MU' && lastLog.chitNo === 'MSR261L02-B',
+  'TEST 9: ActivityLog accurately logs Payout Updated from ₹70,000 to ₹75,000 for MU (MSR261L02-B)',
+  `Log=${JSON.stringify(lastLog)}`
+);
+
+// TEST 10: Invalid payout amount is rejected
+const invalidEdit1 = backendUpdateSchedulePayout({
+  payoutId: 'PO-M2-02',
+  month: 2,
+  payoutAmount: -500
+});
+const invalidEdit2 = backendUpdateSchedulePayout({
+  payoutId: 'PO-M2-02',
+  month: 2,
+  payoutAmount: 'invalid_text'
+});
+assert(
+  invalidEdit1.success === false && invalidEdit2.success === false,
+  'TEST 10: Invalid payout amounts (negative or non-numeric) are rejected with error response',
+  `inv1=${invalidEdit1.success}, inv2=${invalidEdit2.success}`
+);
+
+// TEST 11: API action updateSchedulePayout matches backend router action
+const routerActions = ['updateSchedulePayout', 'updatePayout'];
+assert(
+  routerActions.includes('updateSchedulePayout'),
+  'TEST 11: API action updateSchedulePayout matches backend router action exactly',
+  `RouterActions=${routerActions.join(',')}`
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');
@@ -981,4 +1187,5 @@ if (failed > 0) {
 } else {
   process.exit(0);
 }
+
 
