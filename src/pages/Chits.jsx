@@ -20,7 +20,7 @@ import StatusBadge from '../components/common/StatusBadge';
 import ChitForm from '../components/chits/ChitForm';
 import AddMemberToChitModal from '../components/chits/AddMemberToChitModal';
 import LoadingState from '../components/common/LoadingState';
-import { getChitCapacityStats } from '../utils/chitCalculations';
+import { getChitCapacityStats, getChitInstallmentInfo } from '../utils/chitCalculations';
 
 export const Chits = () => {
   const navigate = useNavigate();
@@ -204,6 +204,7 @@ export const Chits = () => {
           {filteredChits.map((chit) => {
             const { capacityStats, lifecycleStatus } = chit;
             const duration = Number(chit.duration || chit.durationMonths) || 20;
+            const installmentInfo = getChitInstallmentInfo(chit);
 
             return (
               <div
@@ -293,10 +294,22 @@ export const Chits = () => {
                     </div>
 
                     <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">
-                      <span className="text-[#5B7065] font-semibold text-[10px] block">Installment:</span>
-                      <p className="text-xs font-bold text-[#003524] mt-0.5">
-                        {formatINR(chit.monthlyContribution || chit.monthlyAmount || 0)}/mo
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#5B7065] font-semibold text-[10px] block">Installment:</span>
+                        <span className="text-[9px] font-bold text-amber-800 uppercase">Variable</span>
+                      </div>
+                      <div className="mt-0.5 space-y-0.5">
+                        <div className="flex items-center justify-between text-xs font-extrabold text-[#003524]">
+                          <span className="text-[10px] text-[#5B7065] font-normal">Current (M{installmentInfo.currentMonth}):</span>
+                          <span>{formatINR(installmentInfo.currentInstallment)}</span>
+                        </div>
+                        {installmentInfo.nextMonth && (
+                          <div className="flex items-center justify-between text-[11px] font-bold text-[#174D38]">
+                            <span className="text-[9px] text-[#5B7065] font-normal">Next (M{installmentInfo.nextMonth}):</span>
+                            <span>{formatINR(installmentInfo.nextInstallment)}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="p-2.5 bg-white rounded-xl border border-[#DCE8E0]">

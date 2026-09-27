@@ -26,7 +26,9 @@ import {
   getChitLifecycleStatus,
   calculateCommission,
   calculateMonthlyChitFromPayout,
-  calculatePayoutFromMonthlyChit
+  calculatePayoutFromMonthlyChit,
+  getCurrentChitMonth,
+  getChitInstallmentInfo
 } from '../src/utils/chitCalculations.js';
 import { generateChitNumber, getNextAvailableChitNumber, parseChitNumber } from '../src/utils/chitNumber.js';
 import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage } from '../src/utils/whatsapp.js';
@@ -1647,6 +1649,171 @@ assert(
   !isAllocationAllowed,
   'EXTRA INV TEST 14: Validation rejects allocation exceeding remaining (Attempt ₹25,000 > Remaining ₹20,000)',
   `Attempt=${inv2ExcessAttempt}, Allowed=${isAllocationAllowed}`
+);
+
+// ============================================================================
+// SECTION 29: VARIABLE MONTHLY INSTALLMENT & START DATE TESTS
+// ============================================================================
+console.log('\n----------------------------------------------------');
+console.log('SECTION 29: VARIABLE MONTHLY INSTALLMENT & SCHEDULE DATES');
+console.log('----------------------------------------------------');
+
+const planOct2026 = {
+  chitId: 'CHIT-100K-OCT',
+  chitName: 'MSR Chit — ₹1,00,000',
+  chitValue: 100000,
+  duration: 20,
+  totalMembers: 20,
+  startDate: '2026-10-01',
+  paymentDay: 20,
+  commissionPercent: 5,
+  dividend: 0
+};
+
+const octSchedule = generateChitSchedule(planOct2026);
+
+// TEST 1: Schedule length is 20 months
+assert(
+  octSchedule.length === 20,
+  'VAR INST TEST 1: 20-Month schedule generated',
+  `Length=${octSchedule.length}`
+);
+
+// TEST 2: Start date 2026-10-01 mapping for all 20 months
+const month1 = octSchedule[0];
+const month2 = octSchedule[1];
+const month3 = octSchedule[2];
+const month4 = octSchedule[3];
+const month8 = octSchedule[7];
+const month16 = octSchedule[15];
+const month17 = octSchedule[16];
+const month20 = octSchedule[19];
+
+assert(
+  month1.dueDate === '2026-10-20' && month1.monthNameShort === 'Oct 2026',
+  'VAR INST TEST 2: Month 1 is October 2026 (Due: 2026-10-20)',
+  `DueDate=${month1.dueDate}, Name=${month1.monthNameShort}`
+);
+
+assert(
+  month2.dueDate === '2026-11-20' && month2.monthNameShort === 'Nov 2026',
+  'VAR INST TEST 3: Month 2 is November 2026 (Due: 2026-11-20)',
+  `DueDate=${month2.dueDate}, Name=${month2.monthNameShort}`
+);
+
+assert(
+  month3.dueDate === '2026-12-20' && month3.monthNameShort === 'Dec 2026',
+  'VAR INST TEST 4: Month 3 is December 2026 (Due: 2026-12-20)',
+  `DueDate=${month3.dueDate}, Name=${month3.monthNameShort}`
+);
+
+assert(
+  month4.dueDate === '2027-01-20' && month4.monthNameShort === 'Jan 2027',
+  'VAR INST TEST 5: Month 4 is January 2027 (Due: 2027-01-20)',
+  `DueDate=${month4.dueDate}, Name=${month4.monthNameShort}`
+);
+
+assert(
+  month20.dueDate === '2028-05-20' && month20.monthNameShort === 'May 2028',
+  'VAR INST TEST 6: Month 20 is May 2028 (Due: 2028-05-20)',
+  `DueDate=${month20.dueDate}, Name=${month20.monthNameShort}`
+);
+
+// TEST 7: Exact variable installments per month
+assert(
+  month1.monthlyAmount === 5000 &&
+  month2.monthlyAmount === 3750 &&
+  month3.monthlyAmount === 3825 &&
+  month4.monthlyAmount === 3900 &&
+  month8.monthlyAmount === 4200 &&
+  month16.monthlyAmount === 4800 &&
+  month17.monthlyAmount === 4850 &&
+  month20.monthlyAmount === 5000,
+  'VAR INST TEST 7: Variable installments match exact schedule (M1: ₹5,000, M2: ₹3,750, M3: ₹3,825, M8: ₹4,200, M20: ₹5,000)',
+  `M1=${month1.monthlyAmount}, M2=${month2.monthlyAmount}, M3=${month3.monthlyAmount}, M4=${month4.monthlyAmount}, M8=${month8.monthlyAmount}, M20=${month20.monthlyAmount}`
+);
+
+// TEST 8: Total sum of 20-month installments equals exactly ₹88,825
+const total20MSum = octSchedule.reduce((sum, s) => sum + s.monthlyAmount, 0);
+assert(
+  total20MSum === 88825,
+  'VAR INST TEST 8: Total 20-month contribution equals exactly ₹88,825',
+  `Total=${total20MSum}`
+);
+
+// TEST 9: Month-specific Dividend calculation (M1: ₹0, M2: ₹1,250, M3: ₹1,175, M4: ₹1,100, M20: ₹0)
+assert(
+  month1.dividend === 0 &&
+  month2.dividend === 1250 &&
+  month3.dividend === 1175 &&
+  month4.dividend === 1100 &&
+  month20.dividend === 0,
+  'VAR INST TEST 9: Month-specific dividend (M1: ₹0, M2: ₹1,250, M3: ₹1,175, M4: ₹1,100, M20: ₹0)',
+  `M1Div=${month1.dividend}, M2Div=${month2.dividend}, M3Div=${month3.dividend}, M4Div=${month4.dividend}`
+);
+
+// TEST 10: Dynamic current month determination from Start Date
+const dateOct = new Date('2026-10-15');
+const dateNov = new Date('2026-11-15');
+const dateDec = new Date('2026-12-15');
+const dateJan27 = new Date('2027-01-15');
+
+const mOct = getCurrentChitMonth(planOct2026, dateOct);
+const mNov = getCurrentChitMonth(planOct2026, dateNov);
+const mDec = getCurrentChitMonth(planOct2026, dateDec);
+const mJan27 = getCurrentChitMonth(planOct2026, dateJan27);
+
+assert(
+  mOct === 1 && mNov === 2 && mDec === 3 && mJan27 === 4,
+  'VAR INST TEST 10: Current chit month calculated dynamically from Start Date (Oct=M1, Nov=M2, Dec=M3, Jan27=M4)',
+  `Oct=${mOct}, Nov=${mNov}, Dec=${mDec}, Jan27=${mJan27}`
+);
+
+// TEST 11: getChitInstallmentInfo returns Current: ₹5,000, Next: ₹3,750 for October 2026
+const infoOct = getChitInstallmentInfo(planOct2026, octSchedule, dateOct);
+assert(
+  infoOct.currentMonth === 1 && infoOct.currentInstallment === 5000 &&
+  infoOct.nextMonth === 2 && infoOct.nextInstallment === 3750 &&
+  infoOct.isVariable === true,
+  'VAR INST TEST 11: getChitInstallmentInfo returns Current (M1)=₹5,000 and Next (M2)=₹3,750 for Oct 2026',
+  `CurrentM=${infoOct.currentMonth}, CurrentInst=${infoOct.currentInstallment}, NextM=${infoOct.nextMonth}, NextInst=${infoOct.nextInstallment}`
+);
+
+// TEST 12: getChitInstallmentInfo returns Current: ₹3,750, Next: ₹3,825 for November 2026
+const infoNov = getChitInstallmentInfo(planOct2026, octSchedule, dateNov);
+assert(
+  infoNov.currentMonth === 2 && infoNov.currentInstallment === 3750 &&
+  infoNov.nextMonth === 3 && infoNov.nextInstallment === 3825,
+  'VAR INST TEST 12: getChitInstallmentInfo returns Current (M2)=₹3,750 and Next (M3)=₹3,825 for Nov 2026',
+  `CurrentM=${infoNov.currentMonth}, CurrentInst=${infoNov.currentInstallment}, NextM=${infoNov.nextMonth}, NextInst=${infoNov.nextInstallment}`
+);
+
+// TEST 13: Scaled ₹2,00,000 plan variable installment (Month 1 = ₹10,000, Month 2 = ₹7,500, Month 3 = ₹7,650, Total = ₹1,77,650)
+const plan2L = {
+  chitId: 'CHIT-200K',
+  chitValue: 100000,
+  multiple: 2,
+  duration: 20,
+  totalMembers: 20,
+  startDate: '2026-10-01',
+  paymentDay: 20
+};
+const sched2L = generateChitSchedule(plan2L);
+const total2L = sched2L.reduce((sum, s) => sum + s.monthlyAmount, 0);
+assert(
+  sched2L[0].monthlyAmount === 10000 && sched2L[1].monthlyAmount === 7500 && sched2L[2].monthlyAmount === 7650 && total2L === 177650,
+  'VAR INST TEST 13: Scaled ₹2L plan variable installments (M1: ₹10,000, M2: ₹7,500, Total: ₹1,77,650)',
+  `M1=${sched2L[0].monthlyAmount}, M2=${sched2L[1].monthlyAmount}, Total=${total2L}`
+);
+
+// TEST 14: Payment resolution for different months is month-specific and never fixed to ₹3,750
+const payMonth1Due = octSchedule.find(s => s.month === 1)?.monthlyAmount;
+const payMonth2Due = octSchedule.find(s => s.month === 2)?.monthlyAmount;
+const payMonth3Due = octSchedule.find(s => s.month === 3)?.monthlyAmount;
+assert(
+  payMonth1Due === 5000 && payMonth2Due === 3750 && payMonth3Due === 3825,
+  'VAR INST TEST 14: Payment resolution per month (Oct = ₹5,000, Nov = ₹3,750, Dec = ₹3,825)',
+  `M1Due=${payMonth1Due}, M2Due=${payMonth2Due}, M3Due=${payMonth3Due}`
 );
 
 console.log('\n====================================================');

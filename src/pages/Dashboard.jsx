@@ -22,7 +22,7 @@ import { api } from '../services/api';
 import { useChit } from '../context/ChitContext';
 import LoadingState from '../components/common/LoadingState';
 
-import { getChitCapacityStats } from '../utils/chitCalculations';
+import { getChitCapacityStats, getChitInstallmentInfo } from '../utils/chitCalculations';
 import { formatDate } from '../utils/date';
 import AddMemberToChitModal from '../components/chits/AddMemberToChitModal';
 import ChitForm from '../components/chits/ChitForm';
@@ -138,6 +138,8 @@ export const Dashboard = () => {
     expected20M: 0,
     expectedTotal: 0
   };
+
+  const activeInstallmentInfo = getChitInstallmentInfo(chit);
 
   return (
     <div className="space-y-6">
@@ -390,10 +392,18 @@ export const Dashboard = () => {
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">
-                <p className="text-[11px] font-semibold text-[#5B7065]">Monthly Contribution</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold text-[#5B7065]">Installment</p>
+                  <span className="text-[9px] font-bold text-amber-800 uppercase">Variable</span>
+                </div>
                 <p className="text-base font-bold text-[#003524] mt-0.5">
-                  {formatINR(chit.monthlyContribution)}
+                  {formatINR(activeInstallmentInfo.currentInstallment)}
                 </p>
+                {activeInstallmentInfo.nextMonth && (
+                  <p className="text-[10px] font-semibold text-[#174D38] mt-0.5">
+                    Next (M{activeInstallmentInfo.nextMonth}): {formatINR(activeInstallmentInfo.nextInstallment)}
+                  </p>
+                )}
               </div>
 
               <div className="p-3 bg-[#F0FCF4] rounded-xl border border-[#DCE8E0]">

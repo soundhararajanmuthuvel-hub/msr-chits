@@ -6,6 +6,7 @@ import { formatINR } from '../../utils/currency';
 import { getTodayDateInput, formatDate } from '../../utils/date';
 import { INITIAL_SCHEDULE } from '../../data/demoData';
 import { generateChitNumber } from '../../utils/chitNumber';
+import { generateChitSchedule, getCurrentChitMonth } from '../../utils/chitCalculations';
 import { CheckCircle2, MessageSquare, ArrowRight, ShieldCheck } from 'lucide-react';
 import WhatsAppComposerModal from '../whatsapp/WhatsAppComposerModal';
 
@@ -47,18 +48,29 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
           setMembers(mems || []);
           
           const chitDetails = await api.getChit(activeChit?.chitId || 'CHIT-100K-01');
-          const sch = chitDetails.schedule || [];
+          let sch = chitDetails.schedule || [];
+          if (!Array.isArray(sch) || sch.length === 0) {
+            sch = generateChitSchedule({
+              chitId: activeChit?.chitId || 'CHIT-100K-01',
+              chitValue: activeChit?.chitValue || activeChit?.totalAmount || 100000,
+              multiple: activeChit?.multiple || 1,
+              duration: activeChit?.duration || 20,
+              startDate: activeChit?.startDate || '2026-10-01',
+              paymentDay: activeChit?.paymentDay || 20
+            });
+          }
           setSchedule(sch);
 
           const defaultMember = prefilledMemberId
             ? mems.find(m => m.memberId === prefilledMemberId) || mems[0]
             : mems[0];
 
-          const defaultMonth = prefilledMonth || activeChit?.currentMonth || 1;
-          const scheduleItem = sch.find(s => s.month === Number(defaultMonth)) || sch[0];
+          const curChitMonth = getCurrentChitMonth(activeChit);
+          const defaultMonth = prefilledMonth || curChitMonth || 1;
+          const scheduleItem = sch.find(s => Number(s.month || s.monthNumber) === Number(defaultMonth)) || sch[0];
           const due = scheduleItem 
             ? Number(scheduleItem.monthlyAmount || scheduleItem.amount) 
-            : Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0);
+            : (Number(defaultMonth) === 1 ? 5000 : 3750);
 
           // Default Chit No
           const memChits = defaultMember?.chits || [];
@@ -92,10 +104,10 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
   // Handle month change
   const handleMonthChange = (newMonth) => {
     const monthNum = Number(newMonth);
-    const scheduleItem = schedule.find(s => s.month === monthNum);
+    const scheduleItem = schedule.find(s => Number(s.month || s.monthNumber) === monthNum);
     const due = scheduleItem 
       ? Number(scheduleItem.monthlyAmount || scheduleItem.amount) 
-      : Number(activeChit?.monthlyContribution || activeChit?.monthlyAmount || 0);
+      : (monthNum === 1 ? 5000 : 3750);
 
     // Check member's chits for this month
     const curMember = members.find(m => m.memberId === formData.memberId);
@@ -253,11 +265,17 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
                   onChange={(e) => handleMonthChange(e.target.value)}
                   className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-semibold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
                 >
-                  {Array.from({ length: 20 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>
-                      Month {m} {m === activeChit?.currentMonth ? '(Current)' : ''}
-                    </option>
-                  ))}
+                  {(schedule.length > 0 ? schedule : Array.from({ length: 20 }, (_, i) => ({ month: i + 1, monthlyAmount: i === 0 ? 5000 : 3750 }))).map((s) => {
+                    const m = Number(s.month || s.monthNumber);
+                    const amt = Number(s.monthlyAmount || s.amount) || (m === 1 ? 5000 : 3750);
+                    const dateLabel = s.monthNameShort ? ` (${s.monthNameShort})` : '';
+                    const isCurrent = m === Number(activeChit?.currentMonth || 1);
+                    return (
+                      <option key={m} value={m}>
+                        Month {m}{dateLabel} — ₹{amt.toLocaleString('en-IN')} {isCurrent ? '★ Current' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>

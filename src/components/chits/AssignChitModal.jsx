@@ -153,8 +153,8 @@ export const AssignChitModal = ({
 
           <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-[#C4D9CC]">
             <span>Value: {formatINR(activeChit?.chitValue || 100000)}</span>
-            <span>Duration: 20 Months</span>
-            <span>Installment: ₹3,750</span>
+            <span>Duration: {activeChit?.duration || 20} Months</span>
+            <span>Installment: Variable by Month</span>
           </div>
         </div>
 

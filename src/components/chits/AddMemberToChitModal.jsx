@@ -381,7 +381,7 @@ export const AddMemberToChitModal = ({
             <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-[#C4D9CC]">
               <span>Chit Value: {formatINR(chitValue)}</span>
               <span>Duration: {duration} Months</span>
-              <span>Installment: {formatINR(monthlyPay)}/mo</span>
+              <span>Installment: Variable by Month</span>
             </div>
           </div>
 

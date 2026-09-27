@@ -179,6 +179,16 @@ export function generateChitSchedule({
     }
   }
 
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const MONTH_NAMES_SHORT = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
   const existingMap = {};
   if (Array.isArray(existingSchedule)) {
     existingSchedule.forEach(item => {
@@ -193,12 +203,14 @@ export function generateChitSchedule({
   for (let m = 1; m <= dur; m++) {
     const existing = existingMap[m] || {};
 
-    // Calculate due date for month m
+    // Calculate due date and month-year for month m
     const d = new Date(startYear, startMonthIdx + (m - 1), paymentDay || 20);
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     const dueDate = `${yyyy}-${mm}-${dd}`;
+    const monthName = `${MONTH_NAMES[d.getMonth()]} ${yyyy}`;
+    const monthNameShort = `${MONTH_NAMES_SHORT[d.getMonth()]} ${yyyy}`;
 
     let defaultPayout = totalChitValue;
     let defaultMonthly = baseInstallment;
@@ -270,6 +282,8 @@ export function generateChitSchedule({
       chitId: chitId,
       month: m,
       monthNumber: m,
+      monthName,
+      monthNameShort,
       dueDate: existing.dueDate || dueDate,
       chitNo: existing.chitNo || existing.chitNumber || (m === 1 ? 'NIL' : String(m)),
       chitNumber: existing.chitNumber || existing.chitNo || (m === 1 ? 'NIL' : String(m)),
@@ -290,6 +304,86 @@ export function generateChitSchedule({
   }
 
   return schedule;
+}
+
+/**
+ * Determines current chit month from Start Date and Current Date (with fallback to chit.currentMonth)
+ * Example:
+ * Start Date = 01 Oct 2026 (2026-10-01)
+ * Oct 2026 -> Month 1
+ * Nov 2026 -> Month 2
+ * Dec 2026 -> Month 3
+ * Jan 2027 -> Month 4
+ */
+export function getCurrentChitMonth(chit, currentDate = new Date()) {
+  if (!chit) return 1;
+  const duration = Number(chit.duration || chit.durationMonths) || 20;
+
+  if (chit.startDate) {
+    const parts = String(chit.startDate).split('-');
+    if (parts.length >= 2) {
+      const startYear = parseInt(parts[0], 10);
+      const startMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+      const cur = currentDate instanceof Date ? currentDate : new Date(currentDate);
+
+      if (!isNaN(startYear) && !isNaN(startMonth) && !isNaN(cur.getTime())) {
+        const curYear = cur.getFullYear();
+        const curMonth = cur.getMonth();
+
+        const monthDiff = (curYear - startYear) * 12 + (curMonth - startMonth) + 1;
+        if (monthDiff < 1) return 1;
+        if (monthDiff > duration) return duration;
+        return monthDiff;
+      }
+    }
+  }
+
+  return Number(chit.currentMonth) || 1;
+}
+
+/**
+ * Gets month-specific variable installment information for a chit plan
+ */
+export function getChitInstallmentInfo(chit, schedule = [], currentDate = new Date()) {
+  const currentMonthNum = getCurrentChitMonth(chit, currentDate);
+  const duration = Number(chit?.duration || chit?.durationMonths) || 20;
+
+  let sched = schedule;
+  if (!Array.isArray(sched) || sched.length === 0) {
+    sched = generateChitSchedule({
+      chitId: chit?.chitId,
+      chitValue: chit?.chitValue || chit?.totalAmount || 100000,
+      multiple: chit?.multiple || 1,
+      duration: duration,
+      totalMembers: chit?.totalMembers || chit?.memberCount || duration,
+      commissionPercent: chit?.commissionPercent || 5,
+      dividend: chit?.dividend || 0,
+      startDate: chit?.startDate,
+      paymentDay: chit?.paymentDay || 20
+    });
+  }
+
+  const currentItem = sched.find(s => Number(s.monthNumber || s.month) === currentMonthNum) || sched[0] || {};
+  const nextMonthNum = currentMonthNum < duration ? currentMonthNum + 1 : null;
+  const nextItem = nextMonthNum ? sched.find(s => Number(s.monthNumber || s.month) === nextMonthNum) : null;
+
+  const currentInstallment = Number(currentItem.monthlyAmount || currentItem.amount) || (currentMonthNum === 1 ? 5000 : 3750);
+  const nextInstallment = nextItem ? (Number(nextItem.monthlyAmount || nextItem.amount) || 3750) : null;
+
+  const previewMonths = sched.slice(0, 3).map(s => `₹${(Number(s.monthlyAmount || s.amount) || 0).toLocaleString('en-IN')}`);
+  const progressionText = previewMonths.length > 0 ? `${previewMonths.join(' → ')} → ...` : 'Variable by Month';
+
+  return {
+    currentMonth: currentMonthNum,
+    currentInstallment,
+    nextMonth: nextMonthNum,
+    nextInstallment,
+    currentMonthItem: currentItem,
+    nextMonthItem: nextItem,
+    progressionText,
+    isVariable: true,
+    schedule: sched
+  };
 }
 
 /**

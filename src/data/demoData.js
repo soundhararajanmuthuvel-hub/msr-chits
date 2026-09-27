@@ -9,13 +9,13 @@ export const INITIAL_CHIT = {
   chitValue: 100000,
   duration: 20,
   memberCount: 20,
-  currentMonth: 2,
-  startDate: '2026-01-01',
+  currentMonth: 1,
+  startDate: '2026-10-01',
   paymentDay: 20,
-  monthlyContribution: 3750,
+  monthlyContribution: 5000, // Month 1 installment
   expected20M: 88825,
   status: 'Active',
-  description: 'Primary 20-month community chit fund',
+  description: 'Primary 20-month community chit fund (Variable Installments: Month 1 = ₹5,000, Month 2 = ₹3,750, Month 3 = ₹3,825...)',
 };
 
 export const INITIAL_SCHEDULE = [

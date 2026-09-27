@@ -296,8 +296,8 @@ function setupDatabase() {
   ]);
   if (chitSheet.getLastRow() <= 1) {
     chitSheet.appendRow([
-      'CHIT-100K-01', 'MSR Chit — ₹1,00,000', 100000, 20, 3750, '2026-01-01', 2, 'Active',
-      new Date().toISOString(), new Date().toISOString(), 100000, 1, 0, '', 93650, 20, 20, 20, 'Flagship Chit Plan'
+      'CHIT-100K-01', 'MSR Chit — ₹1,00,000', 100000, 20, 5000, '2026-10-01', 1, 'Active',
+      new Date().toISOString(), new Date().toISOString(), 100000, 1, 0, '', 88825, 20, 20, 20, 'Flagship 20-Month Chit Plan'
     ]);
   }
 
@@ -312,26 +312,26 @@ function setupDatabase() {
   ]);
   if (scheduleSheet.getLastRow() <= 1) {
     const masterSchedule = [
-      ['SCH-01', 'CHIT-100K-01', 1, '2026-01-20', 'MEM-003', 'MU', 5000, 'Paid', 'Completed', '2026-01-22', 'Chit NIL', 100000],
-      ['SCH-02', 'CHIT-100K-01', 2, '2026-02-20', 'MEM-001', 'Amma', 3750, 'In Progress', 'Completed', '2026-02-22', 'Chit 2', 70000],
-      ['SCH-03', 'CHIT-100K-01', 3, '2026-03-20', '', 'Not Assigned', 3825, 'Upcoming', 'Upcoming', '', 'Chit 3', 71500],
-      ['SCH-04', 'CHIT-100K-01', 4, '2026-04-20', '', 'Not Assigned', 3900, 'Upcoming', 'Upcoming', '', 'Chit 4', 73000],
-      ['SCH-05', 'CHIT-100K-01', 5, '2026-05-20', '', 'Not Assigned', 3975, 'Upcoming', 'Upcoming', '', 'Chit 5', 74500],
-      ['SCH-06', 'CHIT-100K-01', 6, '2026-06-20', '', 'Not Assigned', 4050, 'Upcoming', 'Upcoming', '', 'Chit 6', 76000],
-      ['SCH-07', 'CHIT-100K-01', 7, '2026-07-20', '', 'Not Assigned', 4125, 'Upcoming', 'Upcoming', '', 'Chit 7', 77500],
-      ['SCH-08', 'CHIT-100K-01', 8, '2026-08-20', 'MEM-003', 'MU', 4200, 'Upcoming', 'Upcoming', '', 'Chit 8', 79000],
-      ['SCH-09', 'CHIT-100K-01', 9, '2026-09-20', '', 'Not Assigned', 4275, 'Upcoming', 'Upcoming', '', 'Chit 9', 80500],
-      ['SCH-10', 'CHIT-100K-01', 10, '2026-10-20', '', 'Not Assigned', 4350, 'Upcoming', 'Upcoming', '', 'Chit 10', 82000],
-      ['SCH-11', 'CHIT-100K-01', 11, '2026-11-20', '', 'Not Assigned', 4425, 'Upcoming', 'Upcoming', '', 'Chit 11', 83500],
-      ['SCH-12', 'CHIT-100K-01', 12, '2026-12-20', '', 'Not Assigned', 4500, 'Upcoming', 'Upcoming', '', 'Chit 12', 85000],
-      ['SCH-13', 'CHIT-100K-01', 13, '2027-01-20', '', 'Not Assigned', 4575, 'Upcoming', 'Upcoming', '', 'Chit 13', 86500],
-      ['SCH-14', 'CHIT-100K-01', 14, '2027-02-20', '', 'Not Assigned', 4650, 'Upcoming', 'Upcoming', '', 'Chit 14', 88000],
-      ['SCH-15', 'CHIT-100K-01', 15, '2027-03-20', 'MEM-003', 'MU', 4725, 'Upcoming', 'Upcoming', '', 'Chit 15', 89500],
-      ['SCH-16', 'CHIT-100K-01', 16, '2027-04-20', '', 'Not Assigned', 4800, 'Upcoming', 'Upcoming', '', 'Chit 16', 91000],
-      ['SCH-17', 'CHIT-100K-01', 17, '2027-05-20', '', 'Not Assigned', 4850, 'Upcoming', 'Upcoming', '', 'Chit 17', 92000],
-      ['SCH-18', 'CHIT-100K-01', 18, '2027-06-20', '', 'Not Assigned', 4900, 'Upcoming', 'Upcoming', '', 'Chit 18', 93000],
-      ['SCH-19', 'CHIT-100K-01', 19, '2027-07-20', '', 'Not Assigned', 4950, 'Upcoming', 'Upcoming', '', 'Chit 19', 94000],
-      ['SCH-20', 'CHIT-100K-01', 20, '2027-08-20', '', 'Not Assigned', 5000, 'Upcoming', 'Upcoming', '', 'Chit 20', 95000]
+      ['SCH-01', 'CHIT-100K-01', 1, '2026-10-20', 'MEM-003', 'MU', 5000, 'Paid', 'Completed', '2026-10-22', 'Chit NIL', 100000],
+      ['SCH-02', 'CHIT-100K-01', 2, '2026-11-20', 'MEM-001', 'Amma', 3750, 'Upcoming', 'Upcoming', '', 'Chit 2', 70000],
+      ['SCH-03', 'CHIT-100K-01', 3, '2026-12-20', '', 'Not Assigned', 3825, 'Upcoming', 'Upcoming', '', 'Chit 3', 71500],
+      ['SCH-04', 'CHIT-100K-01', 4, '2027-01-20', '', 'Not Assigned', 3900, 'Upcoming', 'Upcoming', '', 'Chit 4', 73000],
+      ['SCH-05', 'CHIT-100K-01', 5, '2027-02-20', '', 'Not Assigned', 3975, 'Upcoming', 'Upcoming', '', 'Chit 5', 74500],
+      ['SCH-06', 'CHIT-100K-01', 6, '2027-03-20', '', 'Not Assigned', 4050, 'Upcoming', 'Upcoming', '', 'Chit 6', 76000],
+      ['SCH-07', 'CHIT-100K-01', 7, '2027-04-20', '', 'Not Assigned', 4125, 'Upcoming', 'Upcoming', '', 'Chit 7', 77500],
+      ['SCH-08', 'CHIT-100K-01', 8, '2027-05-20', 'MEM-003', 'MU', 4200, 'Upcoming', 'Upcoming', '', 'Chit 8', 79000],
+      ['SCH-09', 'CHIT-100K-01', 9, '2027-06-20', '', 'Not Assigned', 4275, 'Upcoming', 'Upcoming', '', 'Chit 9', 80500],
+      ['SCH-10', 'CHIT-100K-01', 10, '2027-07-20', '', 'Not Assigned', 4350, 'Upcoming', 'Upcoming', '', 'Chit 10', 82000],
+      ['SCH-11', 'CHIT-100K-01', 11, '2027-08-20', '', 'Not Assigned', 4425, 'Upcoming', 'Upcoming', '', 'Chit 11', 83500],
+      ['SCH-12', 'CHIT-100K-01', 12, '2027-09-20', '', 'Not Assigned', 4500, 'Upcoming', 'Upcoming', '', 'Chit 12', 85000],
+      ['SCH-13', 'CHIT-100K-01', 13, '2027-10-20', '', 'Not Assigned', 4575, 'Upcoming', 'Upcoming', '', 'Chit 13', 86500],
+      ['SCH-14', 'CHIT-100K-01', 14, '2027-11-20', '', 'Not Assigned', 4650, 'Upcoming', 'Upcoming', '', 'Chit 14', 88000],
+      ['SCH-15', 'CHIT-100K-01', 15, '2027-12-20', 'MEM-003', 'MU', 4725, 'Upcoming', 'Upcoming', '', 'Chit 15', 89500],
+      ['SCH-16', 'CHIT-100K-01', 16, '2028-01-20', '', 'Not Assigned', 4800, 'Upcoming', 'Upcoming', '', 'Chit 16', 91000],
+      ['SCH-17', 'CHIT-100K-01', 17, '2028-02-20', '', 'Not Assigned', 4850, 'Upcoming', 'Upcoming', '', 'Chit 17', 92000],
+      ['SCH-18', 'CHIT-100K-01', 18, '2028-03-20', '', 'Not Assigned', 4900, 'Upcoming', 'Upcoming', '', 'Chit 18', 93000],
+      ['SCH-19', 'CHIT-100K-01', 19, '2028-04-20', '', 'Not Assigned', 4950, 'Upcoming', 'Upcoming', '', 'Chit 19', 94000],
+      ['SCH-20', 'CHIT-100K-01', 20, '2028-05-20', '', 'Not Assigned', 5000, 'Upcoming', 'Upcoming', '', 'Chit 20', 95000]
     ];
     masterSchedule.forEach(row => scheduleSheet.appendRow(row));
   }

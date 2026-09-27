@@ -139,11 +139,11 @@ export const ChitSchedule = ({
                 >
                   {/* Month */}
                   <td className="py-3.5 px-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                       <span
-                        className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
                           isCurrent
-                            ? 'bg-[#003524] text-white'
+                            ? 'bg-[#003524] text-white ring-2 ring-[#C9A227]'
                             : isCompleted
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-slate-100 text-slate-600'
@@ -151,7 +151,26 @@ export const ChitSchedule = ({
                       >
                         {item.month}
                       </span>
-                      <span>Month {item.month}</span>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[#003524]">Month {item.month}</span>
+                          {isCurrent && (
+                            <span className="text-[9px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-extrabold uppercase">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        {item.monthName && (
+                          <span className="text-[11px] font-semibold text-[#174D38] block">
+                            {item.monthName}
+                          </span>
+                        )}
+                        {item.dueDate && (
+                          <span className="text-[10px] text-[#5B7065] block font-mono">
+                            Due: {item.dueDate}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
 

@@ -139,8 +139,8 @@ export const PreLaunchValidationModal = ({
           </div>
 
           <div className="flex justify-between py-1">
-            <span className="text-[#5B7065] font-semibold">Monthly Installment:</span>
-            <span className="font-bold text-[#003524]">{formatINR(monthlyCalc)}/mo</span>
+            <span className="text-[#5B7065] font-semibold">Installment Plan:</span>
+            <span className="font-bold text-[#003524]">Variable by Month</span>
           </div>
         </div>
 

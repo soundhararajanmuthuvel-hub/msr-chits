@@ -38,6 +38,7 @@ import DeleteMemberModal from '../components/members/DeleteMemberModal';
 import CancelMembershipModal from '../components/members/CancelMembershipModal';
 import LoadingState from '../components/common/LoadingState';
 import WhatsAppComposerModal from '../components/whatsapp/WhatsAppComposerModal';
+import { getChitInstallmentInfo } from '../utils/chitCalculations';
 import AssignChitModal from '../components/chits/AssignChitModal';
 import { useChit } from '../context/ChitContext';
 
@@ -514,48 +515,72 @@ export const MemberDetails = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {memberChits.map((chit) => (
-              <div
-                key={chit.chitNo}
-                className="bg-white rounded-2xl p-5 border border-[#DCE8E0] shadow-xs space-y-4 hover:border-[#174D38] transition-all"
-              >
-                {/* Chit Header */}
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="font-mono text-lg font-black text-[#003524] tracking-tight block">
-                      {chit.chitNo}
-                    </span>
-                    <span className="text-xs font-semibold text-[#174D38]">
-                      MSR Chit — {formatINR(chit.chitValue || 100000)}
-                    </span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                    {chit.status || 'Active'}
-                  </span>
-                </div>
+            {memberChits.map((chit) => {
+              const instInfo = getChitInstallmentInfo(chit);
 
-                {/* Chit Details Meta */}
-                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#EAF2EC]">
-                  <div>
-                    <span className="text-[#5B7065] text-[10px] block">Duration</span>
-                    <span className="font-bold text-[#131E19]">
-                      {chit.durationMonths || 20} Months
+              return (
+                <div
+                  key={chit.chitNo}
+                  className="bg-white rounded-2xl p-5 border border-[#DCE8E0] shadow-xs space-y-4 hover:border-[#174D38] transition-all"
+                >
+                  {/* Chit Header */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="font-mono text-lg font-black text-[#003524] tracking-tight block">
+                        {chit.chitNo}
+                      </span>
+                      <span className="text-xs font-semibold text-[#174D38]">
+                        MSR Chit — {formatINR(chit.chitValue || 100000)}
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                      {chit.status || 'Active'}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[#5B7065] text-[10px] block">Monthly Payment</span>
-                    <span className="font-bold text-[#003524]">
-                      {formatINR(chit.monthlyPayment || chit.monthlyAmount || 0)}
-                    </span>
+
+                  {/* Chit Details Meta */}
+                  <div className="grid grid-cols-2 gap-2.5 text-xs pt-2 border-t border-[#EAF2EC]">
+                    <div className="p-2 bg-[#F0FCF4] rounded-lg border border-[#DCE8E0]">
+                      <span className="text-[#5B7065] text-[10px] block">Duration</span>
+                      <span className="font-bold text-[#131E19]">
+                        {chit.durationMonths || 20} Months
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-[#F0FCF4] rounded-lg border border-[#DCE8E0]">
+                      <span className="text-[#5B7065] text-[10px] block">Current Month</span>
+                      <span className="font-bold text-[#003524]">
+                        Month {instInfo.currentMonth}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-white rounded-lg border border-[#DCE8E0]">
+                      <span className="text-[#5B7065] text-[10px] block">Current Installment</span>
+                      <span className="font-extrabold text-[#003524]">
+                        {formatINR(instInfo.currentInstallment)}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-white rounded-lg border border-[#DCE8E0]">
+                      <span className="text-[#5B7065] text-[10px] block">Next Installment</span>
+                      <span className="font-bold text-[#174D38]">
+                        {instInfo.nextInstallment ? formatINR(instInfo.nextInstallment) : 'Completed'}
+                      </span>
+                    </div>
+
+                    <div className="col-span-2 pt-1 flex items-center justify-between">
+                      <div>
+                        <span className="text-[#5B7065] text-[10px] block">Fixed Payout Month</span>
+                        <span className="inline-flex items-center gap-1 font-extrabold text-[#003524] bg-[#F0FCF4] px-2 py-0.5 rounded border border-[#DCE8E0]">
+                          <Calendar className="w-3 h-3 text-[#174D38]" />
+                          Month {chit.payoutMonth}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-1 rounded border border-amber-200">
+                        Variable by Month
+                      </span>
+                    </div>
                   </div>
-                  <div className="col-span-2 pt-1">
-                    <span className="text-[#5B7065] text-[10px] block">Fixed Payout Month</span>
-                    <span className="inline-flex items-center gap-1 font-extrabold text-[#003524] bg-[#F0FCF4] px-2 py-0.5 rounded border border-[#DCE8E0]">
-                      <Calendar className="w-3 h-3 text-[#174D38]" />
-                      Month {chit.payoutMonth}
-                    </span>
-                  </div>
-                </div>
 
                 {/* Card Actions */}
                 <div className="pt-3 border-t border-[#EAF2EC] flex items-center justify-between gap-2">
@@ -603,8 +628,9 @@ export const MemberDetails = () => {
                   )}
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
+        </div>
         )}
       </div>
 
