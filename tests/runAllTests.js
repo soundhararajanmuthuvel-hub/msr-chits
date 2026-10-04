@@ -1835,7 +1835,7 @@ const initialBankSettings = {
   paymentInstructions: 'Please mention Chit No in remarks'
 };
 
-// TEST 1: November 2026 (Month 2) reminder contains Month 2 and ₹3,750 (NOT ₹5,000, NOT static)
+// TEST 1: November 2026 (Month 2) reminder contains Month 2, ₹3,750, UPI and Bank details
 const month2ScheduleMap = { 1: 5000, 2: 3750, 3: 3825, 4: 3900, 20: 5000 };
 const memberAmma = {
   name: 'Amma',
@@ -1856,15 +1856,21 @@ const novReminderMsg = generatePaymentReminderMessage(memberAmma, {
 
 assert(
   novReminderMsg.includes('Hi Amma') &&
+  novReminderMsg.includes('Chit No: MSR261L05') &&
   novReminderMsg.includes('Month: 2') &&
   novReminderMsg.includes('Amount: ₹3,750') &&
-  novReminderMsg.includes('Chit No: MSR261L05') &&
+  novReminderMsg.includes('UPI: test@upi') &&
+  novReminderMsg.includes('Bank:') &&
+  novReminderMsg.includes('MSR CHITS') &&
+  novReminderMsg.includes('Example Bank') &&
+  novReminderMsg.includes('A/C: 1234567890') &&
+  novReminderMsg.includes('IFSC: EXAMPLE0001') &&
   !novReminderMsg.includes('₹5,000'),
-  'MONTHLY REMINDER TEST 1: November 2026 reminder resolves to Month 2 / 20 and ₹3,750 (NOT ₹5,000)',
+  'MONTHLY REMINDER TEST 1: November 2026 reminder resolves to Month 2 / 20 and ₹3,750 with UPI and Bank details',
   `Nov Message:\n${novReminderMsg}`
 );
 
-// TEST 2: December 2026 (Month 3) reminder automatically changes to Month 3 / 20 and ₹3,825
+// TEST 2: December 2026 (Month 3) reminder automatically changes to Month 3 and ₹3,825
 const decReminderMsg = generatePaymentReminderMessage(memberAmma, {
   month: 3,
   currentMonth: 3,
@@ -1905,11 +1911,13 @@ const multiChitNovMsg = generatePaymentReminderMessage(multiChitMember, {
 });
 
 assert(
-  multiChitNovMsg.includes('MSR261L06') &&
-  multiChitNovMsg.includes('MSR261L14') &&
-  multiChitNovMsg.includes('MSR261L07') &&
-  multiChitNovMsg.includes("This month's total: ₹11,250"), // 3,750 * 3 = 11,250
-  'MONTHLY REMINDER TEST 3: Consolidated multi-chit reminder (3 chits) sums to ₹11,250 for Month 2',
+  multiChitNovMsg.includes('Chit 1: MSR261L06') &&
+  multiChitNovMsg.includes('Chit 2: MSR261L14') &&
+  multiChitNovMsg.includes('Chit 3: MSR261L07') &&
+  multiChitNovMsg.includes('Total: ₹11,250') && // 3,750 * 3 = 11,250
+  multiChitNovMsg.includes('UPI: test@upi') &&
+  multiChitNovMsg.includes('Bank:'),
+  'MONTHLY REMINDER TEST 3: Consolidated multi-chit reminder (3 chits) sums to ₹11,250 for Month 2 with bank/UPI',
   `Multi-Chit Message:\n${multiChitNovMsg}`
 );
 
@@ -1924,17 +1932,18 @@ const multiChitDecMsg = generatePaymentReminderMessage(multiChitMember, {
 });
 
 assert(
-  multiChitDecMsg.includes('MSR261L06') &&
-  multiChitDecMsg.includes('MSR261L14') &&
-  multiChitDecMsg.includes('MSR261L07') &&
-  multiChitDecMsg.includes("This month's total: ₹11,475"), // 3,825 * 3 = 11,475
+  multiChitDecMsg.includes('Chit 1: MSR261L06') &&
+  multiChitDecMsg.includes('Chit 2: MSR261L14') &&
+  multiChitDecMsg.includes('Chit 3: MSR261L07') &&
+  multiChitDecMsg.includes('Total: ₹11,475'), // 3,825 * 3 = 11,475
   'MONTHLY REMINDER TEST 4: Consolidated multi-chit reminder (3 chits) sums to ₹11,475 for Month 3',
   `Multi-Chit Dec Message:\n${multiChitDecMsg}`
 );
 
-// TEST 5: Bank/UPI Settings Integration: Verify configured UPI in reminder
+// TEST 5: Bank/UPI Settings Integration: Verify configured UPI and Bank in reminder
 assert(
-  novReminderMsg.includes('UPI: test@upi'),
+  novReminderMsg.includes('UPI: test@upi') &&
+  novReminderMsg.includes('Bank:\nMSR CHITS\nExample Bank\nA/C: 1234567890\nIFSC: EXAMPLE0001'),
   'MONTHLY REMINDER TEST 5: Message reads configured bank & UPI details from Settings',
   `Bank details verification:\n${novReminderMsg}`
 );
@@ -1977,7 +1986,7 @@ const upiOnlyReminder = generatePaymentReminderMessage(memberAmma, {
 assert(
   upiOnlyReminder.includes('UPI: onlyupi@okhdfc') &&
   !upiOnlyReminder.includes('Bank:') &&
-  !upiOnlyReminder.includes('Account No:'),
+  !upiOnlyReminder.includes('A/C:'),
   'MONTHLY REMINDER TEST 7: If only UPI configured, blank bank fields are hidden',
   `UPI Only:\n${upiOnlyReminder}`
 );
@@ -1993,8 +2002,9 @@ const emptySettingsReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  !emptySettingsReminder.includes('UPI:'),
-  'MONTHLY REMINDER TEST 8: Fallback message cleanly omits UPI when not configured',
+  !emptySettingsReminder.includes('UPI:') &&
+  !emptySettingsReminder.includes('Bank:'),
+  'MONTHLY REMINDER TEST 8: Fallback message cleanly omits UPI & Bank when not configured',
   `Empty settings message verified`
 );
 
@@ -2049,27 +2059,59 @@ assert(
 );
 
 // ----------------------------------------------------
-// SECTION 30B: EXPLICIT SPECIFICATION TEST CASES (Section 28)
+// SECTION 30B: EXPLICIT SPECIFICATION TEST CASES (Section 28 & Master Prompt)
 // ----------------------------------------------------
 console.log('\n----------------------------------------------------');
-console.log('SECTION 30B: EXPLICIT SPECIFICATION TEST CASES (Section 28)');
+console.log('SECTION 30B: EXPLICIT SPECIFICATION TEST CASES (Section 28 & Master Prompt)');
 console.log('----------------------------------------------------');
 
-// Test 1: Member Amma, Tamil, Month 2, ₹3,750 -> contains 'மாதம்: 2' and 'தொகை: ₹3,750'
-const tamilAmmaMsg = generatePaymentReminderMessage({ name: 'Amma' }, {
-  chitNo: 'MSR261L05',
-  month: 2,
-  amount: 3750,
-  language: 'tamil',
-  upiId: 'test@upi'
+// Test 1: Member Appa, Single Chit MSR261L10, Month 1, ₹5,000, UPI and Bank details in English & Tamil
+const appaSettings = {
+  upiId: 'soundhararajanmuthuvel@oksbi',
+  accountHolderName: 'Muthuvel Soundhararajan',
+  bankName: 'State Bank of India',
+  accountNumber: '123456789012',
+  ifscCode: 'SBIN0001234'
+};
+
+const appaEnglishMsg = generatePaymentReminderMessage({ name: 'Appa' }, {
+  chitNo: 'MSR261L10',
+  month: 1,
+  amount: 5000,
+  settings: appaSettings,
+  language: 'english'
 });
+
+const appaTamilMsg = generatePaymentReminderMessage({ name: 'Appa' }, {
+  chitNo: 'MSR261L10',
+  month: 1,
+  amount: 5000,
+  settings: appaSettings,
+  language: 'tamil'
+});
+
 assert(
-  tamilAmmaMsg.includes('வணக்கம் Amma') &&
-  tamilAmmaMsg.includes('மாதம்: 2') &&
-  tamilAmmaMsg.includes('தொகை: ₹3,750') &&
-  tamilAmmaMsg.includes('சீட்டு எண்: MSR261L05'),
-  'SEC 28 TEST 1: Tamil Monthly Reminder for Amma (Month 2, ₹3,750)',
-  `Tamil Msg:\n${tamilAmmaMsg}`
+  appaEnglishMsg.includes('Hi Appa 👋') &&
+  appaEnglishMsg.includes('Chit No: MSR261L10') &&
+  appaEnglishMsg.includes('Month: 1') &&
+  appaEnglishMsg.includes('Amount: ₹5,000') &&
+  appaEnglishMsg.includes('UPI: soundhararajanmuthuvel@oksbi') &&
+  appaEnglishMsg.includes('Bank:\nMuthuvel Soundhararajan\nState Bank of India\nA/C: 123456789012\nIFSC: SBIN0001234') &&
+  appaEnglishMsg.includes('Please make the payment and share the screenshot.'),
+  'MASTER PROMPT TEST 1A: Appa Single Chit English Payment Reminder with UPI and Bank',
+  `English:\n${appaEnglishMsg}`
+);
+
+assert(
+  appaTamilMsg.includes('வணக்கம் Appa 👋') &&
+  appaTamilMsg.includes('சீட்டு எண்: MSR261L10') &&
+  appaTamilMsg.includes('மாதம்: 1') &&
+  appaTamilMsg.includes('தொகை: ₹5,000') &&
+  appaTamilMsg.includes('UPI: soundhararajanmuthuvel@oksbi') &&
+  appaTamilMsg.includes('வங்கி:\nMuthuvel Soundhararajan\nState Bank of India\nA/C: 123456789012\nIFSC: SBIN0001234') &&
+  appaTamilMsg.includes('தயவுசெய்து பணம் செலுத்தி screenshot-ஐ பகிரவும்.'),
+  'MASTER PROMPT TEST 1B: Appa Single Chit Tamil Payment Reminder with UPI and Bank',
+  `Tamil:\n${appaTamilMsg}`
 );
 
 // Test 2: Member with 2 active chits, Month 3: Chit A = ₹3,825, Chit B = ₹3,825 -> Total ₹7,650
@@ -2092,8 +2134,8 @@ const twoChitTamilMsg = generatePaymentReminderMessage(memberTwoChits, {
   language: 'tamil'
 });
 assert(
-  twoChitEnglishMsg.includes("This month's total: ₹7,650") &&
-  twoChitTamilMsg.includes("இந்த மாத மொத்த தவணை: ₹7,650"),
+  twoChitEnglishMsg.includes("Total: ₹7,650") &&
+  twoChitTamilMsg.includes("மொத்தம்: ₹7,650"),
   'SEC 28 TEST 2: Member with 2 active chits in Month 3 sums to ₹7,650 in English & Tamil',
   `English:\n${twoChitEnglishMsg}\nTamil:\n${twoChitTamilMsg}`
 );

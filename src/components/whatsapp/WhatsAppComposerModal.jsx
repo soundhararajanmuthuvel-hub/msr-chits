@@ -196,6 +196,7 @@ export const WhatsAppComposerModal = ({
           dueDate: scheduleData.dueDate,
           monthSchedule: scheduleData.monthScheduleMap,
           upiId: upiId,
+          settings: settings,
           language: langCode
         });
         break;
@@ -380,6 +381,28 @@ export const WhatsAppComposerModal = ({
             >
               <span>தமிழ்</span>
             </button>
+          </div>
+        </div>
+
+        {/* Quick Details Strip: Language, Member, Phone, Amount, UPI */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-xl border border-[#DCE8E0] text-[11px]">
+          <div>
+            <span className="text-[#5B7065] block">Language</span>
+            <span className="font-bold text-[#003524]">{language === 'Tamil' ? 'தமிழ்' : 'English'}</span>
+          </div>
+          <div>
+            <span className="text-[#5B7065] block">Phone</span>
+            <span className="font-bold text-[#131E19]">{hasValidPhone ? `+${normalizedPhone}` : '—'}</span>
+          </div>
+          <div>
+            <span className="text-[#5B7065] block">Amount</span>
+            <span className="font-bold text-[#003524]">{scheduleData.totalDue > 0 ? formatINR(scheduleData.totalDue) : '₹0'}</span>
+          </div>
+          <div>
+            <span className="text-[#5B7065] block">UPI</span>
+            <span className="font-bold text-[#131E19] truncate block" title={settings?.upiId || 'Not configured'}>
+              {settings?.upiId || '—'}
+            </span>
           </div>
         </div>
 

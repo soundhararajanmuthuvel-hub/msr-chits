@@ -174,9 +174,47 @@ MSR CHITS`
 }
 
 /**
+ * Format optional payment details block (UPI & Bank Details from Settings)
+ * Cleanly omits missing or empty fields.
+ */
+function formatPaymentDetailsBlock(settings = {}, lang = 'en') {
+  if (!settings) return '';
+  const isTamil = lang === 'ta';
+
+  const upiId = String(settings.upiId || settings.configuredUPI || '').trim();
+  const upiBlock = upiId ? `UPI: ${upiId}` : '';
+
+  const accountHolderName = String(settings.accountHolderName || settings.accountName || '').trim();
+  const bankName = String(settings.bankName || '').trim();
+  const accountNumber = String(settings.accountNumber || settings.accountNo || '').trim();
+  const ifsc = String(settings.ifscCode || settings.ifsc || '').trim();
+  const branch = String(settings.branch || '').trim();
+
+  const bankLines = [];
+  if (accountHolderName) bankLines.push(accountHolderName);
+  if (bankName) bankLines.push(bankName);
+  if (accountNumber) bankLines.push(`A/C: ${accountNumber}`);
+  if (ifsc) bankLines.push(`IFSC: ${ifsc}`);
+  if (branch) bankLines.push(isTamil ? `கிளை: ${branch}` : `Branch: ${branch}`);
+
+  let bankBlock = '';
+  if (bankLines.length > 0) {
+    const bankHeader = isTamil ? 'வங்கி:' : 'Bank:';
+    bankBlock = `${bankHeader}\n${bankLines.join('\n')}`;
+  }
+
+  const parts = [];
+  if (upiBlock) parts.push(upiBlock);
+  if (bankBlock) parts.push(bankBlock);
+
+  if (parts.length === 0) return '';
+  return '\n\n' + parts.join('\n\n');
+}
+
+/**
  * 2. Monthly Payment Reminder
  * Single Chit vs Multiple Active Chits
- * Reads actual monthly schedule data and configured UPI ID.
+ * Reads actual monthly schedule data, configured UPI ID, and Bank details.
  */
 export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
   let lang = 'en';
@@ -200,7 +238,18 @@ export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
     return s !== 'CANCELLED' && s !== 'INACTIVE';
   });
 
-  const upiId = data.upiId || data.settings?.upiId || data.configuredUPI || '';
+  const settings = {
+    ...data.settings,
+    ...(data.upiId ? { upiId: data.upiId } : {}),
+    ...(data.accountHolderName ? { accountHolderName: data.accountHolderName } : {}),
+    ...(data.bankName ? { bankName: data.bankName } : {}),
+    ...(data.accountNumber ? { accountNumber: data.accountNumber } : {}),
+    ...(data.ifscCode ? { ifscCode: data.ifscCode } : {}),
+    ...(data.ifsc ? { ifscCode: data.ifsc } : {}),
+    ...(data.branch ? { branch: data.branch } : {})
+  };
+
+  const paymentDetailsBlock = formatPaymentDetailsBlock(settings, lang);
 
   // Single Chit Reminder
   if (activeChits.length <= 1) {
@@ -226,11 +275,6 @@ export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
     const dueNum = isPartial ? Math.max(0, amountNum - paidNum) : amountNum;
     const amountStr = formatAmountOnly(dueNum);
 
-    let upiBlock = '';
-    if (upiId && String(upiId).trim()) {
-      upiBlock = `\n\nUPI: ${String(upiId).trim()}`;
-    }
-
     if (lang === 'ta') {
       return (
 `வணக்கம் ${name} 👋
@@ -239,7 +283,7 @@ MSR CHITS மாத தவணை நினைவூட்டல்.
 
 சீட்டு எண்: ${chitNo}
 மாதம்: ${month}
-தொகை: ₹${amountStr}${upiBlock}
+தொகை: ₹${amountStr}${paymentDetailsBlock}
 
 தயவுசெய்து பணம் செலுத்தி screenshot-ஐ பகிரவும்.
 
@@ -255,7 +299,7 @@ MSR CHITS payment reminder.
 
 Chit No: ${chitNo}
 Month: ${month}
-Amount: ₹${amountStr}${upiBlock}
+Amount: ₹${amountStr}${paymentDetailsBlock}
 
 Please make the payment and share the screenshot.
 
@@ -266,12 +310,14 @@ MSR CHITS`
 
   // Multiple Chits Combined Reminder
   let calculatedTotal = 0;
-  const chitLines = activeChits.map(chit => {
-    const chitNo = chit.chitNo;
-    const cMonth = Number(chit.currentMonth || currentMonthNum);
+  const chitBlocks = activeChits.map((chit, idx) => {
+    const chitNo = chit.chitNo || `MSR261L${String(idx + 1).padStart(2, '0')}`;
+    const cMonth = Number(chit.currentMonth || chit.month || currentMonthNum);
 
     let cPay = 0;
-    if (monthSchedule[cMonth] !== undefined && Number(monthSchedule[cMonth]) > 0) {
+    if (chit.amount !== undefined && Number(chit.amount) > 0) {
+      cPay = Number(chit.amount);
+    } else if (monthSchedule[cMonth] !== undefined && Number(monthSchedule[cMonth]) > 0) {
       cPay = Number(monthSchedule[cMonth]);
     } else if (chit.monthlyPayment !== undefined && Number(chit.monthlyPayment) > 0) {
       cPay = Number(chit.monthlyPayment);
@@ -285,15 +331,13 @@ MSR CHITS`
     const itemDue = (paidNum > 0 && paidNum < cPay) ? Math.max(0, cPay - paidNum) : cPay;
     calculatedTotal += itemDue;
 
-    return `${chitNo} — ₹${formatAmountOnly(itemDue)}`;
+    if (lang === 'ta') {
+      return `சீட்டு ${idx + 1}: ${chitNo}\nமாதம்: ${cMonth}\nதொகை: ₹${formatAmountOnly(itemDue)}`;
+    }
+    return `Chit ${idx + 1}: ${chitNo}\nMonth: ${cMonth}\nAmount: ₹${formatAmountOnly(itemDue)}`;
   });
 
   const totalStr = formatAmountOnly(calculatedTotal);
-
-  let upiBlock = '';
-  if (upiId && String(upiId).trim()) {
-    upiBlock = `\n\nUPI: ${String(upiId).trim()}`;
-  }
 
   if (lang === 'ta') {
     return (
@@ -301,9 +345,9 @@ MSR CHITS`
 
 MSR CHITS மாத தவணை நினைவூட்டல்.
 
-இந்த மாத மொத்த தவணை: ₹${totalStr}
+${chitBlocks.join('\n\n')}
 
-${chitLines.join('\n')}${upiBlock}
+மொத்தம்: ₹${totalStr}${paymentDetailsBlock}
 
 தயவுசெய்து பணம் செலுத்தி screenshot-ஐ பகிரவும்.
 
@@ -317,9 +361,9 @@ MSR CHITS`
 
 MSR CHITS payment reminder.
 
-This month's total: ₹${totalStr}
+${chitBlocks.join('\n\n')}
 
-${chitLines.join('\n')}${upiBlock}
+Total: ₹${totalStr}${paymentDetailsBlock}
 
 Please make the payment and share the screenshot.
 
