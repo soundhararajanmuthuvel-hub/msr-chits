@@ -174,7 +174,7 @@ MSR CHITS`
 }
 
 /**
- * Format optional payment details block (UPI & Bank Details from Settings)
+ * Format optional payment details block (UPI ID, UPI Number & Bank Details from Settings)
  * Cleanly omits missing or empty fields.
  */
 function formatPaymentDetailsBlock(settings = {}, lang = 'en') {
@@ -182,7 +182,15 @@ function formatPaymentDetailsBlock(settings = {}, lang = 'en') {
   const isTamil = lang === 'ta';
 
   const upiId = String(settings.upiId || settings.configuredUPI || '').trim();
-  const upiBlock = upiId ? `UPI: ${upiId}` : '';
+  const upiNumber = String(settings.upiNumber || settings.upiNo || settings.upiPhone || '').trim();
+
+  const upiLines = [];
+  if (upiId) {
+    upiLines.push(`UPI ID: ${upiId}`);
+  }
+  if (upiNumber) {
+    upiLines.push(isTamil ? `UPI எண்: ${upiNumber}` : `UPI No: ${upiNumber}`);
+  }
 
   const accountHolderName = String(settings.accountHolderName || settings.accountName || '').trim();
   const bankName = String(settings.bankName || '').trim();
@@ -204,7 +212,7 @@ function formatPaymentDetailsBlock(settings = {}, lang = 'en') {
   }
 
   const parts = [];
-  if (upiBlock) parts.push(upiBlock);
+  if (upiLines.length > 0) parts.push(upiLines.join('\n'));
   if (bankBlock) parts.push(bankBlock);
 
   if (parts.length === 0) return '';
@@ -214,7 +222,7 @@ function formatPaymentDetailsBlock(settings = {}, lang = 'en') {
 /**
  * 2. Monthly Payment Reminder
  * Single Chit vs Multiple Active Chits
- * Reads actual monthly schedule data, configured UPI ID, and Bank details.
+ * Reads actual monthly schedule data, configured UPI ID, UPI Number, and Bank details.
  */
 export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
   let lang = 'en';
@@ -241,6 +249,8 @@ export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
   const settings = {
     ...data.settings,
     ...(data.upiId ? { upiId: data.upiId } : {}),
+    ...(data.upiNumber ? { upiNumber: data.upiNumber } : {}),
+    ...(data.upiNo ? { upiNumber: data.upiNo } : {}),
     ...(data.accountHolderName ? { accountHolderName: data.accountHolderName } : {}),
     ...(data.bankName ? { bankName: data.bankName } : {}),
     ...(data.accountNumber ? { accountNumber: data.accountNumber } : {}),

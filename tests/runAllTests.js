@@ -1859,12 +1859,13 @@ assert(
   novReminderMsg.includes('Chit No: MSR261L05') &&
   novReminderMsg.includes('Month: 2') &&
   novReminderMsg.includes('Amount: ₹3,750') &&
-  novReminderMsg.includes('UPI: test@upi') &&
+  novReminderMsg.includes('UPI ID: test@upi') &&
   novReminderMsg.includes('Bank:') &&
   novReminderMsg.includes('MSR CHITS') &&
   novReminderMsg.includes('Example Bank') &&
   novReminderMsg.includes('A/C: 1234567890') &&
   novReminderMsg.includes('IFSC: EXAMPLE0001') &&
+  novReminderMsg.includes('Branch: Main Branch') &&
   !novReminderMsg.includes('₹5,000'),
   'MONTHLY REMINDER TEST 1: November 2026 reminder resolves to Month 2 / 20 and ₹3,750 with UPI and Bank details',
   `Nov Message:\n${novReminderMsg}`
@@ -1915,7 +1916,7 @@ assert(
   multiChitNovMsg.includes('Chit 2: MSR261L14') &&
   multiChitNovMsg.includes('Chit 3: MSR261L07') &&
   multiChitNovMsg.includes('Total: ₹11,250') && // 3,750 * 3 = 11,250
-  multiChitNovMsg.includes('UPI: test@upi') &&
+  multiChitNovMsg.includes('UPI ID: test@upi') &&
   multiChitNovMsg.includes('Bank:'),
   'MONTHLY REMINDER TEST 3: Consolidated multi-chit reminder (3 chits) sums to ₹11,250 for Month 2 with bank/UPI',
   `Multi-Chit Message:\n${multiChitNovMsg}`
@@ -1940,15 +1941,15 @@ assert(
   `Multi-Chit Dec Message:\n${multiChitDecMsg}`
 );
 
-// TEST 5: Bank/UPI Settings Integration: Verify configured UPI and Bank in reminder
+// TEST 5: Bank/UPI Settings Integration: Verify configured UPI ID and Bank in reminder
 assert(
-  novReminderMsg.includes('UPI: test@upi') &&
-  novReminderMsg.includes('Bank:\nMSR CHITS\nExample Bank\nA/C: 1234567890\nIFSC: EXAMPLE0001'),
+  novReminderMsg.includes('UPI ID: test@upi') &&
+  novReminderMsg.includes('Bank:\nMSR CHITS\nExample Bank\nA/C: 1234567890\nIFSC: EXAMPLE0001\nBranch: Main Branch'),
   'MONTHLY REMINDER TEST 5: Message reads configured bank & UPI details from Settings',
   `Bank details verification:\n${novReminderMsg}`
 );
 
-// TEST 6: Change UPI in Settings -> Update propagates dynamically
+// TEST 6: Change UPI ID in Settings -> Update propagates dynamically
 const updatedBankSettings = {
   ...initialBankSettings,
   upiId: 'newupi@upi'
@@ -1964,7 +1965,7 @@ const updatedUpiReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  updatedUpiReminder.includes('UPI: newupi@upi') &&
+  updatedUpiReminder.includes('UPI ID: newupi@upi') &&
   !updatedUpiReminder.includes('test@upi'),
   'MONTHLY REMINDER TEST 6: Updating UPI ID in Settings reflects immediately in next reminder',
   `New UPI verified: ${updatedUpiReminder.includes('newupi@upi')}`
@@ -1984,7 +1985,7 @@ const upiOnlyReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  upiOnlyReminder.includes('UPI: onlyupi@okhdfc') &&
+  upiOnlyReminder.includes('UPI ID: onlyupi@okhdfc') &&
   !upiOnlyReminder.includes('Bank:') &&
   !upiOnlyReminder.includes('A/C:'),
   'MONTHLY REMINDER TEST 7: If only UPI configured, blank bank fields are hidden',
@@ -2002,7 +2003,8 @@ const emptySettingsReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  !emptySettingsReminder.includes('UPI:') &&
+  !emptySettingsReminder.includes('UPI ID:') &&
+  !emptySettingsReminder.includes('UPI No:') &&
   !emptySettingsReminder.includes('Bank:'),
   'MONTHLY REMINDER TEST 8: Fallback message cleanly omits UPI & Bank when not configured',
   `Empty settings message verified`
@@ -2065,20 +2067,22 @@ console.log('\n----------------------------------------------------');
 console.log('SECTION 30B: EXPLICIT SPECIFICATION TEST CASES (Section 28 & Master Prompt)');
 console.log('----------------------------------------------------');
 
-// Test 1: Member Appa, Single Chit MSR261L10, Month 1, ₹5,000, UPI and Bank details in English & Tamil
-const appaSettings = {
+// Test 1: Member Appa, Single Chit MSR261L10, Month 1, ₹5,000, UPI ID, UPI Number and Bank details in English & Tamil
+const appaSettingsWithUpiNo = {
   upiId: 'soundhararajanmuthuvel@oksbi',
-  accountHolderName: 'Muthuvel Soundhararajan',
-  bankName: 'State Bank of India',
-  accountNumber: '123456789012',
-  ifscCode: 'SBIN0001234'
+  upiNumber: '+91 9840123456',
+  accountHolderName: 'Soundhararajan M',
+  bankName: 'STATE BANK OF INDIA',
+  accountNumber: '45411804514',
+  ifscCode: 'SBIN0000864',
+  branch: 'KUMBAKONAM'
 };
 
 const appaEnglishMsg = generatePaymentReminderMessage({ name: 'Appa' }, {
   chitNo: 'MSR261L10',
   month: 1,
   amount: 5000,
-  settings: appaSettings,
+  settings: appaSettingsWithUpiNo,
   language: 'english'
 });
 
@@ -2086,7 +2090,7 @@ const appaTamilMsg = generatePaymentReminderMessage({ name: 'Appa' }, {
   chitNo: 'MSR261L10',
   month: 1,
   amount: 5000,
-  settings: appaSettings,
+  settings: appaSettingsWithUpiNo,
   language: 'tamil'
 });
 
@@ -2095,10 +2099,11 @@ assert(
   appaEnglishMsg.includes('Chit No: MSR261L10') &&
   appaEnglishMsg.includes('Month: 1') &&
   appaEnglishMsg.includes('Amount: ₹5,000') &&
-  appaEnglishMsg.includes('UPI: soundhararajanmuthuvel@oksbi') &&
-  appaEnglishMsg.includes('Bank:\nMuthuvel Soundhararajan\nState Bank of India\nA/C: 123456789012\nIFSC: SBIN0001234') &&
+  appaEnglishMsg.includes('UPI ID: soundhararajanmuthuvel@oksbi') &&
+  appaEnglishMsg.includes('UPI No: +91 9840123456') &&
+  appaEnglishMsg.includes('Bank:\nSoundhararajan M\nSTATE BANK OF INDIA\nA/C: 45411804514\nIFSC: SBIN0000864\nBranch: KUMBAKONAM') &&
   appaEnglishMsg.includes('Please make the payment and share the screenshot.'),
-  'MASTER PROMPT TEST 1A: Appa Single Chit English Payment Reminder with UPI and Bank',
+  'MASTER PROMPT TEST 1A: Appa Single Chit English Payment Reminder with UPI ID, UPI No, and Bank Details',
   `English:\n${appaEnglishMsg}`
 );
 
@@ -2107,10 +2112,11 @@ assert(
   appaTamilMsg.includes('சீட்டு எண்: MSR261L10') &&
   appaTamilMsg.includes('மாதம்: 1') &&
   appaTamilMsg.includes('தொகை: ₹5,000') &&
-  appaTamilMsg.includes('UPI: soundhararajanmuthuvel@oksbi') &&
-  appaTamilMsg.includes('வங்கி:\nMuthuvel Soundhararajan\nState Bank of India\nA/C: 123456789012\nIFSC: SBIN0001234') &&
+  appaTamilMsg.includes('UPI ID: soundhararajanmuthuvel@oksbi') &&
+  appaTamilMsg.includes('UPI எண்: +91 9840123456') &&
+  appaTamilMsg.includes('வங்கி:\nSoundhararajan M\nSTATE BANK OF INDIA\nA/C: 45411804514\nIFSC: SBIN0000864\nகிளை: KUMBAKONAM') &&
   appaTamilMsg.includes('தயவுசெய்து பணம் செலுத்தி screenshot-ஐ பகிரவும்.'),
-  'MASTER PROMPT TEST 1B: Appa Single Chit Tamil Payment Reminder with UPI and Bank',
+  'MASTER PROMPT TEST 1B: Appa Single Chit Tamil Payment Reminder with UPI ID, UPI No, and Bank Details',
   `Tamil:\n${appaTamilMsg}`
 );
 

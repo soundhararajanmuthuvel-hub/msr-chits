@@ -50,9 +50,10 @@ export const Settings = () => {
     adminName: 'MSR Administrator',
     adminUsername: 'admin',
     // Bank & UPI Payment Settings
-    upiId: 'msrchits@okhdfcbank',
-    accountHolderName: 'MSR CHITS',
-    bankName: 'HDFC Bank',
+    upiId: '',
+    upiNumber: '',
+    accountHolderName: '',
+    bankName: '',
     accountNumber: '',
     ifscCode: '',
     branch: '',
@@ -417,21 +418,36 @@ export const Settings = () => {
         </div>
 
         <form onSubmit={handleSaveCompanySettings} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold text-[#003524] mb-1">
-                UPI ID *
+                UPI ID
               </label>
               <input
                 type="text"
-                placeholder="e.g. msrchits@okhdfcbank"
+                placeholder="e.g. soundhararajanmuthuvel@oksbi"
                 value={formData.upiId || ''}
                 onChange={(e) => setFormData({ ...formData, upiId: e.target.value })}
                 className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-bold text-[#003524] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
-                required
               />
               <span className="text-[10px] text-[#5B7065] mt-0.5 block">
-                Included directly in WhatsApp payment reminders
+                soundhararajanmuthuvel@oksbi
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                UPI Number
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. +91 9840123456"
+                value={formData.upiNumber || formData.upiNo || ''}
+                onChange={(e) => setFormData({ ...formData, upiNumber: e.target.value, upiNo: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-bold text-[#003524] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+              />
+              <span className="text-[10px] text-[#5B7065] mt-0.5 block">
+                e.g. +91 XXXXXXXXXX
               </span>
             </div>
 
@@ -441,7 +457,7 @@ export const Settings = () => {
               </label>
               <input
                 type="text"
-                placeholder="e.g. MSR CHITS"
+                placeholder="e.g. Soundhararajan M"
                 value={formData.accountHolderName || ''}
                 onChange={(e) => setFormData({ ...formData, accountHolderName: e.target.value })}
                 className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
@@ -569,7 +585,7 @@ export const Settings = () => {
         </div>
 
         <form onSubmit={handleSaveCompanySettings} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold text-[#003524] mb-1">
                 Default Language *
@@ -583,23 +599,39 @@ export const Settings = () => {
                 <option value="Tamil">தமிழ் (Tamil)</option>
               </select>
               <span className="text-[10px] text-[#5B7065] mt-0.5 block">
-                Default language when opening WhatsApp message preview
+                Default language for WhatsApp preview
               </span>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-[#003524] mb-1">
-                UPI ID *
+                UPI ID
               </label>
               <input
                 type="text"
-                placeholder="e.g. msrchits@okhdfcbank"
+                placeholder="e.g. soundhararajanmuthuvel@oksbi"
                 value={formData.upiId || ''}
                 onChange={(e) => setFormData({ ...formData, upiId: e.target.value })}
                 className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-bold text-[#003524] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
               />
               <span className="text-[10px] text-[#5B7065] mt-0.5 block">
-                Included in payment reminders (Payment UPI / பணம் செலுத்த UPI)
+                soundhararajanmuthuvel@oksbi
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#003524] mb-1">
+                UPI Number
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. +91 9840123456"
+                value={formData.upiNumber || formData.upiNo || ''}
+                onChange={(e) => setFormData({ ...formData, upiNumber: e.target.value, upiNo: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-bold text-[#003524] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] min-h-[44px]"
+              />
+              <span className="text-[10px] text-[#5B7065] mt-0.5 block">
+                e.g. +91 XXXXXXXXXX
               </span>
             </div>
           </div>
