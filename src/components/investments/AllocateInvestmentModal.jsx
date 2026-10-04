@@ -96,19 +96,27 @@ export const AllocateInvestmentModal = ({
 
     setSubmitting(true);
     try {
+      const schItem = schedule.find(s => Number(s.monthNumber || s.month) === Number(formData.monthNumber) && String(s.chitId) === String(formData.chitId));
+      const scheduledAmt = Number(schItem?.scheduledPayoutAmount || schItem?.payoutAmount) || 75000;
+
       await onAllocate({
         investmentId: investment.investmentId,
         chitId: formData.chitId,
         monthNumber: Number(formData.monthNumber) || 1,
+        month: Number(formData.monthNumber) || 1,
         memberId: formData.memberId || 'MEM-000',
         memberName: formData.memberName,
         chitNo: formData.chitNo || `CHIT-${formData.chitId}-M${formData.monthNumber}`,
         payoutAmount: allocNum,
+        amount: allocNum,
+        actualAmount: allocNum,
+        scheduledAmount: scheduledAmt,
         payoutDate: formData.payoutDate,
         paymentMethod: formData.paymentMethod,
         fundingSource: 'EXTRA_INVESTMENT',
         extraInvestmentId: investment.investmentId,
-        notes: formData.notes
+        status: 'Completed',
+        notes: formData.notes || `Paid using extra investment ${investment.investmentId}`
       });
       onClose();
     } catch (err) {

@@ -41,29 +41,6 @@ export const ChitSchedule = ({
       }));
     }
 
-    // Month 2 Multiple Payouts: Amma (₹70k CHIT_FUND) and MU (₹50k EXTRA_INVESTMENT)
-    if (item.month === 2 && (item.assignedMemberName === 'Amma + MU' || item.assignedMemberName === 'Amma' || !item.assignedMemberName)) {
-      return [
-        {
-          payoutId: 'PO-M2-01',
-          memberId: 'MEM-001',
-          memberName: 'Amma',
-          chitNo: item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: 2 }),
-          payoutAmount: sanitizePayoutAmount(item.payoutAmount, 2),
-          fundingSource: 'CHIT_FUND',
-          notes: 'Chit Fund Allocation'
-        },
-        {
-          payoutId: 'PO-M2-02',
-          memberId: 'MEM-003',
-          memberName: 'MU',
-          chitNo: 'MSR261L02-B',
-          payoutAmount: 50000,
-          fundingSource: 'EXTRA_INVESTMENT',
-          notes: 'Extra Investment Allocation'
-        }
-      ];
-    }
 
     const amt = sanitizePayoutAmount(item.payoutAmount, item.month);
     return [
@@ -115,8 +92,9 @@ export const ChitSchedule = ({
           </thead>
           <tbody className="divide-y divide-[#EAF2EC] text-xs sm:text-sm">
             {schedule.map((item) => {
-              const isCurrent = item.month === currentMonth;
-              const isCompleted = item.month < currentMonth;
+              const hasRecordedPayout = (Array.isArray(item.payouts) && item.payouts.length > 0 && item.payouts.some(p => p.status === 'Completed' || p.status === 'Paid' || Number(p.amount || p.payoutAmount) > 0));
+              const isCompleted = item.month < currentMonth || item.payoutStatus === 'Completed' || item.status === 'Completed' || hasRecordedPayout;
+              const isCurrent = item.month === currentMonth && !isCompleted;
               const permanentChitNo = item.chitNo || generateChitNumber({ year: 2026, chitValue: 100000, sequenceNumber: item.month });
               const payoutList = getPayoutListForMonth(item);
               const commVal = Number(item.commissionAmount || item.commission) || 5000;
@@ -139,10 +117,10 @@ export const ChitSchedule = ({
                     <div className="flex items-center gap-2.5">
                       <span
                         className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
-                          isCurrent
-                            ? 'bg-[#003524] text-white ring-2 ring-[#C9A227]'
-                            : isCompleted
+                          isCompleted
                             ? 'bg-emerald-100 text-emerald-800'
+                            : isCurrent
+                            ? 'bg-[#003524] text-white ring-2 ring-[#C9A227]'
                             : 'bg-slate-100 text-slate-600'
                         }`}
                       >
@@ -332,10 +310,10 @@ export const ChitSchedule = ({
                   <td className="py-3.5 px-4">
                     <StatusBadge
                       status={
-                        isCurrent
-                          ? 'Active'
-                          : isCompleted
+                        isCompleted
                           ? 'Completed'
+                          : isCurrent
+                          ? 'Active'
                           : 'Upcoming'
                       }
                     />

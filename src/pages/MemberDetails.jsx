@@ -415,6 +415,16 @@ export const MemberDetails = () => {
               </div>
             </div>
 
+            <div className="flex items-center gap-2.5 text-[#131E19]">
+              <MessageSquare className="w-4 h-4 text-[#174D38] shrink-0" />
+              <div>
+                <span className="text-[#5B7065] block text-[10px]">WhatsApp Language</span>
+                <span className="font-semibold text-xs text-[#003524]">
+                  {member.preferredLanguage === 'Tamil' || member.preferredLanguage === 'ta' ? 'தமிழ் (Tamil)' : 'English'}
+                </span>
+              </div>
+            </div>
+
             {member.notes && (
               <div className="p-2.5 bg-[#F0FCF4] rounded-lg border border-[#DCE8E0] text-[11px] text-[#003524]">
                 <span className="font-bold block">Notes:</span>

@@ -270,9 +270,8 @@ export const Payouts = () => {
           isOpen={whatsAppModalOpen}
           onClose={() => setWhatsAppModalOpen(false)}
           member={selectedWhatsAppMember}
-          initialCategory="payout_completed"
-          relatedPayout={selectedPayoutForWA}
-          prefilledChitNo={selectedPayoutForWA?.chitNo || ('MSR261L' + String(selectedPayoutForWA?.month || 2).padStart(2, '0'))}
+          initialMessageType="payout_confirmation"
+          payoutRecord={selectedPayoutForWA}
         />
       )}
     </div>

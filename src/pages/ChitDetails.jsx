@@ -13,7 +13,9 @@ import {
   Edit3,
   UserPlus,
   PlayCircle,
-  Trash2
+  Trash2,
+  DollarSign,
+  IndianRupee
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
@@ -449,61 +451,71 @@ export const ChitDetails = () => {
               monthPayoutRecords = matchingPayouts;
             } else if (schItem?.payouts && Array.isArray(schItem.payouts) && schItem.payouts.length > 0) {
               monthPayoutRecords = schItem.payouts;
-            } else if (m === 2 && (schItem?.assignedMemberName === 'Amma + MU' || !schItem?.assignedMemberName)) {
-              monthPayoutRecords = [
-                {
-                  payoutId: 'PO-M2-01',
-                  memberName: 'Amma',
-                  chitNo: 'MSR261L02',
-                  amount: (schItem?.payoutAmount && Number(schItem.payoutAmount) >= 10000) ? Number(schItem.payoutAmount) : 70000,
-                  fundingSource: 'CHIT_FUND'
-                },
-                {
-                  payoutId: 'PO-M2-02',
-                  memberName: 'MU',
-                  chitNo: 'MSR261L02-B',
-                  amount: 50000,
-                  fundingSource: 'EXTRA_INVESTMENT'
-                }
-              ];
             }
 
             const hasMultiplePayouts = monthPayoutRecords.length > 1;
 
-            // Compute standard normal chit payout amount
-            let normalPayoutAmt = defaultPayoutAmt;
-            if (schItem?.payoutAmount && Number(schItem.payoutAmount) >= 10000) {
-              normalPayoutAmt = Number(schItem.payoutAmount);
-            } else if (monthPayoutRecords.length > 0) {
-              const normalRec = monthPayoutRecords.find(p => !String(p.fundingSource || '').toUpperCase().includes('EXTRA'));
-              if (normalRec && Number(normalRec.amount || normalRec.payoutAmount) > 0) {
-                normalPayoutAmt = Number(normalRec.amount || normalRec.payoutAmount);
-              }
+            // Scheduled Payout amount configured for this month
+            let scheduledPayoutAmt = defaultPayoutAmt;
+            if (schItem?.scheduledPayoutAmount && Number(schItem.scheduledPayoutAmount) >= 10000) {
+              scheduledPayoutAmt = Number(schItem.scheduledPayoutAmount);
+            } else if (schItem?.payoutAmount && Number(schItem.payoutAmount) >= 10000) {
+              scheduledPayoutAmt = Number(schItem.payoutAmount);
             }
 
-            const extraPayoutAmt = monthPayoutRecords
-              .filter(p => String(p.fundingSource || '').toUpperCase().includes('EXTRA'))
-              .reduce((sum, p) => sum + (Number(p.amount || p.payoutAmount) || 0), 0);
+            // Actual amount paid out
+            let totalActualPaid = monthPayoutRecords.reduce(
+              (sum, p) => sum + (Number(p.actualAmount || p.amount || p.payoutAmount) || 0),
+              0
+            );
+            if (totalActualPaid === 0 && schItem?.actualPayoutAmount > 0) {
+              totalActualPaid = Number(schItem.actualPayoutAmount);
+            }
+            if (totalActualPaid === 0 && m === 1 && (chit?.status === 'Active' || chit?.status === 'Completed')) {
+              totalActualPaid = scheduledPayoutAmt;
+            }
 
             // Determine assignment information
             const isAssigned = assignedList.length > 0 || (schItem?.assignedMemberName && schItem.assignedMemberName !== 'Not Assigned') || monthPayoutRecords.length > 0;
             
-            const primaryMemberName = assignedList.length > 0
-              ? assignedList.map(a => a.memberName).join(', ')
-              : (schItem?.assignedMemberName && schItem.assignedMemberName !== 'Not Assigned')
-              ? schItem.assignedMemberName
-              : (m === 1 ? 'Soundhararajan M' : (monthPayoutRecords[0]?.memberName || 'Not Assigned'));
+            const primaryMemberName = monthPayoutRecords.length > 0
+              ? monthPayoutRecords.map(p => p.memberName).filter(Boolean).join(', ')
+              : (assignedList.length > 0
+                ? assignedList.map(a => a.memberName).join(', ')
+                : (schItem?.assignedMemberName && schItem.assignedMemberName !== 'Not Assigned')
+                ? schItem.assignedMemberName
+                : (m === 1 ? 'Soundhararajan M' : 'Not Assigned'));
 
-            const primaryChitNo = assignedList.length > 0
-              ? assignedList.map(a => a.chitNo).join(', ')
-              : (schItem?.chitNo || generateChitNumber({ year: 2026, chitValue: totalChitVal, sequenceNumber: m }));
+            const primaryChitNo = monthPayoutRecords.length > 0
+              ? monthPayoutRecords.map(p => p.chitNo).filter(Boolean).join(', ') || (schItem?.chitNo || generateChitNumber({ year: 2026, chitValue: totalChitVal, sequenceNumber: m }))
+              : (assignedList.length > 0
+                ? assignedList.map(a => a.chitNo).join(', ')
+                : (schItem?.chitNo || generateChitNumber({ year: 2026, chitValue: totalChitVal, sequenceNumber: m })));
 
             // Determine month lifecycle / payout status
-            const isCompleted = schItem?.payoutStatus === 'Completed' ||
-              monthPayoutRecords.some(p => p.status === 'Completed' || p.status === 'Paid') ||
+            const hasCompletedPayout = totalActualPaid > 0 ||
+              monthPayoutRecords.some(p => String(p.status).toLowerCase() === 'completed' || String(p.status).toLowerCase() === 'paid') ||
+              schItem?.payoutStatus === 'Completed' ||
               (m === 1 && (chit?.status === 'Active' || chit?.status === 'Completed'));
 
+            const isCompleted = hasCompletedPayout;
             const statusText = isCompleted ? 'Completed' : (isAssigned ? 'Assigned' : 'Available');
+
+            // Determine funding source label
+            let fundingSourceLabel = 'CHIT FUND';
+            if (monthPayoutRecords.length > 0) {
+              const hasExtra = monthPayoutRecords.some(p => String(p.fundingSource || '').toUpperCase().includes('EXTRA'));
+              const hasChit = monthPayoutRecords.some(p => !String(p.fundingSource || '').toUpperCase().includes('EXTRA'));
+              if (hasExtra && hasChit) {
+                fundingSourceLabel = 'CHIT FUND + EXTRA INVESTMENT';
+              } else if (hasExtra) {
+                fundingSourceLabel = 'EXTRA INVESTMENT';
+              } else {
+                fundingSourceLabel = 'CHIT FUND';
+              }
+            } else if (m === 1) {
+              fundingSourceLabel = 'ORGANIZER NIL';
+            }
 
             return (
               <div
@@ -522,91 +534,152 @@ export const ChitDetails = () => {
                     <span className="text-xs font-extrabold font-mono text-[#003524]">
                       Month {m} {m === 1 ? '(Organizer NIL)' : ''}
                     </span>
-                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase tracking-wide border ${
                       isCompleted
-                        ? 'bg-emerald-100 text-emerald-800'
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
                         : isAssigned
                         ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                        : 'bg-slate-100 text-[#5B7065]'
+                        : 'bg-slate-100 text-[#5B7065] border-slate-200'
                     }`}>
                       {statusText}
                     </span>
                   </div>
 
-                  {/* Payout Amount Display (Section 1, 2, 4, 6) */}
-                  <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0] mb-2.5">
+                  {/* Payout Amount Display (Scheduled vs Actual Paid) */}
+                  <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0] mb-2.5 space-y-1.5">
                     <div className="flex items-baseline justify-between">
                       <span className="text-[10px] uppercase font-bold tracking-wider text-[#5B7065]">
-                        Payout Amount:
+                        Scheduled Payout:
                       </span>
-                      <span className="text-sm font-black text-[#003524]">
-                        {formatINR(normalPayoutAmt)}
+                      <span className="text-xs font-bold text-[#131E19]">
+                        {formatINR(scheduledPayoutAmt)}
                       </span>
                     </div>
 
-                    {/* Extra Investment Payout Breakdown (Section 7) */}
-                    {hasMultiplePayouts && extraPayoutAmt > 0 && (
-                      <div className="mt-1.5 pt-1.5 border-t border-[#EAF2EC] space-y-1">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-purple-700 font-semibold flex items-center gap-1">
-                            <span>Extra Investment:</span>
-                          </span>
-                          <span className="font-extrabold text-purple-900">
-                            +{formatINR(extraPayoutAmt)}
-                          </span>
-                        </div>
-                        <div className="space-y-1 pt-1">
-                          {monthPayoutRecords.map((po, pIdx) => (
+                    <div className="flex items-baseline justify-between pt-1 border-t border-[#EAF2EC]">
+                      <span className="text-[10px] uppercase font-extrabold tracking-wider text-emerald-800">
+                        Actual Paid:
+                      </span>
+                      <span className="text-sm font-black text-[#003524]">
+                        {isCompleted ? formatINR(totalActualPaid) : '—'}
+                      </span>
+                    </div>
+
+                    {/* Extra Investment / Multiple Payouts Breakdown */}
+                    {hasMultiplePayouts && (
+                      <div className="mt-1 pt-1.5 border-t border-[#EAF2EC] space-y-1">
+                        {monthPayoutRecords.map((po, pIdx) => {
+                          const isPoExtra = String(po.fundingSource || '').toUpperCase().includes('EXTRA');
+                          return (
                             <div key={pIdx} className="text-[10px] flex items-center justify-between bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200/60">
-                              <span className="font-medium text-slate-700 truncate max-w-[110px]">
+                              <span className="font-medium text-slate-700 truncate max-w-[100px]">
                                 • {po.memberName}
                               </span>
-                              <span className="font-bold text-[#003524]">
-                                {formatINR(po.amount || po.payoutAmount)}
-                              </span>
+                              <div className="flex items-center gap-1">
+                                <span className={`text-[8px] font-bold px-1 rounded ${isPoExtra ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                  {isPoExtra ? 'EXTRA' : 'CHIT'}
+                                </span>
+                                <span className="font-bold text-[#003524]">
+                                  {formatINR(po.amount || po.actualAmount || po.payoutAmount)}
+                                </span>
+                              </div>
                             </div>
-                          ))}
-                        </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
 
-                  {/* Assigned Member & Chit No Details */}
-                  {isAssigned && (
-                    <div className="space-y-1 mb-2.5 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-[#5B7065]">Member:</span>
-                        <span className="font-bold text-[#131E19] truncate max-w-[130px]" title={primaryMemberName}>
-                          {primaryMemberName}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-[#5B7065]">Chit No:</span>
-                        <span className="font-mono text-[11px] font-bold text-[#174D38] bg-[#F0FCF4] px-1.5 py-0.2 rounded border border-emerald-200">
-                          {primaryChitNo}
-                        </span>
-                      </div>
+                  {/* Member, Funding Source & Chit No Details */}
+                  <div className="space-y-1 mb-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-[#5B7065]">Member:</span>
+                      <span className="font-bold text-[#131E19] truncate max-w-[130px]" title={primaryMemberName}>
+                        {primaryMemberName}
+                      </span>
                     </div>
-                  )}
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-[#5B7065]">Funding:</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase border ${
+                        fundingSourceLabel.includes('EXTRA')
+                          ? 'bg-purple-50 text-purple-900 border-purple-200'
+                          : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                      }`}>
+                        {fundingSourceLabel}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-[#5B7065]">Chit No:</span>
+                      <span className="font-mono text-[11px] font-bold text-[#174D38] bg-[#F0FCF4] px-1.5 py-0.2 rounded border border-emerald-200">
+                        {primaryChitNo}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Card Action Buttons */}
                 <div className="pt-2 border-t border-[#EAF2EC] flex items-center gap-1.5">
-                  {isAssigned ? (
+                  {isCompleted ? (
                     <>
                       <button
                         type="button"
                         onClick={() => handleOpenEditPayout(schItem || {
                           month: m,
-                          payoutAmount: normalPayoutAmt,
+                          payoutAmount: scheduledPayoutAmt,
+                          actualAmount: totalActualPaid,
+                          memberName: primaryMemberName,
+                          chitNo: primaryChitNo,
+                          fundingSource: fundingSourceLabel
+                        })}
+                        className="flex-1 py-1 px-2 bg-white hover:bg-[#F0FCF4] text-[#174D38] border border-[#DCE8E0] text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1 shadow-xs"
+                        title={`View / Edit Month ${m} Payout`}
+                      >
+                        <Edit3 className="w-3 h-3 text-[#174D38]" />
+                        <span>View Payout</span>
+                      </button>
+
+                      {assignedList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleSendWhatsAppWelcome(assignedList[0])}
+                          className="p-1.5 text-emerald-700 bg-white hover:bg-emerald-100 rounded-lg border border-[#DCE8E0] transition-colors shrink-0"
+                          title="Send WhatsApp Welcome Click-to-Chat"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </>
+                  ) : isAssigned ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPayout(schItem || {
+                          month: m,
+                          payoutAmount: scheduledPayoutAmt,
                           memberName: primaryMemberName,
                           chitNo: primaryChitNo
                         })}
-                        className="flex-1 py-1 px-2 bg-white hover:bg-[#F0FCF4] text-[#174D38] border border-[#DCE8E0] text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
-                        title={`Edit Month ${m} Payout`}
+                        className="flex-1 py-1 px-2 bg-[#003524] hover:bg-[#174D38] text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1 shadow-xs"
+                        title={`Record Month ${m} Payout`}
                       >
-                        <Edit3 className="w-3 h-3 text-[#174D38]" />
-                        <span>Edit Payout</span>
+                        <DollarSign className="w-3 h-3" />
+                        <span>Record Payout</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditPayout(schItem || {
+                          month: m,
+                          payoutAmount: scheduledPayoutAmt,
+                          memberName: primaryMemberName,
+                          chitNo: primaryChitNo
+                        })}
+                        className="p-1.5 text-[#5B7065] hover:text-[#003524] bg-white hover:bg-slate-100 rounded-lg border border-[#DCE8E0] transition-colors shrink-0"
+                        title={`Edit Month ${m} Scheduled Payout`}
+                      >
+                        <Edit3 className="w-3 h-3" />
                       </button>
 
                       {assignedList.length > 0 && (
@@ -638,7 +711,7 @@ export const ChitDetails = () => {
                         type="button"
                         onClick={() => handleOpenEditPayout(schItem || {
                           month: m,
-                          payoutAmount: normalPayoutAmt,
+                          payoutAmount: scheduledPayoutAmt,
                           memberName: 'Not Assigned',
                           chitNo: primaryChitNo
                         })}

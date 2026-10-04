@@ -11,26 +11,23 @@ import {
   ExternalLink,
   CheckCircle2,
   Calendar,
-  Sparkles,
   Receipt,
-  CreditCard,
-  Info
+  Globe
 } from 'lucide-react';
 import {
   normalizeIndianPhone,
   isValidWhatsAppPhone,
   generateWhatsAppUrl,
+  normalizeLanguage,
   buildWelcomeMessage,
   buildPaymentReminderMessage,
   buildPaymentConfirmationMessage,
   buildPayoutDetailMessage,
-  buildPayoutReminderMessage,
   buildPayoutConfirmationMessage
 } from '../../utils/whatsapp';
 import {
   generateChitSchedule,
-  getCurrentChitMonth,
-  getChitInstallmentInfo
+  getCurrentChitMonth
 } from '../../utils/chitCalculations';
 import { formatINR } from '../../utils/currency';
 import { api } from '../../services/api';
@@ -47,19 +44,19 @@ export const WhatsAppComposerModal = ({
 }) => {
   const { activeChit, showToast } = useChit();
 
+  const [language, setLanguage] = useState('English'); // 'English' | 'Tamil'
   const [messageType, setMessageType] = useState(initialMessageType);
   const [selectedChitNo, setSelectedChitNo] = useState('');
   const [customMessage, setCustomMessage] = useState('');
   const [copied, setCopied] = useState(false);
   const [openedStatus, setOpenedStatus] = useState('Prepared'); // 'Prepared' | 'Opened' | 'Sent'
   const [loggedMessageId, setLoggedMessageId] = useState(null);
+  const [settings, setSettings] = useState(null);
 
   // Normalize member phone
   const rawPhone = member?.mobile || member?.phone || '';
   const normalizedPhone = useMemo(() => normalizeIndianPhone(rawPhone), [rawPhone]);
   const hasValidPhone = useMemo(() => isValidWhatsAppPhone(rawPhone), [rawPhone]);
-
-  const [settings, setSettings] = useState(null);
 
   useEffect(() => {
     api.getSettings().then(s => setSettings(s)).catch(() => {});
@@ -116,7 +113,7 @@ export const WhatsAppComposerModal = ({
     const currentMonthNum = getCurrentChitMonth(chitObj, new Date());
     const currentItem = sched.find(s => Number(s.month || s.monthNumber) === currentMonthNum) || sched[0] || {};
     
-    // Build quick month -> amount lookup table
+    // Quick month -> amount lookup table
     const monthScheduleMap = {};
     sched.forEach(s => {
       monthScheduleMap[s.month] = Number(s.monthlyAmount || s.amount) || 3750;
@@ -140,10 +137,19 @@ export const WhatsAppComposerModal = ({
     };
   }, [activeChit, memberChits]);
 
-  // Set default selected chit on open
+  // Set initial state on modal open
   useEffect(() => {
     if (isOpen) {
-      setMessageType(initialMessageType);
+      // Preference priority: Member preferred language -> Settings default -> 'English'
+      const memberPref = member?.preferredLanguage || member?.preferredWhatsAppLanguage || member?.language;
+      const defaultPref = memberPref || settings?.defaultLanguage || settings?.whatsappLanguage || 'English';
+      setLanguage(normalizeLanguage(defaultPref) === 'ta' ? 'Tamil' : 'English');
+
+      // Map any incoming message type to our standard 5 types
+      let normalizedType = initialMessageType;
+      if (normalizedType === 'payout_reminder') normalizedType = 'payout_detail';
+      setMessageType(normalizedType);
+
       setOpenedStatus('Prepared');
       setLoggedMessageId(null);
       setCopied(false);
@@ -158,7 +164,7 @@ export const WhatsAppComposerModal = ({
         setSelectedChitNo('');
       }
     }
-  }, [isOpen, member, initialMessageType, paymentRecord, payoutRecord, memberChits]);
+  }, [isOpen, member, initialMessageType, paymentRecord, payoutRecord, memberChits, settings]);
 
   // Generate dynamic message content whenever dependencies change
   useEffect(() => {
@@ -166,12 +172,16 @@ export const WhatsAppComposerModal = ({
 
     let msg = '';
     const memberName = member.name || 'Member';
+    const langCode = normalizeLanguage(language);
+    const upiId = settings?.upiId || settings?.configuredUPI || 'msrchits@okhdfcbank';
 
     switch (messageType) {
       case 'welcome':
         msg = buildWelcomeMessage({
           memberName,
-          chits: memberChits
+          chits: memberChits,
+          chitNo: selectedChitNo || (memberChits[0]?.chitNo || ''),
+          language: langCode
         });
         break;
 
@@ -179,11 +189,14 @@ export const WhatsAppComposerModal = ({
         msg = buildPaymentReminderMessage({
           memberName,
           chits: memberChits,
+          chitNo: selectedChitNo || (memberChits[0]?.chitNo || ''),
           currentMonth: scheduleData.currentMonthNum,
+          month: scheduleData.currentMonthNum,
           monthName: scheduleData.monthName,
           dueDate: scheduleData.dueDate,
           monthSchedule: scheduleData.monthScheduleMap,
-          settings: settings || {}
+          upiId: upiId,
+          language: langCode
         });
         break;
 
@@ -194,59 +207,53 @@ export const WhatsAppComposerModal = ({
         
         msg = buildPaymentConfirmationMessage({
           memberName,
-          chitNo: paymentRecord?.chitNo || chit.chitNo || selectedChitNo || 'N/A',
+          chitNo: paymentRecord?.chitNo || chit.chitNo || selectedChitNo || 'MSR261L01',
           month: payMonth,
-          duration: activeChit?.duration || 20,
           amount: paymentRecord?.amount || paymentRecord?.paidAmount || expectedAmt,
           paidAmount: paymentRecord?.paidAmount || paymentRecord?.amount || expectedAmt,
           paymentDate: paymentRecord?.paymentDate || new Date().toISOString().split('T')[0],
-          reference: paymentRecord?.reference || paymentRecord?.referenceNumber || ''
+          language: langCode
         });
         break;
       }
 
       case 'payout_detail': {
         const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
+        const pMonth = payoutRecord?.month || payoutRecord?.payoutMonth || chit.payoutMonth || 1;
+        const schItem = scheduleData.schedule.find(s => Number(s.month || s.monthNumber) === Number(pMonth));
+        const schedAmt = payoutRecord?.scheduledAmount || schItem?.payoutAmount || chit.chitValue || 75000;
+
         msg = buildPayoutDetailMessage({
           memberName,
-          chitNo: chit.chitNo || selectedChitNo || 'N/A',
-          chitValue: chit.chitValue || Number(activeChit?.chitValue || 100000),
-          payoutMonth: chit.payoutMonth || 1
-        });
-        break;
-      }
-
-      case 'payout_reminder': {
-        const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
-        msg = buildPayoutReminderMessage({
-          memberName,
-          chitNo: chit.chitNo || selectedChitNo || 'N/A',
-          chitValue: chit.chitValue || Number(activeChit?.chitValue || 100000),
-          payoutMonth: chit.payoutMonth || 1
+          chitNo: payoutRecord?.chitNo || chit.chitNo || selectedChitNo || 'MSR261L01',
+          month: pMonth,
+          scheduledAmount: schedAmt,
+          language: langCode
         });
         break;
       }
 
       case 'payout_confirmation': {
         const chit = memberChits.find(c => c.chitNo === selectedChitNo) || memberChits[0] || {};
+        const pMonth = payoutRecord?.month || payoutRecord?.monthNumber || chit.payoutMonth || 1;
+        
         msg = buildPayoutConfirmationMessage({
           memberName,
-          chitNo: payoutRecord?.chitNo || chit.chitNo || selectedChitNo || 'N/A',
-          payoutMonth: payoutRecord?.month || payoutRecord?.monthNumber || chit.payoutMonth || 1,
-          actualPayoutAmount: payoutRecord?.amount || payoutRecord?.payoutAmount || 0,
-          payoutDate: payoutRecord?.payoutDate || new Date().toISOString().split('T')[0],
+          chitNo: payoutRecord?.chitNo || chit.chitNo || selectedChitNo || 'MSR261L01',
+          month: pMonth,
+          actualAmount: payoutRecord?.amount || payoutRecord?.actualAmount || payoutRecord?.payoutAmount || 70000,
           fundingSource: payoutRecord?.fundingSource || 'CHIT_FUND',
-          status: payoutRecord?.status || 'Completed'
+          language: langCode
         });
         break;
       }
 
       default:
-        msg = buildWelcomeMessage({ memberName, chits: memberChits });
+        msg = buildWelcomeMessage({ memberName, chits: memberChits, language: langCode });
     }
 
     setCustomMessage(msg);
-  }, [messageType, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, activeChit, isOpen, settings, scheduleData]);
+  }, [messageType, language, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, isOpen, settings, scheduleData]);
 
   const handleCopy = () => {
     if (!customMessage) return;
@@ -258,7 +265,7 @@ export const WhatsAppComposerModal = ({
 
   const handleOpenWhatsApp = async () => {
     if (!hasValidPhone) {
-      showToast('Phone number required to open WhatsApp Click-to-Chat', 'error');
+      showToast('Valid Indian phone number required to open WhatsApp Click-to-Chat', 'error');
       return;
     }
 
@@ -269,12 +276,13 @@ export const WhatsAppComposerModal = ({
     }
 
     try {
-      // Log to WhatsAppLog (Status: 'Opened') - Never falsely claim "Sent"
+      // Log to WhatsAppLog (Status: 'Opened') - Never claim 'Sent' until confirmed
       const logEntry = await api.logWhatsAppMessage({
         memberId: member.memberId,
         memberName: member.name,
         phone: normalizedPhone,
         messageType: messageType,
+        language: language === 'Tamil' ? 'Tamil' : 'English',
         chitNo: selectedChitNo || (memberChits[0]?.chitNo || ''),
         message: customMessage,
         relatedPaymentId: paymentRecord?.paymentId || '',
@@ -288,7 +296,7 @@ export const WhatsAppComposerModal = ({
 
       setOpenedStatus('Opened');
 
-      // Open WhatsApp Click-to-Chat in new tab/window
+      // Open WhatsApp Click-to-Chat
       window.open(waUrl, '_blank', 'noopener,noreferrer');
       showToast('Opening WhatsApp Click-to-Chat...', 'success');
       if (onSuccess) onSuccess();
@@ -312,7 +320,7 @@ export const WhatsAppComposerModal = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="WhatsApp Member Message"
+      title="WhatsApp Message Preview"
       subtitle={`${member.name} • ${member.memberId}`}
       maxWidth="max-w-xl"
     >
@@ -348,12 +356,30 @@ export const WhatsAppComposerModal = ({
             </div>
           </div>
 
-          {/* Chit Count Badge */}
-          <div className="flex items-center gap-1.5 self-start sm:self-auto bg-white px-3 py-1.5 rounded-lg border border-[#DCE8E0]">
-            <Layers className="w-4 h-4 text-[#174D38]" />
-            <span className="font-bold text-[#003524]">
-              {memberChits.length} {memberChits.length === 1 ? 'Chit' : 'Chits'}
-            </span>
+          {/* Language Toggle Selector */}
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-[#DCE8E0] self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setLanguage('English')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                language === 'English'
+                  ? 'bg-[#003524] text-white shadow-xs'
+                  : 'text-[#4B6358] hover:bg-[#F0FCF4]'
+              }`}
+            >
+              <span>English</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLanguage('Tamil')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                language === 'Tamil'
+                  ? 'bg-[#003524] text-white shadow-xs'
+                  : 'text-[#4B6358] hover:bg-[#F0FCF4]'
+              }`}
+            >
+              <span>தமிழ்</span>
+            </button>
           </div>
         </div>
 
@@ -364,31 +390,30 @@ export const WhatsAppComposerModal = ({
             <div>
               <span className="font-bold block">Phone number required</span>
               <span>
-                This member does not have a valid 10-digit Indian phone number recorded. Please update their profile before sending WhatsApp messages.
+                This member does not have a valid 10-digit Indian phone number. Please update their profile before sending WhatsApp messages.
               </span>
             </div>
           </div>
         )}
 
-        {/* Message Type Selector */}
+        {/* 5 Main Message Types */}
         <div>
           <label className="block text-xs font-bold text-[#003524] mb-1.5">
-            Select Message Category *
+            Message Type
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {[
-              { id: 'welcome', label: '👋 Welcome Message' },
-              { id: 'reminder', label: '🔔 Payment Reminder' },
-              { id: 'payment_confirmation', label: '💰 Payment Received' },
-              { id: 'payout_detail', label: '🎯 Payout Details' },
-              { id: 'payout_reminder', label: '⏰ Payout Reminder' },
-              { id: 'payout_confirmation', label: '🎉 Payout Complete' }
+              { id: 'welcome', label: language === 'Tamil' ? '👋 வரவேற்பு' : '👋 Welcome' },
+              { id: 'reminder', label: language === 'Tamil' ? '🔔 மாத தவணை' : '🔔 Payment Reminder' },
+              { id: 'payment_confirmation', label: language === 'Tamil' ? '💰 பணம் பெறப்பட்டது' : '💰 Payment Received' },
+              { id: 'payout_detail', label: language === 'Tamil' ? '🎯 பணம் பெறும் விவரம்' : '🎯 Payout Info' },
+              { id: 'payout_confirmation', label: language === 'Tamil' ? '🎉 பணம் வழங்கப்பட்டது' : '🎉 Payout Complete' }
             ].map(type => (
               <button
                 key={type.id}
                 type="button"
                 onClick={() => setMessageType(type.id)}
-                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-left truncate min-h-[44px] ${
+                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-left truncate min-h-[40px] ${
                   messageType === type.id
                     ? 'bg-[#003524] text-white shadow-xs'
                     : 'bg-white text-[#4B6358] border border-[#DCE8E0] hover:bg-[#F0FCF4]'
@@ -400,56 +425,11 @@ export const WhatsAppComposerModal = ({
           </div>
         </div>
 
-        {/* Payment Reminder Preview Card (Requirement 15) */}
-        {messageType === 'reminder' && (
-          <div className="p-4 rounded-xl bg-[#F0FCF4] border border-[#DCE8E0] space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-[#DCE8E0]/70">
-              <span className="text-xs font-bold text-[#003524] uppercase tracking-wider flex items-center gap-1.5">
-                <Receipt className="w-4 h-4 text-[#174D38]" />
-                Payment Reminder Preview
-              </span>
-              <span className="text-[10px] font-bold bg-white text-[#174D38] px-2 py-0.5 rounded border border-[#DCE8E0]">
-                {scheduleData.monthName}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0]">
-                <span className="text-[#5B7065] text-[10px] block font-semibold">Member</span>
-                <span className="font-bold text-[#003524] truncate block">
-                  {member.name}
-                </span>
-              </div>
-
-              <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0]">
-                <span className="text-[#5B7065] text-[10px] block font-semibold">Month</span>
-                <span className="font-bold text-[#003524] block">
-                  {scheduleData.monthName}
-                </span>
-              </div>
-
-              <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0]">
-                <span className="text-[#5B7065] text-[10px] block font-semibold">Active Chits</span>
-                <span className="font-bold text-[#003524] block">
-                  {memberChits.length}
-                </span>
-              </div>
-
-              <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-300">
-                <span className="text-emerald-800 text-[10px] block font-semibold">Total Due</span>
-                <span className="font-extrabold text-emerald-950 text-sm block">
-                  {formatINR(scheduleData.totalDue)}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Assigned Chit Selector (When relevant and not reminder) */}
-        {messageType !== 'reminder' && memberChits.length > 0 && (
+        {/* Multi-Chit Selector (When member has multiple active chits and single-chit message is selected) */}
+        {messageType !== 'reminder' && memberChits.length > 1 && (
           <div>
             <label className="block text-xs font-bold text-[#003524] mb-1">
-              Active Member Chits
+              Select Specific Chit
             </label>
             <div className="flex flex-wrap gap-2">
               {memberChits.map(chit => {
@@ -459,7 +439,7 @@ export const WhatsAppComposerModal = ({
                     key={chit.chitNo}
                     type="button"
                     onClick={() => setSelectedChitNo(chit.chitNo)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-1.5 min-h-[36px] ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-1.5 min-h-[34px] ${
                       isSelected
                         ? 'bg-[#174D38] text-white ring-2 ring-[#C9A227]'
                         : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-[#DCE8E0]'
@@ -476,11 +456,14 @@ export const WhatsAppComposerModal = ({
           </div>
         )}
 
-        {/* Editable Message Body */}
+        {/* Editable Message Preview Box */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-[#003524]">
-              Message Text (Editable before opening)
+            <label className="block text-xs font-bold text-[#003524] flex items-center gap-1.5">
+              <span>Message Preview (Editable)</span>
+              <span className="text-[10px] font-normal text-[#5B7065]">
+                • {language === 'Tamil' ? 'தமிழ்' : 'English'}
+              </span>
             </label>
             <button
               type="button"
@@ -492,14 +475,14 @@ export const WhatsAppComposerModal = ({
             </button>
           </div>
           <textarea
-            rows={10}
+            rows={8}
             value={customMessage}
             onChange={(e) => setCustomMessage(e.target.value)}
-            className="w-full p-3 font-mono text-xs bg-slate-50 border border-[#DCE8E0] rounded-xl text-[#131E19] focus:bg-white focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] transition-colors leading-relaxed"
-            placeholder="Type or customize your WhatsApp message..."
+            className="w-full p-3 font-sans text-xs bg-slate-50 border border-[#DCE8E0] rounded-xl text-[#131E19] focus:bg-white focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524] transition-colors leading-relaxed"
+            placeholder="Prepare WhatsApp message..."
           />
           <p className="text-[10px] text-[#5B7065] mt-1">
-            This message will be URL-encoded and pre-filled into WhatsApp Click-to-Chat.
+            Tamil Unicode and English text are safely encoded for WhatsApp Click-to-Chat.
           </p>
         </div>
 

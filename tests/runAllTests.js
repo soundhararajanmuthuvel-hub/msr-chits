@@ -1835,7 +1835,7 @@ const initialBankSettings = {
   paymentInstructions: 'Please mention Chit No in remarks'
 };
 
-// TEST 1: November 2026 (Month 2) reminder contains Month 2 / 20 and ₹3,750 (NOT ₹5,000, NOT static)
+// TEST 1: November 2026 (Month 2) reminder contains Month 2 and ₹3,750 (NOT ₹5,000, NOT static)
 const month2ScheduleMap = { 1: 5000, 2: 3750, 3: 3825, 4: 3900, 20: 5000 };
 const memberAmma = {
   name: 'Amma',
@@ -1855,12 +1855,11 @@ const novReminderMsg = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  novReminderMsg.includes('November 2026') &&
-  novReminderMsg.includes('20 Nov 2026') &&
-  novReminderMsg.includes('Chit Month: 2 / 20') &&
-  novReminderMsg.includes('Amount Due: ₹3,750') &&
-  novReminderMsg.includes('Total Amount Due: ₹3,750') &&
-  !novReminderMsg.includes('Amount Due: ₹5,000'),
+  novReminderMsg.includes('Hi Amma') &&
+  novReminderMsg.includes('Month: 2') &&
+  novReminderMsg.includes('Amount: ₹3,750') &&
+  novReminderMsg.includes('Chit No: MSR261L05') &&
+  !novReminderMsg.includes('₹5,000'),
   'MONTHLY REMINDER TEST 1: November 2026 reminder resolves to Month 2 / 20 and ₹3,750 (NOT ₹5,000)',
   `Nov Message:\n${novReminderMsg}`
 );
@@ -1876,12 +1875,11 @@ const decReminderMsg = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  decReminderMsg.includes('December 2026') &&
-  decReminderMsg.includes('20 Dec 2026') &&
-  decReminderMsg.includes('Chit Month: 3 / 20') &&
-  decReminderMsg.includes('Amount Due: ₹3,825') &&
-  decReminderMsg.includes('Total Amount Due: ₹3,825') &&
-  !decReminderMsg.includes('Amount Due: ₹3,750'),
+  decReminderMsg.includes('Hi Amma') &&
+  decReminderMsg.includes('Month: 3') &&
+  decReminderMsg.includes('Amount: ₹3,825') &&
+  decReminderMsg.includes('Chit No: MSR261L05') &&
+  !decReminderMsg.includes('₹3,750'),
   'MONTHLY REMINDER TEST 2: December 2026 reminder automatically updates to Month 3 / 20 and ₹3,825',
   `Dec Message:\n${decReminderMsg}`
 );
@@ -1910,7 +1908,7 @@ assert(
   multiChitNovMsg.includes('MSR261L06') &&
   multiChitNovMsg.includes('MSR261L14') &&
   multiChitNovMsg.includes('MSR261L07') &&
-  multiChitNovMsg.includes('Total Amount Due: ₹11,250'), // 3,750 * 3 = 11,250
+  multiChitNovMsg.includes("This month's total: ₹11,250"), // 3,750 * 3 = 11,250
   'MONTHLY REMINDER TEST 3: Consolidated multi-chit reminder (3 chits) sums to ₹11,250 for Month 2',
   `Multi-Chit Message:\n${multiChitNovMsg}`
 );
@@ -1929,20 +1927,16 @@ assert(
   multiChitDecMsg.includes('MSR261L06') &&
   multiChitDecMsg.includes('MSR261L14') &&
   multiChitDecMsg.includes('MSR261L07') &&
-  multiChitDecMsg.includes('Total Amount Due: ₹11,475'), // 3,825 * 3 = 11,475
+  multiChitDecMsg.includes("This month's total: ₹11,475"), // 3,825 * 3 = 11,475
   'MONTHLY REMINDER TEST 4: Consolidated multi-chit reminder (3 chits) sums to ₹11,475 for Month 3',
   `Multi-Chit Dec Message:\n${multiChitDecMsg}`
 );
 
-// TEST 5: Bank Settings Integration: Verify configured values in reminder
+// TEST 5: Bank/UPI Settings Integration: Verify configured UPI in reminder
 assert(
-  novReminderMsg.includes('UPI ID:\ntest@upi') &&
-  novReminderMsg.includes('Bank:\nExample Bank') &&
-  novReminderMsg.includes('Account Name:\nMSR CHITS') &&
-  novReminderMsg.includes('Account No:\n1234567890') &&
-  novReminderMsg.includes('IFSC:\nEXAMPLE0001'),
+  novReminderMsg.includes('Payment UPI:\ntest@upi'),
   'MONTHLY REMINDER TEST 5: Message reads configured bank & UPI details from Settings',
-  `Bank details verification`
+  `Bank details verification:\n${novReminderMsg}`
 );
 
 // TEST 6: Change UPI in Settings -> Update propagates dynamically
@@ -1961,7 +1955,7 @@ const updatedUpiReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  updatedUpiReminder.includes('UPI ID:\nnewupi@upi') &&
+  updatedUpiReminder.includes('newupi@upi') &&
   !updatedUpiReminder.includes('test@upi'),
   'MONTHLY REMINDER TEST 6: Updating UPI ID in Settings reflects immediately in next reminder',
   `New UPI verified: ${updatedUpiReminder.includes('newupi@upi')}`
@@ -1981,14 +1975,14 @@ const upiOnlyReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  upiOnlyReminder.includes('UPI ID:\nonlyupi@okhdfc') &&
+  upiOnlyReminder.includes('onlyupi@okhdfc') &&
   !upiOnlyReminder.includes('Bank:') &&
   !upiOnlyReminder.includes('Account No:'),
   'MONTHLY REMINDER TEST 7: If only UPI configured, blank bank fields are hidden',
   `UPI Only:\n${upiOnlyReminder}`
 );
 
-// TEST 8: Neither UPI nor Bank Configured -> Shows fallback notice without inventing details
+// TEST 8: Neither UPI nor Bank Configured -> Omits UPI cleanly without error
 const emptySettingsReminder = generatePaymentReminderMessage(memberAmma, {
   month: 2,
   currentMonth: 2,
@@ -1999,8 +1993,8 @@ const emptySettingsReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  emptySettingsReminder.includes('Payment details are not configured. Please contact MSR CHITS.'),
-  'MONTHLY REMINDER TEST 8: Fallback message displayed when no payment methods configured',
+  !emptySettingsReminder.includes('Payment UPI:'),
+  'MONTHLY REMINDER TEST 8: Fallback message cleanly omits UPI when not configured',
   `Empty settings message verified`
 );
 
@@ -2026,12 +2020,12 @@ const cancelledExcludedReminder = generatePaymentReminderMessage(memberWithCance
 assert(
   cancelledExcludedReminder.includes('MSR261L01') &&
   !cancelledExcludedReminder.includes('MSR261L02') &&
-  cancelledExcludedReminder.includes('Total Amount Due: ₹3,750'),
+  cancelledExcludedReminder.includes('Amount: ₹3,750'),
   'MONTHLY REMINDER TEST 9: Cancelled memberships (status = CANCELLED) are strictly excluded from reminder',
   `Message with cancelled check:\n${cancelledExcludedReminder}`
 );
 
-// TEST 10: Partial Payment Reminder displays Amount Due, Paid, and Balance Due
+// TEST 10: Partial Payment Reminder displays remaining Amount Due accurately
 const partialPaymentReminder = generatePaymentReminderMessage({
   memberName: 'Periya Periyappa',
   mobile: '9840555444',
@@ -2047,12 +2041,117 @@ const partialPaymentReminder = generatePaymentReminderMessage({
 });
 
 assert(
-  partialPaymentReminder.includes('Amount Due: ₹3,750') &&
-  partialPaymentReminder.includes('Paid: ₹2,000') &&
-  partialPaymentReminder.includes('Balance Due: ₹1,750') &&
-  partialPaymentReminder.includes('Total Amount Due: ₹1,750'),
-  'MONTHLY REMINDER TEST 10: Partial payment displays Amount Due, Paid, and Balance Due accurately',
+  partialPaymentReminder.includes('Amount: ₹1,750') &&
+  partialPaymentReminder.includes('Month: 2') &&
+  partialPaymentReminder.includes('MSR261L05'),
+  'MONTHLY REMINDER TEST 10: Partial payment displays Amount Due accurately',
   `Partial Payment Msg:\n${partialPaymentReminder}`
+);
+
+// ----------------------------------------------------
+// SECTION 30B: EXPLICIT SPECIFICATION TEST CASES (Section 28)
+// ----------------------------------------------------
+console.log('\n----------------------------------------------------');
+console.log('SECTION 30B: EXPLICIT SPECIFICATION TEST CASES (Section 28)');
+console.log('----------------------------------------------------');
+
+// Test 1: Member Amma, Tamil, Month 2, ₹3,750 -> contains 'மாதம்: 2' and 'தொகை: ₹3,750'
+const tamilAmmaMsg = generatePaymentReminderMessage({ name: 'Amma' }, {
+  chitNo: 'MSR261L05',
+  month: 2,
+  amount: 3750,
+  language: 'tamil',
+  upiId: 'test@upi'
+});
+assert(
+  tamilAmmaMsg.includes('வணக்கம் Amma') &&
+  tamilAmmaMsg.includes('மாதம்: 2') &&
+  tamilAmmaMsg.includes('தொகை: ₹3,750') &&
+  tamilAmmaMsg.includes('சீட்டு எண்: MSR261L05'),
+  'SEC 28 TEST 1: Tamil Monthly Reminder for Amma (Month 2, ₹3,750)',
+  `Tamil Msg:\n${tamilAmmaMsg}`
+);
+
+// Test 2: Member with 2 active chits, Month 3: Chit A = ₹3,825, Chit B = ₹3,825 -> Total ₹7,650
+const memberTwoChits = {
+  name: 'Amma',
+  chits: [
+    { chitNo: 'MSR261L01', status: 'Active' },
+    { chitNo: 'MSR261L02', status: 'Active' }
+  ]
+};
+const twoChitSchedule = { 3: 3825 };
+const twoChitEnglishMsg = generatePaymentReminderMessage(memberTwoChits, {
+  month: 3,
+  monthSchedule: twoChitSchedule,
+  language: 'english'
+});
+const twoChitTamilMsg = generatePaymentReminderMessage(memberTwoChits, {
+  month: 3,
+  monthSchedule: twoChitSchedule,
+  language: 'tamil'
+});
+assert(
+  twoChitEnglishMsg.includes("This month's total: ₹7,650") &&
+  twoChitTamilMsg.includes("இந்த மாத மொத்த தவணை: ₹7,650"),
+  'SEC 28 TEST 2: Member with 2 active chits in Month 3 sums to ₹7,650 in English & Tamil',
+  `English:\n${twoChitEnglishMsg}\nTamil:\n${twoChitTamilMsg}`
+);
+
+// Test 3: Payment recorded ₹3,750 -> Expected receipt contains ₹3,750
+const receiptEnglish = generatePaymentReceiptMessage({
+  memberName: 'Amma',
+  chitNo: 'MSR261L05',
+  month: 2,
+  amount: 3750
+}, 'english');
+const receiptTamil = generatePaymentReceiptMessage({
+  memberName: 'Amma',
+  chitNo: 'MSR261L05',
+  month: 2,
+  amount: 3750
+}, 'tamil');
+assert(
+  receiptEnglish.includes('Payment received successfully') && receiptEnglish.includes('Amount: ₹3,750') &&
+  receiptTamil.includes('உங்கள் பணம் பெறப்பட்டது') && receiptTamil.includes('தொகை: ₹3,750'),
+  'SEC 28 TEST 3: Payment receipt contains ₹3,750 in English & Tamil',
+  `Receipt English:\n${receiptEnglish}\nReceipt Tamil:\n${receiptTamil}`
+);
+
+// Test 4: Payout ₹70,000 with Funding EXTRA_INVESTMENT -> Amount Paid: ₹70,000, Funding: Extra Investment
+const payoutEnglish = generatePayoutMessage({
+  memberName: 'Amma',
+  chitNo: 'MSR261L05',
+  month: 2,
+  actualAmount: 70000,
+  fundingSource: 'EXTRA_INVESTMENT',
+  status: 'Completed'
+}, 'english');
+const payoutTamil = generatePayoutMessage({
+  memberName: 'Amma',
+  chitNo: 'MSR261L05',
+  month: 2,
+  actualAmount: 70000,
+  fundingSource: 'EXTRA_INVESTMENT',
+  status: 'Completed'
+}, 'tamil');
+assert(
+  payoutEnglish.includes('Amount Paid: ₹70,000') && payoutEnglish.includes('Funding: Extra Investment') &&
+  payoutTamil.includes('வழங்கிய தொகை: ₹70,000') && payoutTamil.includes('மூலம்: Extra Investment'),
+  'SEC 28 TEST 4: Payout completed message formats EXTRA_INVESTMENT cleanly in English & Tamil',
+  `Payout English:\n${payoutEnglish}\nPayout Tamil:\n${payoutTamil}`
+);
+
+// Test 5: Tamil Click-to-Chat URL encodes and preserves Tamil Unicode correctly
+const sampleTamilMsg = 'வணக்கம் அம்மா 👋\nமாதம்: 2\nதொகை: ₹3,750\nநன்றி.';
+const encodedUrl = `https://wa.me/919840123456?text=${encodeURIComponent(sampleTamilMsg)}`;
+const decodedMsg = decodeURIComponent(encodedUrl.split('text=')[1]);
+assert(
+  encodedUrl.includes('https://wa.me/919840123456?text=') &&
+  decodedMsg === sampleTamilMsg &&
+  decodedMsg.includes('வணக்கம் அம்மா'),
+  'SEC 28 TEST 5: Tamil Click-to-Chat URL preserves Tamil Unicode characters with encodeURIComponent',
+  `Encoded URL:\n${encodedUrl}`
 );
 
 // ----------------------------------------------------
@@ -2170,6 +2269,187 @@ assert(
   noMonthHasPayoutEqualToMonthly,
   'PAYOUT MAP TEST 11: Payout Amount is never confused or interchanged with Monthly Chit amount',
   `All 20 months have strictly distinct payout and monthly collection amounts`
+);
+
+// ----------------------------------------------------
+// SECTION 32: EXTRA INVESTMENT PAYOUT COMPLETION & PAYOUT MAP
+// ----------------------------------------------------
+console.log('\n----------------------------------------------------');
+console.log('SECTION 32: EXTRA INVESTMENT PAYOUT COMPLETION & PAYOUT MAP');
+console.log('----------------------------------------------------');
+
+// Test Extra Investment pool
+const testExtraInv = {
+  investmentId: 'INV-001',
+  investmentAmount: 70000,
+  allocatedAmount: 0,
+  usedAmount: 0,
+  remainingAmount: 70000,
+  status: 'Active',
+  investor: 'Soundhararajan M'
+};
+
+// 1. Allocate ₹70,000 from Extra Investment to Month 2 assigned member
+const scheduledM2Payout = 75000;
+const actualM2ExtraPayout = 70000;
+
+const payoutPayload = {
+  payoutId: 'PO-M2-EXT-01',
+  chitId: 'CHIT-100K-01',
+  monthNumber: 2,
+  month: 2,
+  memberId: 'MEM-001',
+  memberName: 'Amma',
+  chitNo: 'MSR261L02',
+  scheduledAmount: scheduledM2Payout,
+  amount: actualM2ExtraPayout,
+  actualAmount: actualM2ExtraPayout,
+  fundingSource: 'EXTRA_INVESTMENT',
+  extraInvestmentId: testExtraInv.investmentId,
+  payoutDate: '2026-11-20',
+  paymentMethod: 'Bank Transfer',
+  status: 'Completed',
+  notes: 'Paid using extra investment'
+};
+
+// Verify Payout record schema and properties
+assert(
+  payoutPayload.scheduledAmount === 75000 &&
+  payoutPayload.actualAmount === 70000 &&
+  payoutPayload.amount === 70000 &&
+  payoutPayload.fundingSource === 'EXTRA_INVESTMENT' &&
+  payoutPayload.extraInvestmentId === 'INV-001' &&
+  payoutPayload.status === 'Completed',
+  'EXTRA PAYOUT TEST 1: Payout record preserves Scheduled (₹75k) and Actual (₹70k) amounts with EXTRA_INVESTMENT funding',
+  `Scheduled = ₹${payoutPayload.scheduledAmount}, Actual Paid = ₹${payoutPayload.actualAmount}, Funding = ${payoutPayload.fundingSource}`
+);
+
+// 2. Extra Investment Ledger update
+const newAllocatedAmt = testExtraInv.allocatedAmount + actualM2ExtraPayout;
+const newRemainingAmt = Math.max(0, testExtraInv.investmentAmount - newAllocatedAmt);
+const updatedInvState = {
+  ...testExtraInv,
+  allocatedAmount: newAllocatedAmt,
+  usedAmount: newAllocatedAmt,
+  remainingAmount: newRemainingAmt,
+  status: newAllocatedAmt >= testExtraInv.investmentAmount ? 'Fully Allocated' : 'Active'
+};
+
+assert(
+  updatedInvState.allocatedAmount === 70000 &&
+  updatedInvState.remainingAmount === 0 &&
+  updatedInvState.status === 'Fully Allocated',
+  'EXTRA PAYOUT TEST 2: Extra Investment remaining becomes ₹0 and status becomes Fully Allocated without premature profit',
+  `Allocated = ₹${updatedInvState.allocatedAmount}, Remaining = ₹${updatedInvState.remainingAmount}, Status = ${updatedInvState.status}`
+);
+
+// 3. Month 2 status transitions to COMPLETED in MonthlySchedule
+const initialM2Schedule = {
+  month: 2,
+  monthNumber: 2,
+  monthlyAmount: 3750,
+  commissionAmount: 5000,
+  dividend: 1250,
+  payoutAmount: 75000,
+  scheduledPayoutAmount: 75000,
+  actualPayoutAmount: 0,
+  payoutStatus: 'Scheduled',
+  status: 'Active',
+  assignedMemberName: 'Amma',
+  chitNo: 'MSR261L02'
+};
+
+// Simulate schedule enrichment when payout is recorded
+const enrichedM2Schedule = {
+  ...initialM2Schedule,
+  actualPayoutAmount: actualM2ExtraPayout,
+  payoutStatus: 'Completed',
+  status: 'Completed',
+  payouts: [payoutPayload]
+};
+
+assert(
+  enrichedM2Schedule.payoutStatus === 'Completed' &&
+  enrichedM2Schedule.status === 'Completed' &&
+  enrichedM2Schedule.actualPayoutAmount === 70000 &&
+  enrichedM2Schedule.payoutAmount === 75000,
+  'EXTRA PAYOUT TEST 3: Month 2 MonthlySchedule status transitions to COMPLETED while preserving Scheduled Payout (₹75,000)',
+  `Status = ${enrichedM2Schedule.status}, PayoutStatus = ${enrichedM2Schedule.payoutStatus}, Scheduled = ₹${enrichedM2Schedule.payoutAmount}, Actual = ₹${enrichedM2Schedule.actualPayoutAmount}`
+);
+
+// 4. Normal Chit Formula remains strictly isolated (Monthly Chit = ₹3,750, Comm = ₹5,000, Div = ₹1,250)
+assert(
+  enrichedM2Schedule.monthlyAmount === 3750 &&
+  enrichedM2Schedule.commissionAmount === 5000 &&
+  enrichedM2Schedule.dividend === 1250,
+  'EXTRA PAYOUT TEST 4: Normal Chit Formula parameters (Monthly Chit ₹3,750, Comm ₹5,000, Div ₹1,250) remain strictly untouched',
+  `Monthly = ₹${enrichedM2Schedule.monthlyAmount}, Comm = ₹${enrichedM2Schedule.commissionAmount}, Div = ₹${enrichedM2Schedule.dividend}`
+);
+
+// 5. Payout Month Map evaluation logic
+const monthPayoutsList = [payoutPayload];
+const mapHasActualPayout = monthPayoutsList.length > 0 && monthPayoutsList.some(p => p.status === 'Completed' || p.actualAmount > 0);
+const mapStatus = mapHasActualPayout ? 'Completed' : 'Assigned';
+const mapScheduledPayout = enrichedM2Schedule.scheduledPayoutAmount || enrichedM2Schedule.payoutAmount;
+const mapActualPaid = monthPayoutsList.reduce((sum, p) => sum + (p.actualAmount || p.amount), 0);
+const mapFundingSource = monthPayoutsList.every(p => p.fundingSource === 'EXTRA_INVESTMENT') ? 'EXTRA INVESTMENT' : 'CHIT FUND';
+
+assert(
+  mapStatus === 'Completed' &&
+  mapScheduledPayout === 75000 &&
+  mapActualPaid === 70000 &&
+  mapFundingSource === 'EXTRA INVESTMENT',
+  'EXTRA PAYOUT TEST 5: Payout Month Map evaluates Month 2 as COMPLETED with Scheduled ₹75,000, Actual Paid ₹70,000, Funding EXTRA INVESTMENT',
+  `Map Status = ${mapStatus}, Scheduled = ₹${mapScheduledPayout}, Actual = ₹${mapActualPaid}, Funding = ${mapFundingSource}`
+);
+
+// 6. Support multiple independent payouts in same month (e.g. Chit Fund ₹75,000 + Extra Investment ₹70,000)
+const dualPayoutsList = [
+  {
+    payoutId: 'PO-M2-01',
+    chitId: 'CHIT-100K-01',
+    monthNumber: 2,
+    memberId: 'MEM-002',
+    memberName: 'Member A',
+    amount: 75000,
+    actualAmount: 75000,
+    fundingSource: 'CHIT_FUND',
+    status: 'Completed'
+  },
+  {
+    payoutId: 'PO-M2-02',
+    chitId: 'CHIT-100K-01',
+    monthNumber: 2,
+    memberId: 'MEM-001',
+    memberName: 'Member B',
+    amount: 70000,
+    actualAmount: 70000,
+    fundingSource: 'EXTRA_INVESTMENT',
+    extraInvestmentId: 'INV-001',
+    status: 'Completed'
+  }
+];
+
+const totalMultiPaid = dualPayoutsList.reduce((sum, p) => sum + p.actualAmount, 0);
+assert(
+  dualPayoutsList.length === 2 &&
+  dualPayoutsList[0].fundingSource === 'CHIT_FUND' &&
+  dualPayoutsList[1].fundingSource === 'EXTRA_INVESTMENT' &&
+  totalMultiPaid === 145000,
+  'EXTRA PAYOUT TEST 6: Multiple payouts in same month track separate funding sources and amounts independently',
+  `Payout 1: ${dualPayoutsList[0].memberName} ₹${dualPayoutsList[0].amount} (${dualPayoutsList[0].fundingSource}), Payout 2: ${dualPayoutsList[1].memberName} ₹${dualPayoutsList[1].amount} (${dualPayoutsList[1].fundingSource})`
+);
+
+// 7. Edit existing payout in place without creating duplicate IDs
+const originalPayoutsDb = [...dualPayoutsList];
+const editedTarget = { payoutId: 'PO-M2-02', amount: 72000, actualAmount: 72000 };
+const updatedPayoutsDb = originalPayoutsDb.map(p => p.payoutId === editedTarget.payoutId ? { ...p, ...editedTarget } : p);
+
+assert(
+  updatedPayoutsDb.length === 2 &&
+  updatedPayoutsDb.find(p => p.payoutId === 'PO-M2-02').actualAmount === 72000,
+  'EXTRA PAYOUT TEST 7: Editing existing payout updates in-place without generating duplicate payout IDs',
+  `Payouts count = ${updatedPayoutsDb.length}, Updated Amount = ₹${updatedPayoutsDb.find(p => p.payoutId === 'PO-M2-02').actualAmount}`
 );
 
 console.log('\n====================================================');

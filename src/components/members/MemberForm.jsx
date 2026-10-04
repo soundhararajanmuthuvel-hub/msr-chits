@@ -23,6 +23,7 @@ export const MemberForm = ({
     email: '',
     address: '',
     notes: '',
+    preferredLanguage: 'English',
     status: 'Active'
   });
 
@@ -34,6 +35,7 @@ export const MemberForm = ({
         email: initialData.email || '',
         address: initialData.address || '',
         notes: initialData.notes || '',
+        preferredLanguage: initialData.preferredLanguage || initialData.language || 'English',
         status: initialData.status || 'Active'
       });
     } else {
@@ -43,6 +45,7 @@ export const MemberForm = ({
         email: '',
         address: '',
         notes: '',
+        preferredLanguage: 'English',
         status: 'Active'
       });
     }
@@ -89,6 +92,7 @@ export const MemberForm = ({
           email: formData.email.trim(),
           address: formData.address.trim(),
           notes: formData.notes.trim(),
+          preferredLanguage: formData.preferredLanguage || 'English',
           status: formData.status
         };
 
@@ -103,6 +107,7 @@ export const MemberForm = ({
           email: formData.email.trim(),
           address: formData.address.trim(),
           notes: formData.notes.trim(),
+          preferredLanguage: formData.preferredLanguage || 'English',
           status: formData.status,
           chitId: activeChit?.chitId || 'CHIT-100K-01'
         };
@@ -213,6 +218,20 @@ export const MemberForm = ({
             >
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-[#003524] mb-1">
+              WhatsApp Language
+            </label>
+            <select
+              value={formData.preferredLanguage || 'English'}
+              onChange={(e) => setFormData({ ...formData, preferredLanguage: e.target.value })}
+              className="w-full px-3 py-2 bg-white border border-[#DCE8E0] rounded-lg text-xs sm:text-sm font-semibold text-[#131E19] focus:ring-2 focus:ring-[#003524]/20 focus:border-[#003524]"
+            >
+              <option value="English">English</option>
+              <option value="Tamil">தமிழ் (Tamil)</option>
             </select>
           </div>
         </div>

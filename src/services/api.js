@@ -394,6 +394,7 @@ export const api = {
       payoutMonth: memberData.payoutMonth || 'Not Assigned',
       status: memberData.status || 'Active',
       notes: memberData.notes || '',
+      preferredLanguage: memberData.preferredLanguage || 'English',
       totalPaid: Number(memberData.totalPaid) || 0,
       pendingAmount: Number(memberData.pendingAmount) || 0
     };
@@ -924,34 +925,113 @@ export const api = {
   },
 
   async recordPayout(payoutData) {
+    const monthNum = Number(payoutData.month || payoutData.monthNumber || 1);
+    const chitId = payoutData.chitId || 'CHIT-100K-01';
+    const numAmount = Number(payoutData.amount || payoutData.actualAmount || 0);
+    const fundingSource = String(payoutData.fundingSource || 'CHIT_FUND').toUpperCase().includes('EXTRA')
+      ? 'EXTRA_INVESTMENT'
+      : (payoutData.fundingSource || 'CHIT_FUND');
+
     const payload = {
       ...payoutData,
-      fundingSource: payoutData.fundingSource || 'Chit Fund Collections'
-    };
-    if (API_URL) {
-      const newPayout = await postApi('recordPayout', payload);
-      const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
-      const enriched = { ...payload, ...newPayout };
-      setCache(STORAGE_KEYS.PAYOUTS_CACHE, [enriched, ...payouts]);
-      return enriched;
-    }
-    const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
-    const newPayout = {
-      payoutId: `PO-${Date.now().toString().slice(-6)}`,
-      chitId: payoutData.chitId || 'CHIT-100K-01',
-      chitNo: payoutData.chitNo || '',
-      month: Number(payoutData.month),
-      monthNumber: Number(payoutData.month),
-      memberId: payoutData.memberId || '',
-      memberName: payoutData.memberName,
-      amount: Number(payoutData.amount),
-      fundingSource: payoutData.fundingSource || 'Chit Fund Collections',
-      payoutDate: payoutData.payoutDate || new Date().toISOString().split('T')[0],
-      paymentMode: payoutData.paymentMode || 'Bank Transfer',
-      reference: payoutData.reference || '',
+      month: monthNum,
+      monthNumber: monthNum,
+      chitId,
+      amount: numAmount,
+      fundingSource: fundingSource,
       status: 'Completed'
     };
-    setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...payouts]);
+
+    let backendResult = null;
+    if (API_URL) {
+      try {
+        backendResult = await postApi('recordPayout', payload);
+      } catch (e) {
+        console.warn('recordPayout API error, using local fallback:', e.message);
+      }
+    }
+
+    const payouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
+    const newPayout = {
+      payoutId: backendResult?.payoutId || `PO-${Date.now().toString().slice(-6)}`,
+      chitId: chitId,
+      chitNo: payoutData.chitNo || '',
+      month: monthNum,
+      monthNumber: monthNum,
+      memberId: payoutData.memberId || '',
+      memberName: payoutData.memberName || 'Member',
+      amount: numAmount,
+      actualAmount: numAmount,
+      scheduledAmount: Number(payoutData.scheduledAmount || payoutData.scheduledPayoutAmount) || numAmount,
+      fundingSource: fundingSource,
+      extraInvestmentId: payoutData.extraInvestmentId || payoutData.investmentId || '',
+      payoutDate: payoutData.payoutDate || new Date().toISOString().split('T')[0],
+      paymentMode: payoutData.paymentMode || payoutData.paymentMethod || 'Bank Transfer',
+      paymentMethod: payoutData.paymentMode || payoutData.paymentMethod || 'Bank Transfer',
+      reference: payoutData.reference || payoutData.referenceNumber || '',
+      referenceNumber: payoutData.reference || payoutData.referenceNumber || '',
+      status: 'Completed',
+      notes: payoutData.notes || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Update PAYOUTS_CACHE (avoid duplicate payout IDs)
+    const filteredPayouts = payouts.filter(p => String(p.payoutId) !== String(newPayout.payoutId));
+    setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...filteredPayouts]);
+
+    // Update SCHEDULE_CACHE to mark month as Completed
+    const cachedSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const updatedSchedule = cachedSchedule.map(s => {
+      const isMatch = (!s.chitId || String(s.chitId) === String(chitId)) &&
+        Number(s.month || s.monthNumber) === monthNum;
+      if (!isMatch) return s;
+
+      const existingPayouts = Array.isArray(s.payouts) ? s.payouts.filter(p => String(p.payoutId) !== String(newPayout.payoutId)) : [];
+      const updatedMonthPayouts = [newPayout, ...existingPayouts];
+      const totalPaid = updatedMonthPayouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      return {
+        ...s,
+        payoutStatus: 'Completed',
+        status: 'Completed',
+        actualPayoutAmount: totalPaid,
+        payouts: updatedMonthPayouts,
+        assignedMemberName: s.assignedMemberName || payoutData.memberName,
+        assignedMemberId: s.assignedMemberId || payoutData.memberId
+      };
+    });
+    setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
+
+    // If funded by Extra Investment, update EXTRA_INVESTMENTS_CACHE & EXTRA_INVESTMENT_CACHE
+    if (fundingSource === 'EXTRA_INVESTMENT' || payoutData.extraInvestmentId || payoutData.investmentId) {
+      const invId = payoutData.extraInvestmentId || payoutData.investmentId;
+      const updateInvList = (cacheKey) => {
+        const cachedInv = getCache(cacheKey) || [];
+        const updated = cachedInv.map(inv => {
+          if (!invId || String(inv.investmentId) === String(invId) || inv.beneficiary === payoutData.memberName) {
+            const totalInv = Number(inv.investmentAmount) || 0;
+            const currentUsed = Number(inv.allocatedAmount !== undefined ? inv.allocatedAmount : inv.usedAmount) || 0;
+            const newUsed = currentUsed + numAmount;
+            const newRem = Math.max(0, totalInv - newUsed);
+            return {
+              ...inv,
+              usedAmount: newUsed,
+              allocatedAmount: newUsed,
+              remainingAmount: newRem,
+              payout: newUsed,
+              status: newUsed >= totalInv ? 'Fully Allocated' : 'Active',
+              updatedAt: new Date().toISOString()
+            };
+          }
+          return inv;
+        });
+        setCache(cacheKey, updated);
+      };
+      updateInvList(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE);
+      updateInvList(STORAGE_KEYS.EXTRA_INVESTMENT_CACHE);
+    }
+
     return newPayout;
   },
 
@@ -1384,6 +1464,7 @@ export const api = {
       memberName: payload.memberName || '',
       phone: payload.phone || '',
       messageType: payload.messageType || 'Welcome',
+      language: payload.language || 'English',
       chitNo: payload.chitNo || '',
       message: payload.message || '',
       relatedPaymentId: payload.relatedPaymentId || '',
@@ -1796,6 +1877,7 @@ export const api = {
       return inv;
     });
     setCache(STORAGE_KEYS.EXTRA_INVESTMENTS_CACHE, updatedInvestments);
+    setCache(STORAGE_KEYS.EXTRA_INVESTMENT_CACHE, updatedInvestments);
 
     // Create corresponding payout record with fundingSource = 'EXTRA_INVESTMENT'
     const newPayout = {
@@ -1804,19 +1886,48 @@ export const api = {
       memberId: memberId || 'MEM-000',
       memberName: memberName || 'Member',
       chitNo: chitNo || `CHIT-${chitId}-M${monthNumber}`,
+      month: Number(monthNumber) || 1,
       monthNumber: Number(monthNumber) || 1,
       amount: allocNum,
+      actualAmount: allocNum,
+      scheduledAmount: Number(allocationData.scheduledAmount || allocationData.scheduledPayoutAmount) || allocNum,
       payoutDate: payoutDate || new Date().toISOString().split('T')[0],
+      paymentMode: paymentMethod || 'Bank Transfer',
       paymentMethod: paymentMethod || 'Bank Transfer',
       status: 'Completed',
       fundingSource: 'EXTRA_INVESTMENT',
       extraInvestmentId: investmentId,
       notes: notes || `Funded via Extra Investment ${investmentId}`,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     const cachedPayouts = getCache(STORAGE_KEYS.PAYOUTS_CACHE) || [];
-    setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...cachedPayouts]);
+    const filteredPayouts = cachedPayouts.filter(p => String(p.payoutId) !== String(newPayout.payoutId));
+    setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...filteredPayouts]);
+
+    // Update SCHEDULE_CACHE to mark month as Completed
+    const cachedSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const updatedSchedule = cachedSchedule.map(s => {
+      const isMatch = (!s.chitId || String(s.chitId) === String(chitId || 'CHIT-100K-01')) &&
+        Number(s.month || s.monthNumber) === Number(monthNumber || 1);
+      if (!isMatch) return s;
+
+      const existingPayouts = Array.isArray(s.payouts) ? s.payouts.filter(p => String(p.payoutId) !== String(newPayout.payoutId)) : [];
+      const updatedMonthPayouts = [newPayout, ...existingPayouts];
+      const totalPaid = updatedMonthPayouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      return {
+        ...s,
+        payoutStatus: 'Completed',
+        status: 'Completed',
+        actualPayoutAmount: totalPaid,
+        payouts: updatedMonthPayouts,
+        assignedMemberName: s.assignedMemberName || memberName,
+        assignedMemberId: s.assignedMemberId || memberId
+      };
+    });
+    setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
 
     return {
       success: true,

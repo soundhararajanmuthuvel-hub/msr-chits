@@ -89,6 +89,37 @@ function setSpreadsheetId(id) {
 }
 
 /**
+ * Direct Connection & Diagnostic Test for Google Apps Script editor
+ * Safe to run from dropdown. Returns JSON summary instead of raw Java object.
+ */
+function testSpreadsheetConnection() {
+  try {
+    const ss = getSpreadsheet();
+    const sheets = ss.getSheets().map(s => s.getName());
+    const result = {
+      success: true,
+      message: 'Successfully connected to Google Sheet: ' + ss.getName(),
+      spreadsheetId: ss.getId(),
+      spreadsheetName: ss.getName(),
+      sheetsCount: sheets.length,
+      sheets: sheets,
+      timestamp: new Date().toISOString()
+    };
+    Logger.log('Connection Test Success: ' + JSON.stringify(result));
+    return result;
+  } catch (err) {
+    const errResult = {
+      success: false,
+      code: 'SPREADSHEET_CONNECTION_ERROR',
+      message: 'MSR CHITS spreadsheet connection failed: ' + err.message,
+      timestamp: new Date().toISOString()
+    };
+    Logger.log('Connection Test Error: ' + JSON.stringify(errResult));
+    return errResult;
+  }
+}
+
+/**
  * Gets a specific sheet tab by name
  */
 function getSheet(sheetName) {
@@ -313,7 +344,7 @@ function setupDatabase() {
   if (scheduleSheet.getLastRow() <= 1) {
     const masterSchedule = [
       ['SCH-01', 'CHIT-100K-01', 1, '2026-10-20', 'MEM-003', 'MU', 5000, 'Paid', 'Completed', '2026-10-22', 'Chit NIL', 100000],
-      ['SCH-02', 'CHIT-100K-01', 2, '2026-11-20', 'MEM-001', 'Amma', 3750, 'Upcoming', 'Upcoming', '', 'Chit 2', 70000],
+      ['SCH-02', 'CHIT-100K-01', 2, '2026-11-20', 'MEM-001', 'Amma', 3750, 'Upcoming', 'Upcoming', '', 'Chit 2', 75000],
       ['SCH-03', 'CHIT-100K-01', 3, '2026-12-20', '', 'Not Assigned', 3825, 'Upcoming', 'Upcoming', '', 'Chit 3', 71500],
       ['SCH-04', 'CHIT-100K-01', 4, '2027-01-20', '', 'Not Assigned', 3900, 'Upcoming', 'Upcoming', '', 'Chit 4', 73000],
       ['SCH-05', 'CHIT-100K-01', 5, '2027-02-20', '', 'Not Assigned', 3975, 'Upcoming', 'Upcoming', '', 'Chit 5', 74500],
@@ -341,9 +372,9 @@ function setupDatabase() {
     'paymentId', 'chitId', 'memberId', 'monthNumber', 'amount', 'paymentDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName'
   ]);
 
-  // 6. Payouts (payoutId, chitId, memberId, monthNumber, amount, payoutDate, paymentMethod, referenceNumber, status, notes, createdAt, chitNo, memberName, fundingSource)
+  // 6. Payouts (payoutId, chitId, memberId, monthNumber, amount, payoutDate, paymentMethod, referenceNumber, status, notes, createdAt, chitNo, memberName, fundingSource, extraInvestmentId, scheduledAmount, actualAmount, updatedAt)
   ensureSheetWithHeaders(ss, SHEET_NAMES.PAYOUTS, [
-    'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName', 'fundingSource'
+    'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName', 'fundingSource', 'extraInvestmentId', 'scheduledAmount', 'actualAmount', 'updatedAt'
   ]);
 
   // 7. Memberships (membershipId, memberId, chitId, chitNo, chitValue, durationMonths, monthlyPayment, payoutMonth, status, joinedDate, createdAt, updatedAt)
@@ -351,9 +382,9 @@ function setupDatabase() {
     'membershipId', 'memberId', 'chitId', 'chitNo', 'chitValue', 'durationMonths', 'monthlyPayment', 'payoutMonth', 'status', 'joinedDate', 'createdAt', 'updatedAt'
   ]);
 
-  // 8. WhatsAppLog (messageId, memberId, memberName, phone, messageType, chitNo, message, relatedPaymentId, relatedPayoutId, status, createdAt)
+  // 8. WhatsAppLog (messageId, memberId, memberName, phone, messageType, language, chitNo, message, relatedPaymentId, relatedPayoutId, status, createdAt)
   ensureSheetWithHeaders(ss, SHEET_NAMES.WHATSAPP_LOG, [
-    'messageId', 'memberId', 'memberName', 'phone', 'messageType', 'chitNo', 'message', 'relatedPaymentId', 'relatedPayoutId', 'status', 'createdAt'
+    'messageId', 'memberId', 'memberName', 'phone', 'messageType', 'language', 'chitNo', 'message', 'relatedPaymentId', 'relatedPayoutId', 'status', 'createdAt'
   ]);
 
   // 9. ActivityLog (logId, action, user, description, timestamp)
@@ -556,37 +587,52 @@ function getChitDetails(chitId) {
       
       const monthPayouts = allPayouts.filter(po => Number(po.monthNumber || po.month) === monthNum);
 
-      let payoutAmount = Number(s.payoutAmount);
-      if (isNaN(payoutAmount) || payoutAmount <= 0 || (payoutAmount <= 5000 && monthNum > 1)) {
-        if (monthPayouts.length > 0) {
-          payoutAmount = monthPayouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
-        } else if (monthNum === 1) {
-          payoutAmount = Number(chit.chitValue || chit.totalAmount) || 100000;
-        } else {
-          const div = Number(chit.dividend) || 0;
-          const dur = Number(chit.duration || chit.durationMonths) || 20;
-          const totVal = Number(chit.chitValue || chit.totalAmount) || 100000;
-          const scale = totVal / 100000;
-          if (dur === 20 && div === 0) {
-            if (monthNum >= 2 && monthNum <= 16) {
-              payoutAmount = Math.round((70000 + (monthNum - 2) * 1500) * scale);
-            } else {
-              payoutAmount = Math.round((92000 + (monthNum - 17) * 1000) * scale);
-            }
-          } else if (div > 0) {
-            const ratio = dur > 2 ? (dur - monthNum) / (dur - 2) : 1;
-            const monthDiv = Math.round(div * Math.max(0, ratio));
-            payoutAmount = Math.max(0, totVal - (monthDiv * dur));
+      // 1. Calculate default scheduled payout for this month
+      let defaultScheduledAmt = 0;
+      if (monthNum === 1) {
+        defaultScheduledAmt = Number(chit.chitValue || chit.totalAmount) || 100000;
+      } else {
+        const div = Number(chit.dividend) || 0;
+        const dur = Number(chit.duration || chit.durationMonths) || 20;
+        const totVal = Number(chit.chitValue || chit.totalAmount) || 100000;
+        const scale = totVal / 100000;
+        if (dur === 20 && div === 0) {
+          if (monthNum >= 2 && monthNum <= 16) {
+            defaultScheduledAmt = Math.round((70000 + (monthNum - 2) * 1500) * scale);
           } else {
-            payoutAmount = totVal;
+            defaultScheduledAmt = Math.round((92000 + (monthNum - 17) * 1000) * scale);
           }
+        } else if (div > 0) {
+          const ratio = dur > 2 ? (dur - monthNum) / (dur - 2) : 1;
+          const monthDiv = Math.round(div * Math.max(0, ratio));
+          defaultScheduledAmt = Math.max(0, totVal - (monthDiv * dur));
+        } else {
+          defaultScheduledAmt = totVal;
         }
       }
 
-      let assignedMemberName = s.memberName || s.assignedMemberName || 'Not Assigned';
+      // Scheduled amount: preserve configured scheduled amount (e.g. ₹75,000 for Month 2)
+      let scheduledPayoutAmount = defaultScheduledAmt;
+      if (s.scheduledPayoutAmount && Number(s.scheduledPayoutAmount) >= 10000) {
+        scheduledPayoutAmount = Number(s.scheduledPayoutAmount);
+      } else if (s.payoutAmount && Number(s.payoutAmount) >= 10000) {
+        scheduledPayoutAmount = Number(s.payoutAmount);
+      }
+
+      // Actual amount: sum of recorded payouts (e.g. ₹70,000 Extra Investment payout)
+      const totalPaidPayout = monthPayouts.reduce((sum, po) => sum + (Number(po.actualAmount || po.amount) || 0), 0) || (Number(s.actualPayoutAmount) || 0);
+
+      let assignedMemberName = s.memberName || s.assignedMemberName || (monthPayouts.length > 0 ? monthPayouts.map(p => p.memberName).filter(Boolean).join(', ') : 'Not Assigned');
       if (assignedMemberName === 'Amma + MU' && monthPayouts.length === 0) {
         assignedMemberName = 'Amma';
       }
+
+      const hasCompletedPayout = totalPaidPayout > 0 ||
+        monthPayouts.some(po => String(po.status).toLowerCase() === 'completed' || String(po.status).toLowerCase() === 'paid') ||
+        String(s.payoutStatus).toLowerCase() === 'completed' ||
+        String(s.status).toLowerCase() === 'completed';
+
+      const payoutStatus = hasCompletedPayout ? 'Completed' : (s.payoutStatus || 'Scheduled');
 
       return {
         month: monthNum,
@@ -594,12 +640,15 @@ function getChitDetails(chitId) {
         monthlyAmount: monthlyAmount,
         amount: monthlyAmount,
         dividend: s.dividend !== undefined ? Number(s.dividend) : 0,
-        payoutAmount: payoutAmount,
+        payoutAmount: scheduledPayoutAmount,
+        scheduledPayoutAmount: scheduledPayoutAmount,
+        actualPayoutAmount: totalPaidPayout,
+        payoutStatus: payoutStatus,
         payouts: monthPayouts,
         chitNumber: s.notes ? s.notes.replace('Chit ', '') : (monthNum === 1 ? 'NIL' : String(monthNum)),
-        assignedMemberId: s.memberId || s.assignedMemberId || '',
+        assignedMemberId: s.memberId || s.assignedMemberId || (monthPayouts.length > 0 ? monthPayouts[0].memberId : ''),
         assignedMemberName: assignedMemberName,
-        status: monthNum < Number(chit.currentMonth) ? 'Completed' : (monthNum === Number(chit.currentMonth) ? 'Active' : 'Upcoming')
+        status: hasCompletedPayout || monthNum < Number(chit.currentMonth) ? 'Completed' : (monthNum === Number(chit.currentMonth) ? 'Active' : 'Upcoming')
       };
     });
 
@@ -935,7 +984,7 @@ function logWhatsAppMessage(payload) {
   try {
     const ss = getSpreadsheet();
     ensureSheetWithHeaders(ss, SHEET_NAMES.WHATSAPP_LOG, [
-      'messageId', 'memberId', 'memberName', 'phone', 'messageType', 'chitNo', 'message', 'relatedPaymentId', 'relatedPayoutId', 'status', 'createdAt'
+      'messageId', 'memberId', 'memberName', 'phone', 'messageType', 'language', 'chitNo', 'message', 'relatedPaymentId', 'relatedPayoutId', 'status', 'createdAt'
     ]);
     const messageId = generateSequentialId(SHEET_NAMES.WHATSAPP_LOG, 'WA', 'messageId');
     const logItem = {
@@ -944,6 +993,7 @@ function logWhatsAppMessage(payload) {
       memberName: payload.memberName || '',
       phone: payload.phone || '',
       messageType: payload.messageType || 'Welcome',
+      language: payload.language || 'English',
       chitNo: payload.chitNo || '',
       message: payload.message || '',
       relatedPaymentId: payload.relatedPaymentId || '',
@@ -1500,49 +1550,130 @@ function getAllPayouts() {
     monthNumber: Number(po.monthNumber || po.month),
     memberId: po.memberId,
     memberName: po.memberName,
-    amount: Number(po.amount) || 0,
+    amount: Number(po.amount || po.actualAmount) || 0,
+    actualAmount: Number(po.actualAmount || po.amount) || 0,
+    scheduledAmount: Number(po.scheduledAmount || po.scheduledPayoutAmount) || 0,
     fundingSource: po.fundingSource || 'Chit Fund Collections',
+    extraInvestmentId: po.extraInvestmentId || '',
     payoutDate: po.payoutDate,
     paymentMode: po.paymentMethod || po.paymentMode || 'Bank Transfer',
     paymentMethod: po.paymentMethod || po.paymentMode || 'Bank Transfer',
     reference: po.referenceNumber || po.reference || '',
     referenceNumber: po.referenceNumber || po.reference || '',
     status: po.status || 'Completed',
-    notes: po.notes || ''
+    notes: po.notes || '',
+    createdAt: po.createdAt || '',
+    updatedAt: po.updatedAt || ''
   }));
 }
 
 function recordChitPayout(data) {
   const payoutId = generateSequentialId(SHEET_NAMES.PAYOUTS, 'PO', 'payoutId');
-  const amount = Number(data.amount) || 0;
+  const amount = Number(data.amount || data.actualAmount) || 0;
+  const scheduledAmount = Number(data.scheduledAmount || data.scheduledPayoutAmount) || amount;
   const monthNum = Number(data.month || data.monthNumber);
+  const chitId = data.chitId || 'CHIT-100K-01';
 
   // Derive or lookup chitNo
   let chitNo = data.chitNo || '';
   if (!chitNo) {
-    const chit = getAllChits().find(c => String(c.chitId) === String(data.chitId || 'CHIT-100K-01'));
+    const chit = getAllChits().find(c => String(c.chitId) === String(chitId));
     const chitVal = chit ? Number(chit.totalAmount || chit.chitValue) : 100000;
     chitNo = generatePermanentChitNumber('2026', chitVal, monthNum);
   }
 
+  const payoutDate = data.payoutDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd');
+  const fundingSource = String(data.fundingSource || 'Chit Fund Collections').toUpperCase().includes('EXTRA')
+    ? 'EXTRA_INVESTMENT'
+    : (data.fundingSource || 'CHIT_FUND');
+
   const newPayout = {
     payoutId: payoutId,
-    chitId: data.chitId || 'CHIT-100K-01',
+    chitId: chitId,
     chitNo: chitNo,
     monthNumber: monthNum,
     memberId: data.memberId || '',
     memberName: data.memberName,
     amount: amount,
-    fundingSource: data.fundingSource || 'Chit Fund Collections',
-    payoutDate: data.payoutDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd'),
+    actualAmount: amount,
+    scheduledAmount: scheduledAmount,
+    fundingSource: fundingSource,
+    payoutDate: payoutDate,
     paymentMethod: data.paymentMode || data.paymentMethod || 'Bank Transfer',
     referenceNumber: data.reference || data.referenceNumber || '',
     status: 'Completed',
     notes: data.notes || '',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    extraInvestmentId: data.extraInvestmentId || data.investmentId || ''
   };
 
   appendRow(SHEET_NAMES.PAYOUTS, newPayout);
+
+  // Update MonthlySchedule tab: set payoutStatus = 'Completed', status = 'Completed', and payoutDate
+  try {
+    const schSheet = getSheet(SHEET_NAMES.MONTHLY_SCHEDULE);
+    if (schSheet && schSheet.getLastRow() >= 2) {
+      const headers = schSheet.getRange(1, 1, 1, schSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+      const chitIdCol = headers.indexOf('chitId');
+      const monthCol = headers.indexOf('monthNumber');
+      const pStatusCol = headers.indexOf('payoutStatus');
+      const statusCol = headers.indexOf('status');
+      const pDateCol = headers.indexOf('payoutDate');
+      const memNameCol = headers.indexOf('memberName');
+      const memIdCol = headers.indexOf('memberId');
+
+      const sData = schSheet.getRange(2, 1, schSheet.getLastRow() - 1, schSheet.getLastColumn()).getValues();
+      for (let r = 0; r < sData.length; r++) {
+        if (String(sData[r][chitIdCol]) === chitId && Number(sData[r][monthCol]) === monthNum) {
+          if (pStatusCol !== -1) schSheet.getRange(r + 2, pStatusCol + 1).setValue('Completed');
+          if (statusCol !== -1) schSheet.getRange(r + 2, statusCol + 1).setValue('Completed');
+          if (pDateCol !== -1) schSheet.getRange(r + 2, pDateCol + 1).setValue(payoutDate);
+          if (memNameCol !== -1 && data.memberName) schSheet.getRange(r + 2, memNameCol + 1).setValue(data.memberName);
+          if (memIdCol !== -1 && data.memberId) schSheet.getRange(r + 2, memIdCol + 1).setValue(data.memberId);
+          break;
+        }
+      }
+    }
+  } catch (schErr) {
+    Logger.log('MonthlySchedule update error: ' + schErr.message);
+  }
+
+  // If funded by Extra Investment, update the ExtraInvestment record
+  if (fundingSource === 'EXTRA_INVESTMENT' || data.extraInvestmentId || data.investmentId) {
+    try {
+      const invId = data.extraInvestmentId || data.investmentId;
+      if (invId) {
+        const invSheet = getSheet(SHEET_NAMES.EXTRA_INVESTMENT);
+        if (invSheet && invSheet.getLastRow() >= 2) {
+          const invHeaders = invSheet.getRange(1, 1, 1, invSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+          const idCol = invHeaders.indexOf('investmentId');
+          const amtCol = invHeaders.indexOf('investmentAmount');
+          const usedCol = invHeaders.indexOf('usedAmount') !== -1 ? invHeaders.indexOf('usedAmount') : invHeaders.indexOf('allocatedAmount');
+          const remCol = invHeaders.indexOf('remainingAmount');
+          const statusCol = invHeaders.indexOf('status');
+
+          const invData = invSheet.getRange(2, 1, invSheet.getLastRow() - 1, invSheet.getLastColumn()).getValues();
+          for (let ir = 0; ir < invData.length; ir++) {
+            if (String(invData[ir][idCol]) === String(invId)) {
+              const totalInv = Number(invData[ir][amtCol]) || 0;
+              const currentUsed = Number(invData[ir][usedCol]) || 0;
+              const newUsed = currentUsed + amount;
+              const newRem = Math.max(0, totalInv - newUsed);
+
+              if (usedCol !== -1) invSheet.getRange(ir + 2, usedCol + 1).setValue(newUsed);
+              if (remCol !== -1) invSheet.getRange(ir + 2, remCol + 1).setValue(newRem);
+              if (statusCol !== -1) invSheet.getRange(ir + 2, statusCol + 1).setValue(newUsed >= totalInv ? 'Fully Allocated' : 'Active');
+              break;
+            }
+          }
+        }
+      }
+    } catch (invErr) {
+      Logger.log('ExtraInvestment update error: ' + invErr.message);
+    }
+  }
+
   logActivity('Payout Recorded', 'Disbursed ₹' + amount + ' to ' + newPayout.memberName + ' (Month ' + newPayout.monthNumber + (chitNo ? ', ' + chitNo : '') + ', Funding: ' + newPayout.fundingSource + ')', 'Admin');
   return newPayout;
 }
@@ -2039,16 +2170,17 @@ function allocateExtraInvestment(data) {
   // 1. Create a separate Payout record funded by EXTRA_INVESTMENT
   const ss = getSpreadsheet();
   ensureSheetWithHeaders(ss, SHEET_NAMES.PAYOUTS, [
-    'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName', 'fundingSource', 'extraInvestmentId'
+    'payoutId', 'chitId', 'memberId', 'monthNumber', 'amount', 'payoutDate', 'paymentMethod', 'referenceNumber', 'status', 'notes', 'createdAt', 'chitNo', 'memberName', 'fundingSource', 'extraInvestmentId', 'scheduledAmount', 'actualAmount', 'updatedAt'
   ]);
 
-  const payoutId = generateSequentialId(SHEET_NAMES.PAYOUTS, 'PAYOUT', 'payoutId');
+  const payoutId = generateSequentialId(SHEET_NAMES.PAYOUTS, 'PO', 'payoutId');
   const chitId = data.chitId || 'CHIT-100K-01';
-  const monthNum = Number(data.monthNumber) || 1;
+  const monthNum = Number(data.monthNumber || data.month) || 1;
   const memId = data.memberId || 'MEM-000';
   const memName = data.memberName || 'Member';
   const chitNo = data.chitNo || ('CHIT-' + chitId + '-M' + monthNum);
   const payoutDate = data.payoutDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+5:30', 'yyyy-MM-dd');
+  const scheduledAmt = Number(data.scheduledAmount || data.scheduledPayoutAmount) || payoutAmt;
 
   const payoutRecord = {
     payoutId: payoutId,
@@ -2056,12 +2188,15 @@ function allocateExtraInvestment(data) {
     memberId: memId,
     monthNumber: monthNum,
     amount: payoutAmt,
+    actualAmount: payoutAmt,
+    scheduledAmount: scheduledAmt,
     payoutDate: payoutDate,
-    paymentMethod: data.paymentMethod || 'Bank Transfer',
-    referenceNumber: data.referenceNumber || ('REF-' + Utilities.getUuid().slice(0, 8)),
+    paymentMethod: data.paymentMethod || data.paymentMode || 'Bank Transfer',
+    referenceNumber: data.referenceNumber || data.reference || ('REF-' + Utilities.getUuid().slice(0, 8)),
     status: 'Completed',
-    notes: data.notes || ('Funded via Extra Investment ' + investmentId),
+    notes: data.notes || ('Paid using extra investment ' + investmentId),
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     chitNo: chitNo,
     memberName: memName,
     fundingSource: 'EXTRA_INVESTMENT',
@@ -2069,6 +2204,35 @@ function allocateExtraInvestment(data) {
   };
 
   appendRow(SHEET_NAMES.PAYOUTS, payoutRecord);
+
+  // Update MonthlySchedule tab: set payoutStatus = 'Completed', status = 'Completed', and payoutDate
+  try {
+    const schSheet = getSheet(SHEET_NAMES.MONTHLY_SCHEDULE);
+    if (schSheet && schSheet.getLastRow() >= 2) {
+      const headers = schSheet.getRange(1, 1, 1, schSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+      const chitIdCol = headers.indexOf('chitId');
+      const monthCol = headers.indexOf('monthNumber');
+      const pStatusCol = headers.indexOf('payoutStatus');
+      const statusCol = headers.indexOf('status');
+      const pDateCol = headers.indexOf('payoutDate');
+      const memNameCol = headers.indexOf('memberName');
+      const memIdCol = headers.indexOf('memberId');
+
+      const sData = schSheet.getRange(2, 1, schSheet.getLastRow() - 1, schSheet.getLastColumn()).getValues();
+      for (let r = 0; r < sData.length; r++) {
+        if (String(sData[r][chitIdCol]) === chitId && Number(sData[r][monthCol]) === monthNum) {
+          if (pStatusCol !== -1) schSheet.getRange(r + 2, pStatusCol + 1).setValue('Completed');
+          if (statusCol !== -1) schSheet.getRange(r + 2, statusCol + 1).setValue('Completed');
+          if (pDateCol !== -1) schSheet.getRange(r + 2, pDateCol + 1).setValue(payoutDate);
+          if (memNameCol !== -1 && memName) schSheet.getRange(r + 2, memNameCol + 1).setValue(memName);
+          if (memIdCol !== -1 && memId) schSheet.getRange(r + 2, memIdCol + 1).setValue(memId);
+          break;
+        }
+      }
+    }
+  } catch (schErr) {
+    Logger.log('MonthlySchedule update error in allocateExtraInvestment: ' + schErr.message);
+  }
 
   // 2. Update ExtraInvestment record
   const newAllocated = currentAllocated + payoutAmt;
@@ -2360,6 +2524,11 @@ function handleRequest(e, method) {
       case 'recordInvestmentRecovery':
       case 'recordRecovery':
         result = recordInvestmentRecovery(payload);
+        break;
+
+      case 'testSpreadsheetConnection':
+      case 'testConnection':
+        result = testSpreadsheetConnection();
         break;
 
       default:

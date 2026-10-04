@@ -1,21 +1,19 @@
 /**
- * MSR CHITS — WhatsApp Messaging Utility & Templates
+ * MSR CHITS — Simplified WhatsApp Messaging Utility & Templates
+ * English + தமிழ் Support
  * 
  * Rules:
+ * - Simple, short, friendly, human sounding
+ * - Real data only from Google Sheets
  * - Uses WhatsApp Click-to-Chat: https://wa.me/{phone}?text={encodedMessage}
- * - Normalizes Indian phone numbers (e.g. 9876543210 -> 919876543210).
- * - Never falsely claim "Sent". Status can only be 'Prepared' or 'Opened' (or manual 'Sent').
- * - All financial numbers are formatted cleanly with actual values from database.
- * - Total monthly payment is dynamically calculated from actual active memberships.
+ * - Preserves Tamil Unicode characters via encodeURIComponent
+ * - Never falsely claim "Sent". Status is 'Prepared' or 'Opened' (or manual 'Sent')
  */
-
-import { formatINR } from './currency.js';
 
 /**
  * Normalizes Indian phone numbers into standard international format without '+' or special characters.
  * Example: 9876543210 -> 919876543210
  * Example: +91 98765-43210 -> 919876543210
- * Example: 919876543210 -> 919876543210
  */
 export function normalizeIndianPhone(phone) {
   if (!phone) return '';
@@ -48,6 +46,7 @@ export function isValidWhatsAppPhone(phone) {
 
 /**
  * Generates the WhatsApp Click-to-Chat URL.
+ * Preserves Tamil Unicode characters cleanly with encodeURIComponent.
  */
 export function generateWhatsAppUrl(phone, message) {
   const normalizedPhone = normalizeIndianPhone(phone);
@@ -57,35 +56,63 @@ export function generateWhatsAppUrl(phone, message) {
 }
 
 /**
- * Helper to format currency number without the ₹ symbol when constructing templates,
- * or with comma formatting (e.g. 1,00,000).
+ * Formats numbers into Indian numbering style (e.g. 1,00,000 or 3,750).
  */
 export function formatAmountOnly(amount) {
   const num = Number(amount) || 0;
   return new Intl.NumberFormat('en-IN').format(num);
 }
 
+/**
+ * Normalizes language string to 'en' or 'ta'.
+ */
+export function normalizeLanguage(lang) {
+  if (!lang) return 'en';
+  const l = String(lang).trim().toLowerCase();
+  if (l === 'ta' || l === 'tamil' || l === 'தமிழ்' || l === 'tam') {
+    return 'ta';
+  }
+  return 'en';
+}
+
 // ============================================================================
-// TEMPLATE BUILDERS (Dynamic, strictly from real database records)
+// TEMPLATE BUILDERS (English & தமிழ்)
 // ============================================================================
 
 /**
  * 1. Welcome Message
- * If 1 chit: Single chit format
- * If 2+ chits: Consolidated welcome message
+ * Single Chit vs Multiple Chits
  */
-export function buildWelcomeMessage(data = {}) {
-  const name = data.memberName || data.name || 'Member';
-  const chits = data.chits || [];
-  const activeChits = (chits || []).filter(c => c && c.chitNo);
+export function buildWelcomeMessage(data = {}, langArg) {
+  const lang = normalizeLanguage(data.language || langArg);
+  const name = data.memberName || data.name || (lang === 'ta' ? 'அன்பர்' : 'Member');
+  const chits = (data.chits || []).filter(c => c && c.chitNo && String(c.status || '').toUpperCase() !== 'CANCELLED');
 
-  if (activeChits.length <= 1) {
-    const chit = activeChits[0] || {};
-    const chitNo = chit.chitNo || data.chitNo || 'Pending Assignment';
+  // Single Chit Welcome
+  if (chits.length <= 1) {
+    const chit = chits[0] || {};
+    const chitNo = chit.chitNo || data.chitNo || 'Pending';
     const chitVal = formatAmountOnly(chit.chitValue || chit.totalAmount || data.chitValue || data.totalAmount || 0);
-    const duration = chit.durationMonths || chit.duration || data.durationMonths || data.duration || 0;
     const monthlyPay = formatAmountOnly(chit.monthlyPayment || chit.monthlyAmount || data.monthlyPayment || data.monthlyAmount || 0);
-    const payoutMonth = chit.payoutMonth || data.payoutMonth || 'Not Assigned';
+    const payoutMonth = chit.payoutMonth || data.payoutMonth || 'Pending';
+
+    if (lang === 'ta') {
+      return (
+`வணக்கம் ${name} 👋
+
+MSR CHITS-க்கு வரவேற்கிறோம்.
+
+உங்கள் சீட்டு விவரம்:
+
+சீட்டு எண்: ${chitNo}
+சீட்டு தொகை: ₹${chitVal}
+மாத தவணை: ₹${monthlyPay}
+பணம் பெறும் மாதம்: ${payoutMonth}வது மாதம்
+
+நன்றி.
+MSR CHITS`
+      );
+    }
 
     return (
 `Hi ${name} 👋
@@ -96,112 +123,76 @@ Your chit details:
 
 Chit No: ${chitNo}
 Chit Value: ₹${chitVal}
-Duration: ${duration} months
 Monthly Payment: ₹${monthlyPay}
-Fixed Payout Month: Month ${payoutMonth}
+Payout Month: Month ${payoutMonth}
 
-Thank you,
+Thank you for joining MSR CHITS.`
+    );
+  }
+
+  // Multiple Chits Combined Welcome
+  const totalMonthlyNum = chits.reduce((sum, c) => sum + (Number(c.monthlyPayment || c.monthlyAmount) || 0), 0);
+  const totalMonthly = formatAmountOnly(totalMonthlyNum);
+
+  if (lang === 'ta') {
+    const chitItems = chits.map((c, idx) => {
+      const val = formatAmountOnly(c.chitValue || c.totalAmount || 0);
+      return `${idx + 1}. ${c.chitNo} — ₹${val}\n   பணம் பெறும் மாதம்: ${c.payoutMonth || '-'}`;
+    }).join('\n\n');
+
+    return (
+`வணக்கம் ${name} 👋
+
+உங்கள் MSR CHITS:
+
+${chitItems}
+
+மொத்த மாத தவணை: ₹${totalMonthly}
+
+நன்றி.
 MSR CHITS`
     );
   }
 
-  // 2+ Chits Consolidated Welcome
-  let chitBlocks = '';
-  activeChits.forEach((chit, idx) => {
-    const chitNo = chit.chitNo || `Chit ${idx + 1}`;
-    const chitVal = formatAmountOnly(chit.chitValue || chit.totalAmount || 0);
-    const duration = chit.durationMonths || chit.duration || 0;
-    const monthlyPay = formatAmountOnly(chit.monthlyPayment || chit.monthlyAmount || 0);
-    const payoutMonth = chit.payoutMonth || 'Not Assigned';
-
-    chitBlocks += (
-`Chit ${idx + 1}:
-Chit No: ${chitNo}
-Chit Value: ₹${chitVal}
-Duration: ${duration} months
-Monthly Payment: ₹${monthlyPay}
-Payout Month: Month ${payoutMonth}
-`
-    );
-    if (idx < activeChits.length - 1) {
-      chitBlocks += '\n';
-    }
-  });
+  const chitItems = chits.map((c, idx) => {
+    const val = formatAmountOnly(c.chitValue || c.totalAmount || 0);
+    return `${idx + 1}. ${c.chitNo} — ₹${val}\n   Payout: Month ${c.payoutMonth || '-'}`;
+  }).join('\n\n');
 
   return (
 `Hi ${name} 👋
 
-Welcome to MSR CHITS.
+Your MSR CHITS:
 
-Your active chit memberships:
+${chitItems}
 
-━━━━━━━━━━━━━━
-${chitBlocks}━━━━━━━━━━━━━━
+Monthly Total: ₹${totalMonthly}
 
-Please keep these Chit Numbers for future reference.
-
-Thank you,
+Thank you.
 MSR CHITS`
   );
 }
 
 /**
- * Formats the Payment Details block strictly from saved Settings
- * Shows only available fields; hides blank bank fields.
- */
-export function formatPaymentDetailsBlock(settings = {}) {
-  const upiId = settings.upiId || settings.configuredUPI || '';
-  const bankName = settings.bankName || '';
-  const accountHolderName = settings.accountHolderName || settings.accountName || '';
-  const accountNumber = settings.accountNumber || settings.accountNo || '';
-  const ifsc = settings.ifscCode || settings.ifsc || '';
-  const branch = settings.branch || '';
-  const paymentInstructions = settings.paymentInstructions || settings.notes || '';
-
-  const hasUPI = Boolean(upiId && String(upiId).trim());
-  const hasBank = Boolean(
-    (bankName && String(bankName).trim()) ||
-    (accountNumber && String(accountNumber).trim()) ||
-    (ifsc && String(ifsc).trim())
-  );
-
-  if (!hasUPI && !hasBank) {
-    return (
-`Payment Details:
-
-Payment details are not configured. Please contact MSR CHITS.`
-    );
-  }
-
-  const lines = ['Payment Details:'];
-
-  if (hasUPI) {
-    lines.push(`\nUPI ID:\n${String(upiId).trim()}`);
-  }
-
-  if (hasBank) {
-    if (bankName && String(bankName).trim()) lines.push(`\nBank:\n${String(bankName).trim()}`);
-    if (accountHolderName && String(accountHolderName).trim()) lines.push(`\nAccount Name:\n${String(accountHolderName).trim()}`);
-    if (accountNumber && String(accountNumber).trim()) lines.push(`\nAccount No:\n${String(accountNumber).trim()}`);
-    if (ifsc && String(ifsc).trim()) lines.push(`\nIFSC:\n${String(ifsc).trim()}`);
-    if (branch && String(branch).trim()) lines.push(`\nBranch:\n${String(branch).trim()}`);
-  }
-
-  if (paymentInstructions && String(paymentInstructions).trim()) {
-    lines.push(`\nPayment Instruction:\n${String(paymentInstructions).trim()}`);
-  }
-
-  return lines.join('\n');
-}
-
-/**
  * 2. Monthly Payment Reminder
- * Generates dynamic month-specific reminder from actual schedule, multiple active chits, and Settings
+ * Single Chit vs Multiple Active Chits
+ * Reads actual monthly schedule data and configured UPI ID.
  */
-export function buildPaymentReminderMessage(data = {}, secondArg) {
-  const name = data.memberName || data.name || 'Member';
-  
-  // Filter active chits (exclude cancelled or inactive)
+export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
+  let lang = 'en';
+  if (typeof thirdArg === 'string') {
+    lang = normalizeLanguage(thirdArg);
+  } else if (typeof secondArg === 'string' && (secondArg === 'ta' || secondArg === 'en' || secondArg === 'tamil' || secondArg === 'தமிழ்')) {
+    lang = normalizeLanguage(secondArg);
+  } else {
+    lang = normalizeLanguage(data.language);
+  }
+
+  const name = data.memberName || data.name || (lang === 'ta' ? 'அன்பர்' : 'Member');
+  const monthSchedule = data.monthSchedule || {};
+  const currentMonthNum = Number(data.currentMonth || (typeof secondArg === 'number' ? secondArg : data.month) || 1);
+
+  // Filter active chits
   const rawChits = data.chits || (data.chitNo ? [data] : []);
   const activeChits = rawChits.filter(c => {
     if (!c) return false;
@@ -209,296 +200,304 @@ export function buildPaymentReminderMessage(data = {}, secondArg) {
     return s !== 'CANCELLED' && s !== 'INACTIVE';
   });
 
-  const monthSchedule = data.monthSchedule || {};
-  const currentMonthNum = Number(data.currentMonth || secondArg || 1);
-  const monthName = data.monthName || (data.month ? `Month ${data.month}` : `Month ${currentMonthNum}`);
-  const dueDate = data.dueDate || data.paymentDueDate || `20th of ${monthName}`;
-  
-  const settings = data.settings || {
-    upiId: data.upiId || data.configuredUPI || '',
-    bankName: data.bankName || '',
-    accountHolderName: data.accountHolderName || '',
-    accountNumber: data.accountNumber || '',
-    ifsc: data.ifsc || data.ifscCode || '',
-    branch: data.branch || '',
-    paymentInstructions: data.paymentInstructions || ''
-  };
+  const upiId = data.upiId || data.settings?.upiId || data.configuredUPI || '';
 
-  const paymentBlock = formatPaymentDetailsBlock(settings);
-
-  // Single Chit Format
+  // Single Chit Reminder
   if (activeChits.length <= 1) {
     const chit = activeChits[0] || {};
-    const chitNo = chit.chitNo || data.chitNo || 'Pending Assignment';
-    const curMonth = Number(data.month || chit.currentMonth || currentMonthNum);
-    const duration = Number(chit.durationMonths || chit.duration || data.durationMonths || data.duration || 20);
+    const chitNo = chit.chitNo || data.chitNo || 'Pending';
+    const month = Number(data.month || chit.currentMonth || currentMonthNum);
 
-    let monthlyPayNum = 0;
+    let amountNum = 0;
     if (data.amount !== undefined && Number(data.amount) > 0) {
-      monthlyPayNum = Number(data.amount);
-    } else if (monthSchedule[curMonth] !== undefined && Number(monthSchedule[curMonth]) > 0) {
-      monthlyPayNum = Number(monthSchedule[curMonth]);
+      amountNum = Number(data.amount);
+    } else if (monthSchedule[month] !== undefined && Number(monthSchedule[month]) > 0) {
+      amountNum = Number(monthSchedule[month]);
     } else if (chit.monthlyPayment !== undefined && Number(chit.monthlyPayment) > 0) {
-      monthlyPayNum = Number(chit.monthlyPayment);
+      amountNum = Number(chit.monthlyPayment);
     } else if (chit.monthlyAmount !== undefined && Number(chit.monthlyAmount) > 0) {
-      monthlyPayNum = Number(chit.monthlyAmount);
+      amountNum = Number(chit.monthlyAmount);
     } else {
-      monthlyPayNum = curMonth === 1 ? 5000 : 3750;
+      amountNum = month === 1 ? 5000 : 3750;
     }
 
     const paidNum = Number(data.paidAmount) || 0;
-    const isPartial = paidNum > 0 && paidNum < monthlyPayNum;
-    const balanceNum = Math.max(0, monthlyPayNum - paidNum);
-    const totalDueNum = isPartial ? balanceNum : (paidNum >= monthlyPayNum ? 0 : monthlyPayNum);
+    const isPartial = paidNum > 0 && paidNum < amountNum;
+    const dueNum = isPartial ? Math.max(0, amountNum - paidNum) : amountNum;
+    const amountStr = formatAmountOnly(dueNum);
 
-    let amountSection = `  Amount Due: ₹${formatAmountOnly(monthlyPayNum)}`;
-    if (isPartial) {
-      amountSection = `  Amount Due: ₹${formatAmountOnly(monthlyPayNum)}\n  Paid: ₹${formatAmountOnly(paidNum)}\n  Balance Due: ₹${formatAmountOnly(balanceNum)}`;
+    let upiBlock = '';
+    if (upiId && String(upiId).trim()) {
+      upiBlock = lang === 'ta' 
+        ? `\n\nபணம் செலுத்த UPI:\n${String(upiId).trim()}`
+        : `\n\nPayment UPI:\n${String(upiId).trim()}`;
+    }
+
+    if (lang === 'ta') {
+      return (
+`வணக்கம் ${name} 👋
+
+MSR CHITS மாத தவணை நினைவூட்டல்.
+
+மாதம்: ${month}
+தொகை: ₹${amountStr}
+சீட்டு எண்: ${chitNo}
+
+தயவுசெய்து இந்த மாத தவணையை செலுத்தவும்.${upiBlock}
+
+நன்றி.
+MSR CHITS`
+      );
     }
 
     return (
 `Hi ${name} 👋
 
-This is your MSR CHITS monthly payment reminder.
+MSR CHITS payment reminder.
 
-📅 Month: ${monthName}
-📌 Payment Due Date: ${dueDate}
+Month: ${month}
+Amount: ₹${amountStr}
+Chit No: ${chitNo}
 
-Your Chit Payments:
+Please make your monthly payment.${upiBlock}
 
-• Chit No: ${chitNo}
-  Chit Month: ${curMonth} / ${duration}
-${amountSection}
-
-━━━━━━━━━━━━━━
-Total Amount Due: ₹${formatAmountOnly(totalDueNum)}
-━━━━━━━━━━━━━━
-
-${paymentBlock}
-
-After payment, please share the payment confirmation or transaction reference.
-
-Thank you,
+Thank you.
 MSR CHITS`
     );
   }
 
-  // 2+ Chits: Consolidated Multi-Chit Format
-  let chitLines = [];
+  // Multiple Chits Combined Reminder
   let calculatedTotal = 0;
-
-  activeChits.forEach((chit) => {
+  const chitLines = activeChits.map(chit => {
     const chitNo = chit.chitNo;
-    const curMonth = Number(chit.currentMonth || currentMonthNum);
-    const duration = Number(chit.durationMonths || chit.duration || 20);
+    const cMonth = Number(chit.currentMonth || currentMonthNum);
 
-    let payNum = 0;
-    if (monthSchedule[curMonth] !== undefined && Number(monthSchedule[curMonth]) > 0) {
-      payNum = Number(monthSchedule[curMonth]);
+    let cPay = 0;
+    if (monthSchedule[cMonth] !== undefined && Number(monthSchedule[cMonth]) > 0) {
+      cPay = Number(monthSchedule[cMonth]);
     } else if (chit.monthlyPayment !== undefined && Number(chit.monthlyPayment) > 0) {
-      payNum = Number(chit.monthlyPayment);
+      cPay = Number(chit.monthlyPayment);
     } else if (chit.monthlyAmount !== undefined && Number(chit.monthlyAmount) > 0) {
-      payNum = Number(chit.monthlyAmount);
+      cPay = Number(chit.monthlyAmount);
     } else {
-      payNum = curMonth === 1 ? 5000 : 3750;
+      cPay = cMonth === 1 ? 5000 : 3750;
     }
 
     const paidNum = Number(chit.paidAmount) || 0;
-    const isPartial = paidNum > 0 && paidNum < payNum;
-    const balanceNum = Math.max(0, payNum - paidNum);
-    const itemDue = isPartial ? balanceNum : (paidNum >= payNum ? 0 : payNum);
-
+    const itemDue = (paidNum > 0 && paidNum < cPay) ? Math.max(0, cPay - paidNum) : cPay;
     calculatedTotal += itemDue;
 
-    if (isPartial) {
-      chitLines.push(
-`• Chit No: ${chitNo}
-  Chit Month: ${curMonth} / ${duration}
-  Amount Due: ₹${formatAmountOnly(payNum)}
-  Paid: ₹${formatAmountOnly(paidNum)}
-  Balance Due: ₹${formatAmountOnly(balanceNum)}`
-      );
-    } else {
-      chitLines.push(
-`• Chit No: ${chitNo}
-  Chit Month: ${curMonth} / ${duration}
-  Amount Due: ₹${formatAmountOnly(payNum)}`
-      );
-    }
+    return `${chitNo} — ₹${formatAmountOnly(itemDue)}`;
   });
+
+  const totalStr = formatAmountOnly(calculatedTotal);
+
+  let upiBlock = '';
+  if (upiId && String(upiId).trim()) {
+    upiBlock = lang === 'ta'
+      ? `\n\nபணம் செலுத்த UPI:\n${String(upiId).trim()}`
+      : `\n\nPayment UPI:\n${String(upiId).trim()}`;
+  }
+
+  if (lang === 'ta') {
+    return (
+`வணக்கம் ${name} 👋
+
+MSR CHITS மாத தவணை நினைவூட்டல்.
+
+இந்த மாத மொத்த தவணை: ₹${totalStr}
+
+${chitLines.join('\n')}
+
+தயவுசெய்து தவணையை செலுத்தவும்.${upiBlock}
+
+நன்றி.
+MSR CHITS`
+    );
+  }
 
   return (
 `Hi ${name} 👋
 
-This is your MSR CHITS monthly payment reminder.
+MSR CHITS payment reminder.
 
-📅 Month: ${monthName}
-📌 Payment Due Date: ${dueDate}
+This month's total: ₹${totalStr}
 
-Your Chit Payments:
+${chitLines.join('\n')}
 
-${chitLines.join('\n\n')}
+Please make the payment.${upiBlock}
 
-━━━━━━━━━━━━━━
-Total Amount Due: ₹${formatAmountOnly(calculatedTotal)}
-━━━━━━━━━━━━━━
-
-${paymentBlock}
-
-After payment, please share the payment confirmation or transaction reference.
-
-Thank you,
+Thank you.
 MSR CHITS`
   );
 }
 
 /**
  * 3. Payment Received Confirmation
- * Strictly uses the actual payment returned from the database API.
  */
-export function buildPaymentConfirmationMessage({
-  memberName,
-  chitNo,
-  month = 1,
-  duration = 20,
-  amount = 0,
-  paidAmount = 0,
-  paymentDate,
-  reference = '',
-  referenceNumber = ''
-}) {
-  const name = memberName || 'Member';
-  const cNo = chitNo || 'N/A';
-  const amtFormatted = formatAmountOnly(paidAmount || amount || 0);
-  const dateFormatted = paymentDate || new Date().toISOString().split('T')[0];
-  const ref = reference || referenceNumber || '';
-  const refLine = ref ? `\nReceipt / Reference:\n${ref}\n` : '';
+export function buildPaymentConfirmationMessage(data = {}, langArg) {
+  const lang = normalizeLanguage(data.language || langArg);
+  const name = data.memberName || data.name || (lang === 'ta' ? 'அன்பர்' : 'Member');
+  const chitNo = data.chitNo || 'Pending';
+  const month = data.month || data.monthNumber || 1;
+  const amount = formatAmountOnly(data.paidAmount || data.amount || 0);
+
+  if (lang === 'ta') {
+    return (
+`வணக்கம் ${name} 👋
+
+உங்கள் பணம் பெறப்பட்டது.
+
+சீட்டு எண்: ${chitNo}
+மாதம்: ${month}
+தொகை: ₹${amount}
+
+நன்றி.
+MSR CHITS`
+    );
+  }
 
   return (
 `Hi ${name} 👋
 
 Payment received successfully.
 
-Chit No:
-${cNo}
+Chit No: ${chitNo}
+Month: ${month}
+Amount: ₹${amount}
 
-Month:
-${month} / ${duration}
-
-Amount Received:
-₹${amtFormatted}
-
-Payment Date:
-${dateFormatted}
-${refLine}
-Thank you,
+Thank you.
 MSR CHITS`
   );
 }
 
 /**
- * 4. Payout Detail Message (Before payout)
+ * 4. Payout Information / Scheduled
  */
-export function buildPayoutDetailMessage({
-  memberName,
-  chitNo,
-  chitValue = 100000,
-  payoutMonth = 2
-}) {
-  const name = memberName || 'Member';
-  const cNo = chitNo || 'MSR261L01';
-  const chitValFormatted = formatAmountOnly(chitValue);
+export function buildPayoutDetailMessage(data = {}, langArg) {
+  const lang = normalizeLanguage(data.language || langArg);
+  const name = data.memberName || data.name || (lang === 'ta' ? 'அன்பர்' : 'Member');
+  const chitNo = data.chitNo || 'Pending';
+  const month = data.month || data.payoutMonth || 1;
+  const scheduledAmount = formatAmountOnly(data.scheduledAmount || data.amount || data.chitValue || 0);
 
-  return (
-`Hi ${name},
+  if (lang === 'ta') {
+    return (
+`வணக்கம் ${name} 👋
 
-MSR CHITS Payout Information 🎯
+உங்கள் MSR CHITS பணம் பெறும் விவரம்:
 
-Chit No: ${cNo}
+சீட்டு எண்: ${chitNo}
+பணம் பெறும் மாதம்: ${month}
 
-Chit Value: ₹${chitValFormatted}
-Payout Month: Month ${payoutMonth}
-Status: Scheduled
-
-Your payout is assigned to Month ${payoutMonth}.
+திட்டமிட்ட தொகை: ₹${scheduledAmount}
 
 MSR CHITS`
-  );
-}
-
-/**
- * 5. Payout Reminder
- */
-export function buildPayoutReminderMessage({
-  memberName,
-  chitNo,
-  chitValue = 100000,
-  payoutMonth = 2
-}) {
-  const name = memberName || 'Member';
-  const cNo = chitNo || 'MSR261L01';
-  const chitValFormatted = formatAmountOnly(chitValue);
-
-  return (
-`Hi ${name},
-
-MSR CHITS Payout Reminder 🎯
-
-Chit No: ${cNo}
-Chit Value: ₹${chitValFormatted}
-Payout Month: Month ${payoutMonth}
-
-Your payout is scheduled for Month ${payoutMonth}.
-
-MSR CHITS`
-  );
-}
-
-/**
- * 6. Payout Completed Confirmation
- * Uses actual payout amount and date from the recorded payout.
- */
-export function buildPayoutConfirmationMessage({
-  memberName,
-  chitNo,
-  payoutMonth = 1,
-  actualPayoutAmount = 0,
-  payoutDate,
-  fundingSource = 'CHIT_FUND',
-  status = 'Completed'
-}) {
-  const name = memberName || 'Member';
-  const cNo = chitNo || 'N/A';
-  const amtFormatted = formatAmountOnly(actualPayoutAmount);
-  const dateFormatted = payoutDate || new Date().toISOString().split('T')[0];
+    );
+  }
 
   return (
 `Hi ${name} 👋
 
-MSR CHITS Payout Disbursed 🎉
+Your MSR CHITS payout is scheduled.
 
-Chit No: ${cNo}
-Payout Month: Month ${payoutMonth}
-Payout Amount: ₹${amtFormatted}
-Payout Date: ${dateFormatted}
-Funding Source: ${fundingSource}
-Status: ${status}
+Chit No: ${chitNo}
+Payout Month: ${month}
 
-Thank you,
+Scheduled Amount: ₹${scheduledAmount}
+
 MSR CHITS`
   );
 }
 
-// Aliases for seamless naming compatibility
+export function buildPayoutReminderMessage(data = {}, langArg) {
+  return buildPayoutDetailMessage(data, langArg);
+}
+
+/**
+ * 5. Actual Payout Completed
+ */
+export function buildPayoutConfirmationMessage(data = {}, langArg) {
+  const lang = normalizeLanguage(data.language || langArg);
+  const name = data.memberName || data.name || (lang === 'ta' ? 'அன்பர்' : 'Member');
+  const chitNo = data.chitNo || 'Pending';
+  const month = data.month || data.monthNumber || data.payoutMonth || 1;
+  const actualAmount = formatAmountOnly(data.actualAmount || data.actualPayoutAmount || data.amount || data.payoutAmount || 0);
+  
+  const rawFunding = String(data.fundingSource || '').toUpperCase();
+  const isExtra = rawFunding.includes('EXTRA');
+  const fundingSource = isExtra ? 'Extra Investment' : 'Chit Fund';
+
+  if (lang === 'ta') {
+    return (
+`வணக்கம் ${name} 👋
+
+உங்கள் சீட்டு பணம் வழங்கப்பட்டது.
+
+சீட்டு எண்: ${chitNo}
+மாதம்: ${month}
+வழங்கிய தொகை: ₹${actualAmount}
+மூலம்: ${fundingSource}
+
+நன்றி.
+MSR CHITS`
+    );
+  }
+
+  return (
+`Hi ${name} 👋
+
+Payout completed.
+
+Chit No: ${chitNo}
+Month: ${month}
+Amount Paid: ₹${actualAmount}
+Funding: ${fundingSource}
+
+Thank you.
+MSR CHITS`
+  );
+}
+
+// Aliases for compatibility
 export const createWelcomeMessage = buildWelcomeMessage;
-export const generateWelcomeMessage = (member, chit) => buildWelcomeMessage({ ...member, ...(chit ? { chits: [chit], ...chit } : {}) });
-export const createMonthlyPaymentReminder = (arg1, arg2) => buildPaymentReminderMessage(arg1, arg2);
-export const generatePaymentReminderMessage = (member, reminderData) => buildPaymentReminderMessage({ ...member, ...reminderData });
+export const generateWelcomeMessage = (member, chit, lang) => {
+  if (chit && typeof chit === 'string') {
+    return buildWelcomeMessage(member, chit);
+  }
+  return buildWelcomeMessage({ ...member, ...(chit ? { chits: [chit], ...chit } : {}), language: lang || member?.language });
+};
+
+export const createMonthlyPaymentReminder = (arg1, arg2, arg3) => buildPaymentReminderMessage(arg1, arg2, arg3);
+export const generatePaymentReminderMessage = (member, reminderData, lang) => {
+  if (reminderData && typeof reminderData === 'string') {
+    return buildPaymentReminderMessage(member, reminderData);
+  }
+  return buildPaymentReminderMessage({ ...member, ...reminderData, language: lang || reminderData?.language || member?.language });
+};
+
 export const createPaymentConfirmationMessage = buildPaymentConfirmationMessage;
-export const generatePaymentReceiptMessage = (member, paymentData) => buildPaymentConfirmationMessage({ memberName: member?.name || member?.memberName, ...paymentData });
+export const generatePaymentReceiptMessage = (memberOrData, paymentDataOrLang, lang) => {
+  if (!paymentDataOrLang || typeof paymentDataOrLang === 'string') {
+    return buildPaymentConfirmationMessage(memberOrData, paymentDataOrLang);
+  }
+  return buildPaymentConfirmationMessage({ 
+    memberName: memberOrData?.name || memberOrData?.memberName, 
+    ...paymentDataOrLang, 
+    language: lang || paymentDataOrLang?.language || memberOrData?.language 
+  });
+};
+
 export const createPayoutDetailsMessage = buildPayoutDetailMessage;
 export const createPayoutReminderMessage = buildPayoutReminderMessage;
 export const createPayoutConfirmationMessage = buildPayoutConfirmationMessage;
-export const generatePayoutMessage = (member, payoutData) => buildPayoutConfirmationMessage({ memberName: member?.name || member?.memberName, ...payoutData });
-
-
+export const generatePayoutMessage = (memberOrData, payoutDataOrLang, lang) => {
+  if (!payoutDataOrLang || typeof payoutDataOrLang === 'string') {
+    return buildPayoutConfirmationMessage(memberOrData, payoutDataOrLang);
+  }
+  return buildPayoutConfirmationMessage({ 
+    memberName: memberOrData?.name || memberOrData?.memberName, 
+    ...payoutDataOrLang, 
+    language: lang || payoutDataOrLang?.language || memberOrData?.language 
+  });
+};

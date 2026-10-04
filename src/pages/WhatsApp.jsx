@@ -627,6 +627,7 @@ export const WhatsApp = () => {
                       <th className="py-3 px-4">Member</th>
                       <th className="py-3 px-4">Phone</th>
                       <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Language</th>
                       <th className="py-3 px-4">Chit No</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Created At</th>
@@ -647,6 +648,11 @@ export const WhatsApp = () => {
                         </td>
                         <td className="py-3 px-4 font-semibold capitalize">
                           {log.messageType?.replace('_', ' ')}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0]">
+                            {log.language === 'Tamil' || log.language === 'ta' ? 'தமிழ்' : 'English'}
+                          </span>
                         </td>
                         <td className="py-3 px-4 font-mono font-bold text-[#003524]">
                           {log.chitNo || '-'}
