@@ -228,9 +228,7 @@ export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
 
     let upiBlock = '';
     if (upiId && String(upiId).trim()) {
-      upiBlock = lang === 'ta' 
-        ? `\n\nபணம் செலுத்த UPI:\n${String(upiId).trim()}`
-        : `\n\nPayment UPI:\n${String(upiId).trim()}`;
+      upiBlock = `\n\nUPI: ${String(upiId).trim()}`;
     }
 
     if (lang === 'ta') {
@@ -239,11 +237,11 @@ export function buildPaymentReminderMessage(data = {}, secondArg, thirdArg) {
 
 MSR CHITS மாத தவணை நினைவூட்டல்.
 
-மாதம்: ${month}
-தொகை: ₹${amountStr}
 சீட்டு எண்: ${chitNo}
+மாதம்: ${month}
+தொகை: ₹${amountStr}${upiBlock}
 
-தயவுசெய்து இந்த மாத தவணையை செலுத்தவும்.${upiBlock}
+தயவுசெய்து பணம் செலுத்தி screenshot-ஐ பகிரவும்.
 
 நன்றி.
 MSR CHITS`
@@ -255,11 +253,11 @@ MSR CHITS`
 
 MSR CHITS payment reminder.
 
-Month: ${month}
-Amount: ₹${amountStr}
 Chit No: ${chitNo}
+Month: ${month}
+Amount: ₹${amountStr}${upiBlock}
 
-Please make your monthly payment.${upiBlock}
+Please make the payment and share the screenshot.
 
 Thank you.
 MSR CHITS`
@@ -294,9 +292,7 @@ MSR CHITS`
 
   let upiBlock = '';
   if (upiId && String(upiId).trim()) {
-    upiBlock = lang === 'ta'
-      ? `\n\nபணம் செலுத்த UPI:\n${String(upiId).trim()}`
-      : `\n\nPayment UPI:\n${String(upiId).trim()}`;
+    upiBlock = `\n\nUPI: ${String(upiId).trim()}`;
   }
 
   if (lang === 'ta') {
@@ -307,9 +303,9 @@ MSR CHITS மாத தவணை நினைவூட்டல்.
 
 இந்த மாத மொத்த தவணை: ₹${totalStr}
 
-${chitLines.join('\n')}
+${chitLines.join('\n')}${upiBlock}
 
-தயவுசெய்து தவணையை செலுத்தவும்.${upiBlock}
+தயவுசெய்து பணம் செலுத்தி screenshot-ஐ பகிரவும்.
 
 நன்றி.
 MSR CHITS`
@@ -323,9 +319,9 @@ MSR CHITS payment reminder.
 
 This month's total: ₹${totalStr}
 
-${chitLines.join('\n')}
+${chitLines.join('\n')}${upiBlock}
 
-Please make the payment.${upiBlock}
+Please make the payment and share the screenshot.
 
 Thank you.
 MSR CHITS`

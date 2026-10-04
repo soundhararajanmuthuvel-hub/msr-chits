@@ -173,7 +173,7 @@ export const WhatsAppComposerModal = ({
     let msg = '';
     const memberName = member.name || 'Member';
     const langCode = normalizeLanguage(language);
-    const upiId = settings?.upiId || settings?.configuredUPI || 'msrchits@okhdfcbank';
+    const upiId = settings?.upiId || settings?.configuredUPI || '';
 
     switch (messageType) {
       case 'welcome':

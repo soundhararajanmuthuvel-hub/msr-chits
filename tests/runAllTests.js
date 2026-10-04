@@ -1934,7 +1934,7 @@ assert(
 
 // TEST 5: Bank/UPI Settings Integration: Verify configured UPI in reminder
 assert(
-  novReminderMsg.includes('Payment UPI:\ntest@upi'),
+  novReminderMsg.includes('UPI: test@upi'),
   'MONTHLY REMINDER TEST 5: Message reads configured bank & UPI details from Settings',
   `Bank details verification:\n${novReminderMsg}`
 );
@@ -1955,7 +1955,7 @@ const updatedUpiReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  updatedUpiReminder.includes('newupi@upi') &&
+  updatedUpiReminder.includes('UPI: newupi@upi') &&
   !updatedUpiReminder.includes('test@upi'),
   'MONTHLY REMINDER TEST 6: Updating UPI ID in Settings reflects immediately in next reminder',
   `New UPI verified: ${updatedUpiReminder.includes('newupi@upi')}`
@@ -1975,7 +1975,7 @@ const upiOnlyReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  upiOnlyReminder.includes('onlyupi@okhdfc') &&
+  upiOnlyReminder.includes('UPI: onlyupi@okhdfc') &&
   !upiOnlyReminder.includes('Bank:') &&
   !upiOnlyReminder.includes('Account No:'),
   'MONTHLY REMINDER TEST 7: If only UPI configured, blank bank fields are hidden',
@@ -1993,7 +1993,7 @@ const emptySettingsReminder = generatePaymentReminderMessage(memberAmma, {
 });
 
 assert(
-  !emptySettingsReminder.includes('Payment UPI:'),
+  !emptySettingsReminder.includes('UPI:'),
   'MONTHLY REMINDER TEST 8: Fallback message cleanly omits UPI when not configured',
   `Empty settings message verified`
 );
