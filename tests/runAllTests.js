@@ -2970,6 +2970,87 @@ assert(
   'COLLECTION PAYOUT TEST 10: Cash remaining (₹35,000) is strictly distinct and isolated from operational profit (₹5,000)'
 );
 
+// TEST 11: Independent Collection Tracking: 20 members, variable installment (M1: ₹5,000, M2: ₹3,750), total dues (M1: ₹1,00,000, M2: ₹75,000)
+assert(
+  month1Data.membersExpected === 20 &&
+  month1Data.amountDuePerMember === 5000 &&
+  month1Data.totalAmountDue === 100000 &&
+  month2Data.membersExpected === 20 &&
+  month2Data.amountDuePerMember === 3750 &&
+  month2Data.totalAmountDue === 75000,
+  'COLLECTION PAYOUT TEST 11: Independent collection tracking resolves 20 members, M1 ₹5,000 (total ₹1,00,000) and M2 ₹3,750 (total ₹75,000)'
+);
+
+// TEST 12: Scheduled Payout is NOT treated as actual payment for Month 2 until confirmed
+const unconfirmedMonth2Flow = calculateMonthlyCashFlow({
+  chit: testChit,
+  schedule: [
+    { monthNumber: 1, actualCollection: 100000, memberName: 'Dinesh Mama', payoutAmount: 70000, payoutStatus: 'Completed' },
+    { monthNumber: 2, actualCollection: 75000, memberName: 'Mani Mama', payoutAmount: 70000, payoutStatus: 'Scheduled' } // Assigned/Scheduled, NOT yet paid
+  ],
+  payouts: [
+    { payoutId: 'PO-M1-01', monthNumber: 1, memberName: 'Dinesh Mama', amount: 70000, actualAmount: 70000, status: 'Completed' },
+    { payoutId: 'PO-M2-01', monthNumber: 2, memberName: 'Mani Mama', scheduledAmount: 70000, amount: 70000, status: 'Scheduled' } // Only scheduled
+  ],
+  maxMonths: 2
+});
+
+const unconfirmedM2 = unconfirmedMonth2Flow.months[1];
+assert(
+  unconfirmedM2.scheduledPayout === 70000 &&
+  unconfirmedM2.actualPayout === 0 &&
+  unconfirmedM2.payoutStatus === 'Scheduled' &&
+  unconfirmedM2.cashRemainingBeforeExpenses === 75000 && // 75000 collection - 0 actual paid
+  unconfirmedM2.closingCash === 105000, // 30000 carried + 75000 collection - 0 actual paid
+  'COLLECTION PAYOUT TEST 12: Month 2 with scheduled payout of ₹70,000 strictly leaves actual payout as ₹0 and status as Scheduled until confirmed'
+);
+
+// TEST 13: Once administrator confirms Month 2 payout as paid, actual payout becomes ₹70,000 and status Completed
+const confirmedMonth2Flow = calculateMonthlyCashFlow({
+  chit: testChit,
+  schedule: [
+    { monthNumber: 1, actualCollection: 100000, memberName: 'Dinesh Mama', payoutAmount: 70000, payoutStatus: 'Completed' },
+    { monthNumber: 2, actualCollection: 75000, memberName: 'Mani Mama', payoutAmount: 70000, payoutStatus: 'Completed' }
+  ],
+  payouts: [
+    { payoutId: 'PO-M1-01', monthNumber: 1, memberName: 'Dinesh Mama', amount: 70000, actualAmount: 70000, status: 'Completed' },
+    { payoutId: 'PO-M2-01', monthNumber: 2, memberName: 'Mani Mama', scheduledAmount: 70000, amount: 70000, actualAmount: 70000, status: 'Completed' }
+  ],
+  maxMonths: 2
+});
+
+const confirmedM2 = confirmedMonth2Flow.months[1];
+assert(
+  confirmedM2.scheduledPayout === 70000 &&
+  confirmedM2.actualPayout === 70000 &&
+  confirmedM2.payoutStatus === 'Completed' &&
+  confirmedM2.cashRemainingBeforeExpenses === 5000 && // 75000 collection - 70000 actual paid = 5000
+  confirmedM2.closingCash === 35000 && // 30000 carried + 5000 net = 35000
+  confirmedMonth2Flow.totals.totalCollection === 175000 &&
+  confirmedMonth2Flow.totals.totalActualPayouts === 140000 &&
+  confirmedMonth2Flow.totals.cashRemainingBeforeExpenses === 35000,
+  'COLLECTION PAYOUT TEST 13: Confirmed Month 2 calculates actual payout ₹70,000, monthly diff ₹5,000, closing cash ₹35,000, combined diff ₹35,000'
+);
+
+// TEST 14: Month 3 and subsequent months use their actual schedule installments (never assuming flat ₹5,000)
+const month3ScheduleFlow = calculateMonthlyCashFlow({
+  chit: testChit,
+  schedule: [
+    { monthNumber: 1, amount: 5000 },
+    { monthNumber: 2, amount: 3750 },
+    { monthNumber: 3, amount: 3825 },
+    { monthNumber: 4, amount: 3900 }
+  ],
+  maxMonths: 4
+});
+assert(
+  month3ScheduleFlow.months[2].amountDuePerMember === 3825 &&
+  month3ScheduleFlow.months[2].totalAmountDue === 76500 &&
+  month3ScheduleFlow.months[3].amountDuePerMember === 3900 &&
+  month3ScheduleFlow.months[3].totalAmountDue === 78000,
+  'COLLECTION PAYOUT TEST 14: Month 3 (₹3,825 due, ₹76,500 total) and Month 4 (₹3,900 due, ₹78,000 total) accurately read variable installments'
+);
+
 console.log('\n====================================================');
 console.log(`TEST SUITE RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================');

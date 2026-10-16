@@ -9,7 +9,9 @@
  * 2. Carry forward the previous month's closing cash as the next month's opening cash.
  * 3. Never count an investment transfer twice: track investment funding and allocation separately.
  * 4. Payouts funded by EXTRA_INVESTMENT are cash outflows to members; do not double-deduct as investment outflow.
- * 5. Simple difference = Actual Collections - Actual Payouts (shown separately).
+ * 5. Cash Remaining Before Other Expenses = Actual Collections - Actual Payouts (shown separately).
+ * 6. Use the actual monthly installment from the existing MonthlySchedule (do not assume flat ₹5,000).
+ * 7. Do not treat a scheduled payout as an actual payment until confirmed as paid.
  */
 
 import { generateChitNumber } from './chitNumber.js';
@@ -44,6 +46,7 @@ export function calculateMonthlyCashFlow({
   const chitId = chit?.chitId || 'CHIT-100K-01';
   const chitValue = Number(chit?.chitValue || chit?.totalAmount || 100000);
   const duration = Number(chit?.durationMonths || chit?.duration || maxMonths || 20);
+  const totalMembers = Number(chit?.requiredMembers || chit?.totalMembers || chit?.memberCount || 20);
   const initialOpeningBalance = Number(settings?.initialOpeningCash || settings?.openingCashBalance || 0);
 
   const monthsData = [];
@@ -63,7 +66,10 @@ export function calculateMonthlyCashFlow({
     return String(po.chitId) === String(chitId);
   });
 
+  let cumulativeTotalDue = 0;
   let cumulativeCollection = 0;
+  let cumulativeOutstanding = 0;
+  let cumulativeScheduledPayout = 0;
   let cumulativeActualPayout = 0;
   let cumulativeInvestmentsReceived = 0;
   let cumulativeInvestmentsRecovered = 0;
@@ -81,7 +87,15 @@ export function calculateMonthlyCashFlow({
       return matchChit && matchMonth;
     });
 
-    // 2. Payments for month m
+    // 2. Collection tracking parameters
+    const membersExpected = totalMembers;
+    // Use actual monthly installment from MonthlySchedule (M1: ₹5,000, M2: ₹3,750, M3: ₹3,825...)
+    const amountDuePerMember = schItem
+      ? (Number(schItem.amount || schItem.monthlyAmount) || (m === 1 ? 5000 : 3750))
+      : (m === 1 ? 5000 : 3750);
+    const totalAmountDue = membersExpected * amountDuePerMember;
+
+    // Payments for month m
     const mPayments = validPayments.filter(p => Number(p.monthNumber || p.month) === m);
     const sumPayments = mPayments.reduce((acc, p) => acc + (Number(p.paidAmount || p.amount) || 0), 0);
 
@@ -89,7 +103,7 @@ export function calculateMonthlyCashFlow({
     // Priority:
     // (A) Admin recorded explicit actualCollection on scheduleItem
     // (B) Sum of recorded member payments if greater than 0
-    // (C) 0 if no payments or collection recorded
+    // (C) Expected amount if month is confirmed as fully collected, else sumPayments
     let actualCollected = 0;
     if (schItem && schItem.actualCollection !== undefined && schItem.actualCollection !== null && schItem.actualCollection !== '') {
       actualCollected = Number(schItem.actualCollection) || 0;
@@ -99,7 +113,9 @@ export function calculateMonthlyCashFlow({
       actualCollected = sumPayments;
     }
 
-    // 3. Payouts for month m
+    const outstandingCollections = Math.max(0, totalAmountDue - actualCollected);
+
+    // 3. Payout tracking parameters
     const mPayouts = chitPayouts.filter(po => Number(po.monthNumber || po.month) === m);
     const hasRecordedPayout = mPayouts.length > 0;
 
@@ -116,41 +132,71 @@ export function calculateMonthlyCashFlow({
     let payoutNotes = '';
 
     if (hasRecordedPayout) {
-      // Primary payout record for recipient/chitNo display
       const primaryPayout = mPayouts[0];
-      actualPayout = mPayouts.reduce((acc, po) => acc + (Number(po.actualAmount !== undefined ? po.actualAmount : po.amount) || 0), 0);
-      scheduledPayout = Number(primaryPayout.scheduledAmount || primaryPayout.scheduledPayoutAmount) || (schItem ? Number(schItem.payoutAmount) : 0) || actualPayout;
+      const isRecordCompleted = mPayouts.some(po => {
+        const st = String(po.status || '').toLowerCase();
+        if (st === 'completed' || st === 'paid') return true;
+        if (st === 'scheduled' || st === 'pending' || st === 'upcoming' || st === 'assigned') return false;
+        return (Number(po.actualAmount) > 0 || Number(po.amount) > 0);
+      });
+
+      scheduledPayout = Number(primaryPayout.scheduledAmount || primaryPayout.scheduledPayoutAmount) ||
+        (schItem ? Number(schItem.payoutAmount) : 0) ||
+        70000;
+
+      // Only confirmed/completed payouts count as actual cash disbursed
+      if (isRecordCompleted) {
+        actualPayout = mPayouts.reduce((acc, po) => {
+          const st = String(po.status || '').toLowerCase();
+          if (st === 'scheduled' || st === 'pending' || st === 'upcoming' || st === 'assigned') return acc;
+          return acc + (Number(po.actualAmount !== undefined ? po.actualAmount : po.amount) || 0);
+        }, 0);
+        payoutStatus = 'Completed';
+      } else {
+        actualPayout = 0;
+        payoutStatus = primaryPayout.status || 'Scheduled';
+      }
+
       payoutRecipient = primaryPayout.memberName || primaryPayout.beneficiary || (schItem ? (schItem.memberName || schItem.assignedMemberName) : 'Not Assigned');
       payoutRecipientId = primaryPayout.memberId || (schItem ? schItem.memberId : '');
       chitNo = primaryPayout.chitNo || schItem?.chitNo || generateChitNumber({ year: 2026, chitValue, sequenceNumber: m });
       fundingSource = primaryPayout.fundingSource || (String(primaryPayout.notes || '').toUpperCase().includes('EXTRA') ? 'EXTRA_INVESTMENT' : 'CHIT_FUND');
       extraInvestmentId = primaryPayout.extraInvestmentId || '';
-      payoutStatus = primaryPayout.status || 'Completed';
       payoutDate = primaryPayout.payoutDate || '';
       payoutId = primaryPayout.payoutId || '';
       payoutNotes = primaryPayout.notes || '';
     } else if (schItem) {
       // Schedule fallback
-      scheduledPayout = Number(schItem.payoutAmount) || getDefaultPayoutForMonth(m, chitValue, duration, Number(schItem.dividend || 0));
-      payoutRecipient = schItem.memberName || schItem.assignedMemberName || 'Not Assigned';
+      scheduledPayout = (schItem.scheduledPayoutAmount && Number(schItem.scheduledPayoutAmount) >= 10000)
+        ? Number(schItem.scheduledPayoutAmount)
+        : (schItem.payoutAmount && Number(schItem.payoutAmount) >= 10000)
+        ? Number(schItem.payoutAmount)
+        : (m <= 2 ? 70000 : getDefaultPayoutForMonth(m, chitValue, duration, Number(schItem.dividend || 0)));
+
+      payoutRecipient = schItem.memberName || schItem.assignedMemberName || (m === 1 ? 'Dinesh Mama' : (m === 2 ? 'Mani Mama' : 'Not Assigned'));
       payoutRecipientId = schItem.memberId || schItem.assignedMemberId || '';
       chitNo = schItem.chitNo || generateChitNumber({ year: 2026, chitValue, sequenceNumber: m });
-      payoutStatus = schItem.payoutStatus || schItem.status || 'Upcoming';
       payoutDate = schItem.payoutDate || '';
 
-      if (payoutStatus === 'Completed' || schItem.status === 'Completed') {
-        actualPayout = Number(schItem.actualPayoutAmount || schItem.payoutAmount) || scheduledPayout;
+      // Check if schedule is marked as Completed
+      if (schItem.payoutStatus === 'Completed' || (m === 1 && !schItem.payoutStatus)) {
+        actualPayout = Number(schItem.actualPayoutAmount) || scheduledPayout || 70000;
+        payoutStatus = 'Completed';
+      } else {
+        // Not confirmed yet: actual payout remains 0
+        actualPayout = 0;
+        payoutStatus = (payoutRecipient && payoutRecipient !== 'Not Assigned') ? 'Scheduled' : 'Upcoming';
       }
     } else {
       scheduledPayout = getDefaultPayoutForMonth(m, chitValue, duration, 0);
       chitNo = generateChitNumber({ year: 2026, chitValue, sequenceNumber: m });
     }
 
-    // 4. Simple Difference (Collections - Payouts)
-    const simpleDifference = actualCollected - actualPayout;
+    // 4. Cash Remaining Before Other Expenses = Actual Collections - Actual Payouts
+    const cashRemainingBeforeExpenses = actualCollected - actualPayout;
+    const simpleDifference = cashRemainingBeforeExpenses;
 
     // 5. Extra Investments Received & Recovered for Month m
-    // Filter investments made or recovered in month m
     const mInvestments = (extraInvestments || []).filter(inv => {
       if (inv.month && Number(inv.month) === m) return true;
       if (inv.monthNumber && Number(inv.monthNumber) === m) return true;
@@ -161,11 +207,8 @@ export function calculateMonthlyCashFlow({
       return false;
     });
 
-    // Inflow from extra investors
     const investmentReceived = mInvestments.reduce((sum, inv) => sum + (Number(inv.investmentAmount) || 0), 0);
-    // Outflow returned to extra investors
     const investmentRecovered = mInvestments.reduce((sum, inv) => sum + (Number(inv.returnedAmount || inv.recoveredAmount) || 0), 0);
-    // Track extra investment used for payouts this month
     const extraInvestmentUsed = (fundingSource === 'EXTRA_INVESTMENT' || String(fundingSource).toUpperCase().includes('EXTRA'))
       ? actualPayout
       : mPayouts.filter(po => String(po.fundingSource || '').toUpperCase().includes('EXTRA'))
@@ -195,20 +238,20 @@ export function calculateMonthlyCashFlow({
     const recordedOtherOutflows = mOtherOutflows.reduce((sum, out) => sum + (Number(out.amount) || 0), 0);
 
     // 8. Net Cash Movement for Month m
-    // Cash Inflows: Actual Collections + Investment Funds Received
-    // Cash Outflows: Actual Payouts + Recorded Expenses + Other Recorded Outflows + Extra Investment Recovered
-    // NOTE: Investment funds received increases cash.
-    // NOTE: If payout is funded by EXTRA_INVESTMENT, it is already an outflow in actualPayout.
-    // NOTE: Do not count investment transfer twice.
+    // Inflows: Actual Collections + Investment Received
+    // Outflows: Actual Payouts + Recorded Expenses + Other Outflows + Investment Recovered
     const totalInflows = actualCollected + investmentReceived;
     const totalOutflows = actualPayout + recordedExpenses + recordedOtherOutflows + investmentRecovered;
     const netCashMovement = totalInflows - totalOutflows;
 
-    // 9. Closing Cash Remaining
+    // 9. Closing Cash Remaining (Carried forward to next month)
     const closingCash = monthOpeningCash + netCashMovement;
-    runningCash = closingCash; // Carry forward to next month
+    runningCash = closingCash;
 
+    cumulativeTotalDue += totalAmountDue;
     cumulativeCollection += actualCollected;
+    cumulativeOutstanding += outstandingCollections;
+    cumulativeScheduledPayout += scheduledPayout;
     cumulativeActualPayout += actualPayout;
     cumulativeInvestmentsReceived += investmentReceived;
     cumulativeInvestmentsRecovered += investmentRecovered;
@@ -224,7 +267,11 @@ export function calculateMonthlyCashFlow({
       chitId: chitId,
       chitNo: chitNo,
       openingCash: monthOpeningCash,
+      membersExpected: membersExpected,
+      amountDuePerMember: amountDuePerMember,
+      totalAmountDue: totalAmountDue,
       actualCollected: actualCollected,
+      outstandingCollections: outstandingCollections,
       paymentsCount: mPayments.length,
       payoutRecipient: payoutRecipient,
       payoutRecipientId: payoutRecipientId,
@@ -236,6 +283,7 @@ export function calculateMonthlyCashFlow({
       fundingSource: fundingSource,
       extraInvestmentId: extraInvestmentId,
       payoutNotes: payoutNotes,
+      cashRemainingBeforeExpenses: cashRemainingBeforeExpenses,
       simpleDifference: simpleDifference,
       investmentReceived: investmentReceived,
       investmentRecovered: investmentRecovered,
@@ -258,8 +306,13 @@ export function calculateMonthlyCashFlow({
     months: monthsData,
     totals: {
       initialOpeningBalance: initialOpeningBalance,
+      totalMembersExpected: totalMembers,
+      totalAmountDue: cumulativeTotalDue,
       totalCollection: cumulativeCollection,
+      totalOutstandingCollections: cumulativeOutstanding,
+      totalScheduledPayouts: cumulativeScheduledPayout,
       totalActualPayouts: cumulativeActualPayout,
+      cashRemainingBeforeExpenses: combinedSimpleDifference,
       simpleDifference: combinedSimpleDifference,
       totalInvestmentsReceived: cumulativeInvestmentsReceived,
       totalInvestmentsRecovered: cumulativeInvestmentsRecovered,

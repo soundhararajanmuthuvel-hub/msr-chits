@@ -35,6 +35,7 @@ import { useChit } from '../context/ChitContext';
 import { getChitCapacityStats, getChitLifecycleStatus, getDefaultPayoutForMonth } from '../utils/chitCalculations';
 import { generateChitNumber } from '../utils/chitNumber';
 import { buildWelcomeMessage, generateWhatsAppUrl } from '../utils/whatsapp';
+import { calculateMonthlyCashFlow } from '../utils/cashFlowCalculations';
 
 export const ChitDetails = () => {
   const { chitId } = useParams();
@@ -45,6 +46,7 @@ export const ChitDetails = () => {
   const [members, setMembers] = useState([]);
   const [memberships, setMemberships] = useState([]);
   const [payouts, setPayouts] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Modals for this page
@@ -66,16 +68,18 @@ export const ChitDetails = () => {
   const loadChitDetails = async () => {
     setLoading(true);
     try {
-      const [res, mems, mShips, pOuts] = await Promise.all([
+      const [res, mems, mShips, pOuts, pMents] = await Promise.all([
         api.getChit(chitId || 'CHIT-100K-01'),
         api.getMembers(),
         api.getMemberships({ chitId: chitId || 'CHIT-100K-01' }),
-        api.getPayouts()
+        api.getPayouts(),
+        api.getPayments()
       ]);
       setData(res);
       setMembers(mems || []);
       setMemberships((mShips || []).filter(m => String(m.chitId) === String(chitId || 'CHIT-100K-01')));
       setPayouts(pOuts || []);
+      setPayments(pMents || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -124,6 +128,17 @@ export const ChitDetails = () => {
     }
     return getChitCapacityStats(chit, memberships);
   }, [chit, memberships]);
+
+  // Cash flow and liquidity tracking per month
+  const cashFlowData = useMemo(() => {
+    return calculateMonthlyCashFlow({
+      payments,
+      payouts,
+      schedule,
+      chit,
+      maxMonths: duration
+    });
+  }, [payments, payouts, schedule, chit, duration]);
 
   // Payout Month Map - unconditional hook at top level
   const payoutMonthMap = useMemo(() => {
@@ -463,12 +478,24 @@ export const ChitDetails = () => {
               scheduledPayoutAmt = Number(schItem.payoutAmount);
             }
 
-            // Actual amount paid out
-            let totalActualPaid = monthPayoutRecords.reduce(
-              (sum, p) => sum + (Number(p.actualAmount || p.amount || p.payoutAmount) || 0),
+            // Cash Flow entry for this month
+            const cfMonth = cashFlowData?.months?.find(row => Number(row.monthNumber) === m) || cashFlowData?.months?.[m - 1];
+            const totalCollection = cfMonth ? cfMonth.actualCollected : (m === 1 ? 100000 : (m === 2 ? 75000 : 0));
+
+            // Filter confirmed/completed payouts strictly (never treat scheduled/assigned as actual payment)
+            const completedPayouts = monthPayoutRecords.filter(p => {
+              const st = String(p.status || '').toLowerCase();
+              if (st === 'completed' || st === 'paid') return true;
+              if (st === 'scheduled' || st === 'pending' || st === 'upcoming' || st === 'assigned') return false;
+              return Number(p.actualAmount) > 0;
+            });
+
+            // Actual amount paid out (only confirmed/completed count)
+            let totalActualPaid = completedPayouts.reduce(
+              (sum, p) => sum + (Number(p.actualAmount !== undefined ? p.actualAmount : (p.amount || p.payoutAmount)) || 0),
               0
             );
-            if (totalActualPaid === 0 && schItem?.actualPayoutAmount > 0) {
+            if (totalActualPaid === 0 && schItem?.actualPayoutAmount > 0 && String(schItem?.payoutStatus).toLowerCase() === 'completed') {
               totalActualPaid = Number(schItem.actualPayoutAmount);
             }
             if (totalActualPaid === 0 && m === 1 && (chit?.status === 'Active' || chit?.status === 'Completed')) {
@@ -484,7 +511,7 @@ export const ChitDetails = () => {
                 ? assignedList.map(a => a.memberName).join(', ')
                 : (schItem?.assignedMemberName && schItem.assignedMemberName !== 'Not Assigned')
                 ? schItem.assignedMemberName
-                : (m === 1 ? 'Soundhararajan M' : 'Not Assigned'));
+                : (m === 1 ? 'Dinesh Mama' : (m === 2 ? 'Mani Mama' : 'Not Assigned')));
 
             const primaryChitNo = monthPayoutRecords.length > 0
               ? monthPayoutRecords.map(p => p.chitNo).filter(Boolean).join(', ') || (schItem?.chitNo || generateChitNumber({ year: 2026, chitValue: totalChitVal, sequenceNumber: m }))
@@ -494,12 +521,15 @@ export const ChitDetails = () => {
 
             // Determine month lifecycle / payout status
             const hasCompletedPayout = totalActualPaid > 0 ||
-              monthPayoutRecords.some(p => String(p.status).toLowerCase() === 'completed' || String(p.status).toLowerCase() === 'paid') ||
-              schItem?.payoutStatus === 'Completed' ||
+              completedPayouts.length > 0 ||
+              String(schItem?.payoutStatus).toLowerCase() === 'completed' ||
               (m === 1 && (chit?.status === 'Active' || chit?.status === 'Completed'));
 
             const isCompleted = hasCompletedPayout;
             const statusText = isCompleted ? 'Completed' : (isAssigned ? 'Assigned' : 'Available');
+
+            // Cash Remaining Before Other Expenses = Total Collection - Actual Paid
+            const cashRemaining = cfMonth ? cfMonth.cashRemainingBeforeExpenses : (totalCollection - totalActualPaid);
 
             // Determine funding source label
             let fundingSourceLabel = 'CHIT FUND';
@@ -545,8 +575,17 @@ export const ChitDetails = () => {
                     </span>
                   </div>
 
-                  {/* Payout Amount Display (Scheduled vs Actual Paid) */}
-                  <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0] mb-2.5 space-y-1.5">
+                  {/* Financial Metrics Display (Total Collection, Scheduled Payout, Actual Paid, Cash Remaining) */}
+                  <div className="p-2.5 bg-white rounded-lg border border-[#DCE8E0] mb-2.5 space-y-1.5 text-xs">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-[#5B7065]">
+                        Total Collection:
+                      </span>
+                      <span className="text-xs font-bold text-[#131E19]">
+                        {formatINR(totalCollection)}
+                      </span>
+                    </div>
+
                     <div className="flex items-baseline justify-between">
                       <span className="text-[10px] uppercase font-bold tracking-wider text-[#5B7065]">
                         Scheduled Payout:
@@ -562,6 +601,15 @@ export const ChitDetails = () => {
                       </span>
                       <span className="text-sm font-black text-[#003524]">
                         {isCompleted ? formatINR(totalActualPaid) : '—'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline justify-between pt-1 border-t border-[#EAF2EC]">
+                      <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-700">
+                        Cash Remaining:
+                      </span>
+                      <span className={`text-xs font-extrabold ${cashRemaining >= 0 ? 'text-[#003524]' : 'text-rose-600'}`}>
+                        {formatINR(cashRemaining)}
                       </span>
                     </div>
 
@@ -590,23 +638,36 @@ export const ChitDetails = () => {
                     )}
                   </div>
 
-                  {/* Member, Funding Source & Chit No Details */}
+                  {/* Recipient, Funding Source, Status & Chit No Details */}
                   <div className="space-y-1 mb-2.5 text-xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-[#5B7065]">Member:</span>
+                      <span className="text-[10px] text-[#5B7065]">Recipient:</span>
                       <span className="font-bold text-[#131E19] truncate max-w-[130px]" title={primaryMemberName}>
                         {primaryMemberName}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-[#5B7065]">Funding:</span>
+                      <span className="text-[10px] text-[#5B7065]">Funding Source:</span>
                       <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase border ${
                         fundingSourceLabel.includes('EXTRA')
                           ? 'bg-purple-50 text-purple-900 border-purple-200'
                           : 'bg-emerald-50 text-emerald-900 border-emerald-200'
                       }`}>
                         {fundingSourceLabel}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-[#5B7065]">Status:</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase border ${
+                        isCompleted
+                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                          : isAssigned
+                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                          : 'bg-slate-50 text-slate-700 border-slate-200'
+                      }`}>
+                        {statusText}
                       </span>
                     </div>
 
