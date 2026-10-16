@@ -10,6 +10,7 @@ const API_URL = RAW_URL.replace(/\/+$/, '');
 
 import { generateChitNumber, getNextAvailableChitNumber } from '../utils/chitNumber';
 import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment } from '../utils/chitCalculations';
+import { calculateMonthlyUnpaidSummary } from '../utils/unpaidCalculations';
 
 const STORAGE_KEYS = {
   SESSION: 'msr_auth_session',
@@ -1059,6 +1060,63 @@ export const api = {
       payments,
       payouts
     };
+  },
+
+  // Monthly Unpaid Summary (Section 4 & 6 of Master Specification)
+  async getMonthlyUnpaidSummary(params = {}) {
+    const chitId = params.chitId || 'CHIT-100K-01';
+    const month = params.month !== undefined ? Number(params.month) : (params.monthNumber !== undefined ? Number(params.monthNumber) : 1);
+
+    if (API_URL) {
+      try {
+        const data = await getApi('getMonthlyUnpaidSummary', { chitId, month });
+        if (data && typeof data === 'object' && (data.totalMonthlyDue !== undefined || data.chitItems !== undefined)) {
+          return data;
+        }
+      } catch (e) {
+        console.warn('[MSR CHITS API] getMonthlyUnpaidSummary fetch warning, computing directly from verified data:', e.message);
+      }
+    }
+
+    try {
+      const [chits, members, memberships, schedule, payments] = await Promise.all([
+        this.getChits(),
+        this.getMembers(),
+        this.getMemberships({ chitId: chitId !== 'all' ? chitId : undefined }),
+        this.getMonthlySchedule(chitId !== 'all' ? chitId : 'CHIT-100K-01'),
+        this.getPayments()
+      ]);
+
+      return calculateMonthlyUnpaidSummary({
+        chits: Array.isArray(chits) ? chits : (chits?.chits || []),
+        members: Array.isArray(members) ? members : [],
+        memberships: Array.isArray(memberships) ? memberships : [],
+        schedule: Array.isArray(schedule) ? schedule : [],
+        payments: Array.isArray(payments) ? payments : [],
+        selectedMonth: month,
+        chitId: chitId !== 'all' ? chitId : null
+      });
+    } catch (calcErr) {
+      console.error('[MSR CHITS API] calculateMonthlyUnpaidSummary error:', calcErr);
+      return {
+        chitId,
+        chitName: 'MSR Chit',
+        selectedMonth: month,
+        monthNumber: month,
+        totalMonthlyDue: 0,
+        totalCollected: 0,
+        totalUnpaid: 0,
+        totalExcess: 0,
+        fullyPaidCount: 0,
+        partiallyPaidCount: 0,
+        unpaidCount: 0,
+        totalMembers: 0,
+        totalMemberships: 0,
+        members: [],
+        chitItems: [],
+        allocationWarnings: []
+      };
+    }
   },
 
   // Profit & Loss Analysis (Single Source of Truth)

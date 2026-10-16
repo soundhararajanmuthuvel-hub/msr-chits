@@ -14,18 +14,25 @@ import {
   ArrowUpRight,
   TrendingUp,
   Activity,
-  ChevronRight
+  ChevronRight,
+  ArrowRight,
+  MessageSquare,
+  Sparkles,
+  Eye
 } from 'lucide-react';
 import StatCard from '../components/common/StatCard';
 import { formatINR, formatLakh } from '../utils/currency';
 import { api } from '../services/api';
 import { useChit } from '../context/ChitContext';
 import LoadingState from '../components/common/LoadingState';
+import StatusBadge from '../components/common/StatusBadge';
 
-import { getChitCapacityStats, getChitInstallmentInfo } from '../utils/chitCalculations';
+import { getChitCapacityStats, getChitInstallmentInfo, getCurrentChitMonth } from '../utils/chitCalculations';
 import { formatDate } from '../utils/date';
 import AddMemberToChitModal from '../components/chits/AddMemberToChitModal';
 import ChitForm from '../components/chits/ChitForm';
+import WhatsAppComposerModal from '../components/whatsapp/WhatsAppComposerModal';
+import PaymentForm from '../components/payments/PaymentForm';
 
 export const Dashboard = () => {
   const navigate = useNavigate();
@@ -48,6 +55,17 @@ export const Dashboard = () => {
   const [selectedChitForEdit, setSelectedChitForEdit] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
+  // Monthly Unpaid Tracker state (Section 1 of Master Spec)
+  const [unpaidSummary, setUnpaidSummary] = useState(null);
+  const [selectedUnpaidMonth, setSelectedUnpaidMonth] = useState(null);
+  const [unpaidLoading, setUnpaidLoading] = useState(false);
+
+  // WhatsApp and Payment modal states
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [whatsAppTarget, setWhatsAppTarget] = useState({ member: null, unpaidData: null });
+  const [isCustomPaymentFormOpen, setIsCustomPaymentFormOpen] = useState(false);
+  const [paymentFormPreFill, setPaymentFormPreFill] = useState({ memberId: null, month: null, chitNo: null, amount: null });
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
@@ -58,14 +76,49 @@ export const Dashboard = () => {
         api.getMemberships()
       ]);
       setDashboardData(dash);
-      setChits(Array.isArray(cList) ? cList : (cList?.chits || []));
+      const chitsList = Array.isArray(cList) ? cList : (cList?.chits || []);
+      setChits(chitsList);
       setMemberships(Array.isArray(msList) ? msList : []);
+
+      // Resolve current month
+      const primary = chitsList[0];
+      const curMonth = primary ? (getCurrentChitMonth(primary) || Number(primary.currentMonth) || 1) : 1;
+      const initialMonth = selectedUnpaidMonth || curMonth;
+      if (!selectedUnpaidMonth) setSelectedUnpaidMonth(initialMonth);
+
+      const unpaid = await api.getMonthlyUnpaidSummary({
+        chitId: primary?.chitId || 'CHIT-100K-01',
+        month: initialMonth
+      });
+      setUnpaidSummary(unpaid);
     } catch (err) {
       console.error('Failed to load dashboard:', err);
       setError(err.message || 'Unable to connect to MSR CHITS server.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadUnpaidForMonth = async (mNum) => {
+    setUnpaidLoading(true);
+    try {
+      const primary = chits[0];
+      const unpaid = await api.getMonthlyUnpaidSummary({
+        chitId: primary?.chitId || 'CHIT-100K-01',
+        month: mNum
+      });
+      setUnpaidSummary(unpaid);
+    } catch (err) {
+      console.error('Failed to reload unpaid for month:', err);
+    } finally {
+      setUnpaidLoading(false);
+    }
+  };
+
+  const handleMonthChange = (newMonth) => {
+    const mNum = Number(newMonth);
+    setSelectedUnpaidMonth(mNum);
+    loadUnpaidForMonth(mNum);
   };
 
   useEffect(() => {
@@ -158,8 +211,16 @@ export const Dashboard = () => {
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             type="button"
+            onClick={() => navigate('/monthly-unpaid')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#F0FCF4] hover:bg-[#e2f7eb] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors min-h-[44px]"
+          >
+            <AlertCircle className="w-4 h-4 text-[#C9A227]" />
+            <span>Monthly Unpaid Tracker</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setIsRecordPaymentOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors min-h-[44px]"
           >
             <PlusCircle className="w-4 h-4 text-[#C9A227]" />
             <span>Record Payment</span>
@@ -167,12 +228,262 @@ export const Dashboard = () => {
           <button
             type="button"
             onClick={() => setIsAddMemberOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-[#F0FCF4] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors min-h-[44px]"
           >
             <UserPlus className="w-4 h-4 text-[#174D38]" />
             <span>Add Member</span>
           </button>
         </div>
+      </div>
+
+      {/* ================================================================= */}
+      {/* SECTION 1: MONTHLY UNPAID TRACKER & 6 SUMMARY CARDS */}
+      {/* ================================================================= */}
+      <div className="bg-white p-5 sm:p-6 rounded-2xl border border-[#DCE8E0] shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#EAF2EC]">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-[#003524] text-[#FED255]">
+                <CreditCard className="w-4 h-4" />
+              </span>
+              <h3 className="text-base sm:text-lg font-bold text-[#003524]">
+                Monthly Chit Collection & Unpaid Tracker
+              </h3>
+            </div>
+            <p className="text-xs text-[#5B7065] mt-0.5">
+              Exact dues, collections, and unpaid balances calculated from Google Sheets for the active cycle.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <label className="text-xs font-bold text-[#003524] whitespace-nowrap">
+              Month:
+            </label>
+            <select
+              value={selectedUnpaidMonth || chit.currentMonth || 1}
+              onChange={(e) => handleMonthChange(e.target.value)}
+              className="px-3 py-1.5 bg-[#F0FCF4] border border-[#DCE8E0] rounded-xl text-xs sm:text-sm font-bold text-[#003524] focus:outline-none focus:ring-2 focus:ring-[#003524] min-h-[40px]"
+            >
+              {Array.from({ length: chit.duration || 20 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  Month {m}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => navigate(`/monthly-unpaid?month=${selectedUnpaidMonth || chit.currentMonth || 1}`)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs font-bold rounded-xl shadow-xs transition-colors min-h-[40px]"
+            >
+              <span>Full Details</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* 6 SUMMARY CARDS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+          {/* 1. Total Monthly Due */}
+          <StatCard
+            title="Total Monthly Due"
+            value={formatINR(unpaidSummary?.totalMonthlyDue ?? stats?.expectedCollection ?? 0)}
+            subtitle={`Month ${selectedUnpaidMonth || chit.currentMonth} Scheduled`}
+            icon={Calendar}
+            accentColor="primary"
+          />
+
+          {/* 2. Total Collected */}
+          <StatCard
+            title="Total Collected"
+            value={formatINR(unpaidSummary?.totalCollected ?? stats?.thisMonthCollection ?? 0)}
+            subtitle={`${
+              (unpaidSummary?.totalMonthlyDue || 0) > 0
+                ? Math.round(((unpaidSummary?.totalCollected || 0) / unpaidSummary.totalMonthlyDue) * 100)
+                : 0
+            }% Received`}
+            icon={CreditCard}
+            accentColor="emerald"
+          />
+
+          {/* 3. Total Unpaid */}
+          <StatCard
+            title="Total Unpaid"
+            value={formatINR(unpaidSummary?.totalUnpaid ?? stats?.pendingPayments ?? 0)}
+            subtitle="Outstanding to collect"
+            icon={AlertCircle}
+            accentColor="blue"
+          />
+
+          {/* 4. Fully Paid Members */}
+          <div className="bg-[#F0FCF4]/60 p-4 rounded-xl border border-[#DCE8E0] flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B7065]">
+                Fully Paid
+              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-emerald-800 mt-2">
+              {unpaidSummary?.fullyPaidCount ?? 0}
+            </div>
+            <p className="text-[10px] text-[#5B7065] mt-1">Cleared 100% dues</p>
+          </div>
+
+          {/* 5. Partially Paid Members */}
+          <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B7065]">
+                Partially Paid
+              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-amber-800 mt-2">
+              {unpaidSummary?.partiallyPaidCount ?? 0}
+            </div>
+            <p className="text-[10px] text-[#5B7065] mt-1">Has partial balance</p>
+          </div>
+
+          {/* 6. Unpaid Members */}
+          <div className="bg-red-50/60 p-4 rounded-xl border border-red-200 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B7065]">
+                Unpaid Members
+              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-red-800 mt-2">
+              {unpaidSummary?.unpaidCount ?? 0}
+            </div>
+            <p className="text-[10px] text-[#5B7065] mt-1">Zero payments yet</p>
+          </div>
+        </div>
+
+        {/* Excess payment note if any */}
+        {(unpaidSummary?.totalExcess || 0) > 0 && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>Excess Payments:</strong> ₹{unpaidSummary.totalExcess.toLocaleString('en-IN')} excess payments received above installment dues (tracked separately; unpaid amount never negative).
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* OUTSTANDING MEMBERS PREVIEW TABLE */}
+        {unpaidSummary && (
+          <div className="pt-2">
+            <div className="flex items-center justify-between pb-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[#003524]">
+                Members With Outstanding Dues (Month {selectedUnpaidMonth || chit.currentMonth})
+              </h4>
+              <button
+                type="button"
+                onClick={() => navigate(`/monthly-unpaid?month=${selectedUnpaidMonth || chit.currentMonth}&status=Unpaid`)}
+                className="text-xs font-bold text-[#003524] hover:underline flex items-center gap-1"
+              >
+                <span>View All Unpaid ({unpaidSummary.unpaidCount + unpaidSummary.partiallyPaidCount})</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {unpaidSummary.members.filter(m => m.totalUnpaidAmount > 0).length === 0 ? (
+              <div className="p-4 bg-[#F0FCF4] border border-[#DCE8E0] rounded-xl text-center text-xs font-bold text-emerald-800 flex items-center justify-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>All active members have fully cleared their dues for Month {selectedUnpaidMonth || chit.currentMonth}!</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-[#DCE8E0]">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-[#F0FCF4] border-b border-[#DCE8E0] text-[10px] font-bold uppercase tracking-wider text-[#5B7065]">
+                    <tr>
+                      <th className="py-2.5 px-3">Member Name</th>
+                      <th className="py-2.5 px-3">Phone</th>
+                      <th className="py-2.5 px-3">Chit No(s)</th>
+                      <th className="py-2.5 px-3">Monthly Due</th>
+                      <th className="py-2.5 px-3">Paid</th>
+                      <th className="py-2.5 px-3">Unpaid Amount</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EAF2EC] bg-white">
+                    {unpaidSummary.members
+                      .filter(m => m.totalUnpaidAmount > 0)
+                      .slice(0, 5)
+                      .map((m) => (
+                        <tr key={m.memberId} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-2.5 px-3 font-bold text-[#003524]">
+                            {m.memberName}
+                          </td>
+                          <td className="py-2.5 px-3 text-[#5B7065]">{m.phone || '—'}</td>
+                          <td className="py-2.5 px-3 font-mono text-[11px] font-semibold text-[#174D38]">
+                            {m.chitNumbers}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-[#003524]">
+                            {formatINR(m.totalMonthlyDue)}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-emerald-700">
+                            {formatINR(m.totalPaidAmount)}
+                          </td>
+                          <td className="py-2.5 px-3 font-black text-red-700">
+                            {formatINR(m.totalUnpaidAmount)}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <StatusBadge status={m.paymentStatus} />
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const memberObj = {
+                                    memberId: m.memberId,
+                                    name: m.memberName,
+                                    memberName: m.memberName,
+                                    phone: m.phone,
+                                    mobile: m.phone
+                                  };
+                                  const uData = {
+                                    month: `Month ${selectedUnpaidMonth || chit.currentMonth}`,
+                                    monthNumber: selectedUnpaidMonth || chit.currentMonth,
+                                    chitNumbers: m.chitNumbers,
+                                    unpaidAmount: m.totalUnpaidAmount,
+                                    unpaidChits: m.unpaidChits || m.chits
+                                  };
+                                  setWhatsAppTarget({ member: memberObj, unpaidData: uData });
+                                  setIsWhatsAppModalOpen(true);
+                                }}
+                                className="px-2 py-1 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold rounded-lg shadow-2xs"
+                                title="Send WhatsApp Unpaid Reminder"
+                              >
+                                WhatsApp
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPaymentFormPreFill({
+                                    memberId: m.memberId,
+                                    month: selectedUnpaidMonth || chit.currentMonth,
+                                    chitNo: m.chits[0]?.chitNo,
+                                    amount: m.totalUnpaidAmount
+                                  });
+                                  setIsCustomPaymentFormOpen(true);
+                                }}
+                                className="px-2 py-1 bg-[#003524] hover:bg-[#174D38] text-white text-[11px] font-bold rounded-lg shadow-2xs"
+                                title="Record Payment"
+                              >
+                                Pay
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* TOP 4 STAT CARDS */}
@@ -644,6 +955,34 @@ export const Dashboard = () => {
         }}
         onSuccess={loadData}
       />
+
+      {/* Record Payment Pre-filled Modal */}
+      {isCustomPaymentFormOpen && (
+        <PaymentForm
+          isOpen={isCustomPaymentFormOpen}
+          onClose={() => setIsCustomPaymentFormOpen(false)}
+          prefilledMemberId={paymentFormPreFill.memberId}
+          prefilledMonth={paymentFormPreFill.month}
+          prefilledChitNo={paymentFormPreFill.chitNo}
+          prefilledAmount={paymentFormPreFill.amount}
+          onSuccess={() => {
+            setIsCustomPaymentFormOpen(false);
+            loadData();
+          }}
+        />
+      )}
+
+      {/* WhatsApp Unpaid Reminder Composer Modal */}
+      {isWhatsAppModalOpen && whatsAppTarget.member && (
+        <WhatsAppComposerModal
+          isOpen={isWhatsAppModalOpen}
+          onClose={() => setIsWhatsAppModalOpen(false)}
+          member={whatsAppTarget.member}
+          initialMessageType="unpaid_reminder"
+          unpaidData={whatsAppTarget.unpaidData}
+          onSuccess={() => {}}
+        />
+      )}
     </div>
   );
 };

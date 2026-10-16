@@ -10,7 +10,15 @@ import { generateChitSchedule, getCurrentChitMonth } from '../../utils/chitCalcu
 import { CheckCircle2, MessageSquare, ArrowRight, ShieldCheck } from 'lucide-react';
 import WhatsAppComposerModal from '../whatsapp/WhatsAppComposerModal';
 
-export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefilledMonth = null, onSuccess }) => {
+export const PaymentForm = ({
+  isOpen,
+  onClose,
+  prefilledMemberId = null,
+  prefilledMonth = null,
+  prefilledChitNo = null,
+  prefilledAmount = null,
+  onSuccess
+}) => {
   const { activeChit, showToast } = useChit();
   const [members, setMembers] = useState([]);
   const [schedule, setSchedule] = useState([]);
@@ -76,7 +84,8 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
           const memChits = defaultMember?.chits || [];
           const matchedChit = memChits.find(c => Number(c.payoutMonth) === Number(defaultMonth));
           const chitVal = Number(activeChit?.chitValue || activeChit?.totalAmount || 100000);
-          const defaultChitNo = matchedChit ? matchedChit.chitNo : (memChits[0]?.chitNo || generateChitNumber({ year: 2026, chitValue: chitVal, sequenceNumber: defaultMonth }));
+          const defaultChitNo = prefilledChitNo || (matchedChit ? matchedChit.chitNo : (memChits[0]?.chitNo || generateChitNumber({ year: 2026, chitValue: chitVal, sequenceNumber: defaultMonth })));
+          const resolvedDue = prefilledAmount !== null && prefilledAmount !== undefined && Number(prefilledAmount) > 0 ? Number(prefilledAmount) : due;
 
           setFormData({
             chitId: activeChit?.chitId || 'CHIT-100K-01',
@@ -84,8 +93,8 @@ export const PaymentForm = ({ isOpen, onClose, prefilledMemberId = null, prefill
             memberName: defaultMember?.name || '',
             chitNo: defaultChitNo,
             month: defaultMonth,
-            dueAmount: due,
-            paidAmount: due,
+            dueAmount: resolvedDue,
+            paidAmount: resolvedDue,
             paymentDate: getTodayDateInput(),
             paymentMode: 'UPI',
             reference: `UPI-${Date.now().toString().slice(-6)}`,

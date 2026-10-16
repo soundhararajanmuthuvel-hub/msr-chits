@@ -23,7 +23,8 @@ import {
   buildPaymentReminderMessage,
   buildPaymentConfirmationMessage,
   buildPayoutDetailMessage,
-  buildPayoutConfirmationMessage
+  buildPayoutConfirmationMessage,
+  buildMonthlyUnpaidReminderMessage
 } from '../../utils/whatsapp';
 import {
   generateChitSchedule,
@@ -40,12 +41,14 @@ export const WhatsAppComposerModal = ({
   initialMessageType = 'welcome',
   paymentRecord = null,
   payoutRecord = null,
+  unpaidData = null,
   onSuccess
 }) => {
   const { activeChit, showToast } = useChit();
 
   const [language, setLanguage] = useState('English'); // 'English' | 'Tamil'
   const [messageType, setMessageType] = useState(initialMessageType);
+
   const [selectedChitNo, setSelectedChitNo] = useState('');
   const [customMessage, setCustomMessage] = useState('');
   const [copied, setCopied] = useState(false);
@@ -154,7 +157,9 @@ export const WhatsAppComposerModal = ({
       setLoggedMessageId(null);
       setCopied(false);
 
-      if (paymentRecord?.chitNo) {
+      if (unpaidData?.chitNo) {
+        setSelectedChitNo(unpaidData.chitNo);
+      } else if (paymentRecord?.chitNo) {
         setSelectedChitNo(paymentRecord.chitNo);
       } else if (payoutRecord?.chitNo) {
         setSelectedChitNo(payoutRecord.chitNo);
@@ -164,7 +169,7 @@ export const WhatsAppComposerModal = ({
         setSelectedChitNo('');
       }
     }
-  }, [isOpen, member, initialMessageType, paymentRecord, payoutRecord, memberChits, settings]);
+  }, [isOpen, member, initialMessageType, paymentRecord, payoutRecord, unpaidData, memberChits, settings]);
 
   // Generate dynamic message content whenever dependencies change
   useEffect(() => {
@@ -249,12 +254,29 @@ export const WhatsAppComposerModal = ({
         break;
       }
 
+      case 'unpaid_reminder':
+      case 'monthly_unpaid': {
+        const chitsToUse = unpaidData?.unpaidChits || unpaidData?.chits || (selectedChitNo ? [{ chitNo: selectedChitNo, unpaidAmount: unpaidData?.unpaidAmount }] : memberChits);
+        msg = buildMonthlyUnpaidReminderMessage({
+          memberName,
+          month: unpaidData?.month || `Month ${scheduleData.currentMonthNum}`,
+          monthNumber: unpaidData?.monthNumber || scheduleData.currentMonthNum,
+          chitNumbers: unpaidData?.chitNumbers || selectedChitNo || (chitsToUse.map(c => c.chitNo).filter(Boolean).join(', ')),
+          unpaidAmount: unpaidData?.unpaidAmount !== undefined ? unpaidData.unpaidAmount : unpaidData?.totalUnpaidAmount,
+          unpaidChits: chitsToUse,
+          chits: chitsToUse,
+          settings: settings,
+          language: langCode
+        });
+        break;
+      }
+
       default:
         msg = buildWelcomeMessage({ memberName, chits: memberChits, language: langCode });
     }
 
     setCustomMessage(msg);
-  }, [messageType, language, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, isOpen, settings, scheduleData]);
+  }, [messageType, language, member, selectedChitNo, memberChits, paymentRecord, payoutRecord, unpaidData, isOpen, settings, scheduleData]);
 
   const handleCopy = () => {
     if (!customMessage) return;
@@ -396,7 +418,11 @@ export const WhatsAppComposerModal = ({
           </div>
           <div>
             <span className="text-[#5B7065] block">Amount</span>
-            <span className="font-bold text-[#003524]">{scheduleData.totalDue > 0 ? formatINR(scheduleData.totalDue) : '₹0'}</span>
+            <span className="font-bold text-[#003524]">
+              {unpaidData && (unpaidData.unpaidAmount !== undefined || unpaidData.totalUnpaidAmount !== undefined)
+                ? formatINR(unpaidData.unpaidAmount !== undefined ? unpaidData.unpaidAmount : unpaidData.totalUnpaidAmount)
+                : (scheduleData.totalDue > 0 ? formatINR(scheduleData.totalDue) : '₹0')}
+            </span>
           </div>
           <div>
             <span className="text-[#5B7065] block">UPI</span>
@@ -419,15 +445,16 @@ export const WhatsAppComposerModal = ({
           </div>
         )}
 
-        {/* 5 Main Message Types */}
+        {/* Message Types */}
         <div>
           <label className="block text-xs font-bold text-[#003524] mb-1.5">
             Message Type
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {[
+              { id: 'unpaid_reminder', label: language === 'Tamil' ? '⚠️ நிலுவை நினைவூட்டல்' : '⚠️ Unpaid Reminder' },
+              { id: 'reminder', label: language === 'Tamil' ? '🔔 மாத தவணை' : '🔔 Regular Reminder' },
               { id: 'welcome', label: language === 'Tamil' ? '👋 வரவேற்பு' : '👋 Welcome' },
-              { id: 'reminder', label: language === 'Tamil' ? '🔔 மாத தவணை' : '🔔 Payment Reminder' },
               { id: 'payment_confirmation', label: language === 'Tamil' ? '💰 பணம் பெறப்பட்டது' : '💰 Payment Received' },
               { id: 'payout_detail', label: language === 'Tamil' ? '🎯 பணம் பெறும் விவரம்' : '🎯 Payout Info' },
               { id: 'payout_confirmation', label: language === 'Tamil' ? '🎉 பணம் வழங்கப்பட்டது' : '🎉 Payout Complete' }

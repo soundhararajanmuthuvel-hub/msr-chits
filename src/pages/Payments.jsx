@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CreditCard,
   PlusCircle,
@@ -25,6 +26,7 @@ import LoadingState from '../components/common/LoadingState';
 import { useChit } from '../context/ChitContext';
 
 export const Payments = () => {
+  const navigate = useNavigate();
   const { activeChit, isRecordPaymentOpen, setIsRecordPaymentOpen } = useChit();
   const [payments, setPayments] = useState([]);
   const [members, setMembers] = useState([]);
@@ -217,14 +219,24 @@ export const Payments = () => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsRecordPaymentOpen(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors self-start sm:self-auto"
-        >
-          <PlusCircle className="w-4 h-4 text-[#C9A227]" />
-          <span>Record Payment</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => navigate('/monthly-unpaid')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-[#F0FCF4] hover:bg-[#e2f7eb] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors self-start sm:self-auto min-h-[44px]"
+          >
+            <AlertCircle className="w-4 h-4 text-[#C9A227]" />
+            <span>Monthly Unpaid Tracker</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsRecordPaymentOpen(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors self-start sm:self-auto min-h-[44px]"
+          >
+            <PlusCircle className="w-4 h-4 text-[#C9A227]" />
+            <span>Record Payment</span>
+          </button>
+        </div>
       </div>
 
       {/* 4 Stat Cards */}

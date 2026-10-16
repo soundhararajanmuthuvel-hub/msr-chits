@@ -32,8 +32,9 @@ import {
   getDefaultPayoutForMonth
 } from '../src/utils/chitCalculations.js';
 import { generateChitNumber, getNextAvailableChitNumber, parseChitNumber } from '../src/utils/chitNumber.js';
-import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage } from '../src/utils/whatsapp.js';
+import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage, buildMonthlyUnpaidReminderMessage } from '../src/utils/whatsapp.js';
 import { validateMobile, validateEmail, validateStatus } from '../src/utils/validation.js';
+import { calculateMonthlyUnpaidSummary, isCancelledMembership, isValidPayment } from '../src/utils/unpaidCalculations.js';
 
 let passed = 0;
 let failed = 0;
@@ -2498,6 +2499,292 @@ assert(
   updatedPayoutsDb.find(p => p.payoutId === 'PO-M2-02').actualAmount === 72000,
   'EXTRA PAYOUT TEST 7: Editing existing payout updates in-place without generating duplicate payout IDs',
   `Payouts count = ${updatedPayoutsDb.length}, Updated Amount = ₹${updatedPayoutsDb.find(p => p.payoutId === 'PO-M2-02').actualAmount}`
+);
+
+// ----------------------------------------------------------------------------
+// SECTION 33: MONTHLY UNPAID AMOUNT TRACKER TESTS (10 MASTER SPEC SCENARIOS)
+// ----------------------------------------------------------------------------
+console.log('\n----------------------------------------------------');
+console.log('SECTION 33: MONTHLY UNPAID AMOUNT TRACKER TESTS');
+console.log('----------------------------------------------------');
+
+const baseChit = {
+  chitId: 'CHIT-100K-01',
+  chitName: 'MSR Chit — ₹1,00,000',
+  chitValue: 100000,
+  duration: 20,
+  monthlyAmount: 3750,
+  currentMonth: 2,
+  startDate: '2026-10-01'
+};
+
+const baseSchedule = [
+  { chitId: 'CHIT-100K-01', monthNumber: 1, amount: 5000 },
+  { chitId: 'CHIT-100K-01', monthNumber: 2, amount: 3750 },
+  { chitId: 'CHIT-100K-01', monthNumber: 3, amount: 3825 }
+];
+
+// SCENARIO 1: Fully unpaid membership
+const memUnpaid = { membershipId: 'MEMCHIT-001', memberId: 'MEM-001', chitId: 'CHIT-100K-01', chitNo: 'MSR261L01', status: 'Active' };
+const s1Res = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One', phone: '9840111111' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [],
+  selectedMonth: 1
+});
+assert(
+  s1Res.chitItems.length === 1 &&
+  s1Res.chitItems[0].monthlyDue === 5000 &&
+  s1Res.chitItems[0].paidAmount === 0 &&
+  s1Res.chitItems[0].unpaidAmount === 5000 &&
+  s1Res.chitItems[0].paymentStatus === 'Unpaid' &&
+  s1Res.unpaidCount === 1,
+  'MONTHLY UNPAID TEST 1: Fully unpaid membership calculates ₹5,000 due, ₹0 paid, ₹5,000 unpaid, status Unpaid'
+);
+
+// SCENARIO 2: Fully paid membership
+const s2Res = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One', phone: '9840111111' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [{ paymentId: 'PAY-01', chitNo: 'MSR261L01', memberId: 'MEM-001', monthNumber: 2, amount: 3750, status: 'Paid' }],
+  selectedMonth: 2
+});
+assert(
+  s2Res.chitItems[0].monthlyDue === 3750 &&
+  s2Res.chitItems[0].paidAmount === 3750 &&
+  s2Res.chitItems[0].unpaidAmount === 0 &&
+  s2Res.chitItems[0].paymentStatus === 'Paid' &&
+  s2Res.fullyPaidCount === 1,
+  'MONTHLY UNPAID TEST 2: Fully paid membership calculates ₹3,750 due, ₹3,750 paid, ₹0 unpaid, status Paid'
+);
+
+// SCENARIO 3: Partially paid membership
+const s3Res = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One', phone: '9840111111' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [{ paymentId: 'PAY-02', chitNo: 'MSR261L01', memberId: 'MEM-001', monthNumber: 2, amount: 2000, status: 'Paid' }],
+  selectedMonth: 2
+});
+assert(
+  s3Res.chitItems[0].monthlyDue === 3750 &&
+  s3Res.chitItems[0].paidAmount === 2000 &&
+  s3Res.chitItems[0].unpaidAmount === 1750 &&
+  s3Res.chitItems[0].paymentStatus === 'Partial' &&
+  s3Res.partiallyPaidCount === 1,
+  'MONTHLY UNPAID TEST 3: Partially paid membership calculates ₹3,750 due, ₹2,000 paid, ₹1,750 unpaid, status Partial'
+);
+
+// SCENARIO 4: Member with multiple chits (Master Prompt Example: Dinesh Mamz)
+const dineshMemberships = [
+  { membershipId: 'MEMCHIT-02', memberId: 'MEM-DINESH', chitId: 'CHIT-100K-01', chitNo: 'MSR261L02', status: 'Active' },
+  { membershipId: 'MEMCHIT-09', memberId: 'MEM-DINESH', chitId: 'CHIT-100K-01', chitNo: 'MSR261L09', status: 'Active' },
+  { membershipId: 'MEMCHIT-15', memberId: 'MEM-DINESH', chitId: 'CHIT-100K-01', chitNo: 'MSR261L15', status: 'Active' }
+];
+const dineshPayments = [
+  { paymentId: 'PAY-D1', chitNo: 'MSR261L02', memberId: 'MEM-DINESH', monthNumber: 1, amount: 5000, status: 'Paid' },
+  { paymentId: 'PAY-D2', chitNo: 'MSR261L09', memberId: 'MEM-DINESH', monthNumber: 1, amount: 2000, status: 'Paid' }
+];
+const s4Res = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-DINESH', name: 'Dinesh Mamz', phone: '9840123456' }],
+  memberships: dineshMemberships,
+  schedule: baseSchedule,
+  payments: dineshPayments,
+  selectedMonth: 1
+});
+const dMem = s4Res.members.find(m => m.memberId === 'MEM-DINESH');
+assert(
+  dMem &&
+  dMem.totalMonthlyDue === 15000 &&
+  dMem.totalPaidAmount === 7000 &&
+  dMem.totalUnpaidAmount === 8000 &&
+  dMem.paymentStatus === 'Partial' &&
+  dMem.chits.find(c => c.chitNo === 'MSR261L02').unpaidAmount === 0 &&
+  dMem.chits.find(c => c.chitNo === 'MSR261L09').unpaidAmount === 3000 &&
+  dMem.chits.find(c => c.chitNo === 'MSR261L15').unpaidAmount === 5000,
+  'MONTHLY UNPAID TEST 4: Member with multiple chits aggregates without double-counting (Due ₹15k, Paid ₹7k, Unpaid ₹8k)'
+);
+
+// SCENARIO 5: Multiple payments for one chit in one month
+const s5Res = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One', phone: '9840111111' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [
+    { paymentId: 'PAY-P1', chitNo: 'MSR261L01', memberId: 'MEM-001', monthNumber: 2, amount: 2000, status: 'Paid' },
+    { paymentId: 'PAY-P2', chitNo: 'MSR261L01', memberId: 'MEM-001', monthNumber: 2, amount: 1750, status: 'Paid' }
+  ],
+  selectedMonth: 2
+});
+assert(
+  s5Res.chitItems[0].paidAmount === 3750 &&
+  s5Res.chitItems[0].unpaidAmount === 0 &&
+  s5Res.chitItems[0].paymentStatus === 'Paid' &&
+  s5Res.chitItems[0].paymentsCount === 2,
+  'MONTHLY UNPAID TEST 5: Multiple payments for one chit in one month sum correctly (₹2,000 + ₹1,750 = ₹3,750)'
+);
+
+// SCENARIO 6: Cancelled membership strictly excluded
+const cancelledMembership = { membershipId: 'MEMCHIT-999', memberId: 'MEM-CANCELLED', chitId: 'CHIT-100K-01', chitNo: 'MSR261L99', status: 'CANCELLED' };
+const s6Res = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-CANCELLED', name: 'Cancelled Member', phone: '9840999999' }],
+  memberships: [cancelledMembership],
+  schedule: baseSchedule,
+  payments: [],
+  selectedMonth: 1
+});
+assert(
+  s6Res.totalMonthlyDue === 0 &&
+  s6Res.totalMemberships === 0 &&
+  s6Res.members.length === 0,
+  'MONTHLY UNPAID TEST 6: Cancelled membership is strictly excluded from active dues calculation'
+);
+
+// SCENARIO 7: Changing the selected month recalculates from MonthlySchedule
+const s7ResMonth1 = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [],
+  selectedMonth: 1
+});
+const s7ResMonth2 = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [],
+  selectedMonth: 2
+});
+const s7ResMonth3 = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [],
+  selectedMonth: 3
+});
+assert(
+  s7ResMonth1.totalMonthlyDue === 5000 &&
+  s7ResMonth2.totalMonthlyDue === 3750 &&
+  s7ResMonth3.totalMonthlyDue === 3825,
+  'MONTHLY UNPAID TEST 7: Changing selected month recalculates exact scheduled installment (M1=₹5,000, M2=₹3,750, M3=₹3,825)'
+);
+
+// SCENARIO 8: WhatsApp reminder in English and Tamil
+const waMsgEn = buildMonthlyUnpaidReminderMessage({
+  memberName: 'Dinesh Mamz',
+  month: 'Month 2',
+  chitNumbers: 'MSR261L09',
+  unpaidAmount: 3000,
+  language: 'en'
+});
+const expectedWaEn = `Hi Dinesh Mamz 👋
+
+MSR CHITS payment reminder.
+
+Month: Month 2
+Chit No: MSR261L09
+Unpaid Amount: ₹3,000
+
+Please pay the pending amount and share the payment screenshot.
+
+Thank you.
+MSR CHITS`;
+
+const waMsgTa = buildMonthlyUnpaidReminderMessage({
+  memberName: 'Dinesh Mamz',
+  month: 'Month 2',
+  chitNumbers: 'MSR261L09',
+  unpaidAmount: 3000,
+  language: 'ta'
+});
+const expectedWaTa = `வணக்கம் Dinesh Mamz 👋
+
+MSR CHITS மாத தவணை நினைவூட்டல்.
+
+மாதம்: Month 2
+சீட்டு எண்: MSR261L09
+செலுத்த வேண்டிய தொகை: ₹3,000
+
+தயவுசெய்து நிலுவைத் தொகையைச் செலுத்தி screenshot அனுப்பவும்.
+
+நன்றி.
+MSR CHITS`;
+
+assert(
+  waMsgEn.trim() === expectedWaEn.trim(),
+  'MONTHLY UNPAID TEST 8A: WhatsApp English unpaid reminder template matches exact specification'
+);
+assert(
+  waMsgTa.trim() === expectedWaTa.trim(),
+  'MONTHLY UNPAID TEST 8B: WhatsApp Tamil unpaid reminder template matches exact specification'
+);
+
+// Multi-chit consolidated reminder
+const waMultiEn = buildMonthlyUnpaidReminderMessage({
+  memberName: 'Dinesh Mamz',
+  month: 'Month 2',
+  chitNumbers: 'MSR261L09, MSR261L15',
+  unpaidAmount: 8000,
+  unpaidChits: [
+    { chitNo: 'MSR261L09', unpaidAmount: 3000 },
+    { chitNo: 'MSR261L15', unpaidAmount: 5000 }
+  ],
+  language: 'en'
+});
+assert(
+  waMultiEn.includes('Unpaid Amount: ₹8,000') &&
+  waMultiEn.includes('• MSR261L09: ₹3,000') &&
+  waMultiEn.includes('• MSR261L15: ₹5,000'),
+  'MONTHLY UNPAID TEST 8C: Multi-chit consolidated reminder includes individual breakdown and total'
+);
+
+// SCENARIO 9: Empty data and API failure resilience
+const s9Res = calculateMonthlyUnpaidSummary({
+  chits: [],
+  members: [],
+  memberships: [],
+  schedule: [],
+  payments: [],
+  selectedMonth: 1
+});
+assert(
+  s9Res.totalMonthlyDue === 0 &&
+  s9Res.totalCollected === 0 &&
+  s9Res.totalUnpaid === 0 &&
+  s9Res.members.length === 0 &&
+  s9Res.chitItems.length === 0,
+  'MONTHLY UNPAID TEST 9: Empty data gracefully returns zeroed summary without throwing errors'
+);
+
+// SCENARIO 10: Reconciliation of total due, collected, and unpaid (Never negative unpaid)
+const overpaidPayment = { paymentId: 'PAY-OVER', chitNo: 'MSR261L01', memberId: 'MEM-001', monthNumber: 2, amount: 4000, status: 'Paid' };
+const s10Res = calculateMonthlyUnpaidSummary({
+  chits: [baseChit],
+  members: [{ memberId: 'MEM-001', name: 'Member One' }],
+  memberships: [memUnpaid],
+  schedule: baseSchedule,
+  payments: [overpaidPayment],
+  selectedMonth: 2
+});
+assert(
+  s10Res.chitItems[0].monthlyDue === 3750 &&
+  s10Res.chitItems[0].paidAmount === 4000 &&
+  s10Res.chitItems[0].unpaidAmount === 0 &&
+  s10Res.chitItems[0].excessAmount === 250 &&
+  s10Res.totalExcess === 250 &&
+  s10Res.totalUnpaid === 0,
+  'MONTHLY UNPAID TEST 10: Reconciliation tracks excess payment (₹250) separately and never allows unpaid to become negative'
 );
 
 console.log('\n====================================================');

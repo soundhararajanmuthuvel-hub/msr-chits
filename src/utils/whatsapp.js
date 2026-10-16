@@ -509,6 +509,101 @@ MSR CHITS`
   );
 }
 
+/**
+ * 6. Monthly Unpaid Reminder
+ * Section 5 of Master Specification
+ * Formats monthly unpaid reminder in English and Tamil
+ * Combines multiple unpaid chits into one clear message with individual balances and total
+ * Supports optional bank and UPI payment details from Settings
+ */
+export function buildMonthlyUnpaidReminderMessage(data = {}, langArg) {
+  const lang = normalizeLanguage(data.language || langArg);
+  const memberName = data.memberName || data.name || (lang === 'ta' ? 'அன்பர்' : 'Member');
+  
+  // Month display: "Month 2", or "November 2026", or "2"
+  let monthDisplay = data.month || data.monthNumber || data.monthName || 'Current Month';
+  if (typeof monthDisplay === 'number') {
+    monthDisplay = `Month ${monthDisplay}`;
+  }
+
+  // Active chits with unpaid amounts
+  const unpaidChits = (data.unpaidChits || data.chits || []).filter(c => {
+    if (!c) return false;
+    const s = String(c.status || '').toUpperCase();
+    if (s === 'CANCELLED' || s === 'INACTIVE') return false;
+    const unpaid = Number(c.unpaidAmount !== undefined ? c.unpaidAmount : (c.amount || c.monthlyDue || 0));
+    return unpaid > 0 || (data.unpaidChits && data.unpaidChits.length > 0);
+  });
+
+  // Chit Numbers string
+  let chitNumbers = data.chitNumbers || data.chitNo || '';
+  if (!chitNumbers && unpaidChits.length > 0) {
+    chitNumbers = unpaidChits.map(c => c.chitNo).filter(Boolean).join(', ');
+  }
+  if (!chitNumbers) chitNumbers = 'N/A';
+
+  // Total Unpaid Amount
+  let totalUnpaidNum = 0;
+  if (data.unpaidAmount !== undefined && Number(data.unpaidAmount) >= 0) {
+    totalUnpaidNum = Number(data.unpaidAmount);
+  } else if (unpaidChits.length > 0) {
+    totalUnpaidNum = unpaidChits.reduce((sum, c) => sum + (Number(c.unpaidAmount) || 0), 0);
+  }
+  const unpaidAmountStr = formatAmountOnly(totalUnpaidNum);
+
+  const settings = {
+    ...data.settings,
+    ...(data.upiId ? { upiId: data.upiId } : {}),
+    ...(data.upiNumber ? { upiNumber: data.upiNumber } : {}),
+    ...(data.upiNo ? { upiNumber: data.upiNo } : {})
+  };
+  const paymentDetailsBlock = formatPaymentDetailsBlock(settings, lang);
+
+  // If member has multiple unpaid chits, show individual balances
+  let breakdownBlock = '';
+  if (unpaidChits.length > 1) {
+    if (lang === 'ta') {
+      const lines = unpaidChits.map(c => `• ${c.chitNo}: ₹${formatAmountOnly(c.unpaidAmount || 0)}`);
+      breakdownBlock = `\n\nநிலுவை விவரம்:\n${lines.join('\n')}`;
+    } else {
+      const lines = unpaidChits.map(c => `• ${c.chitNo}: ₹${formatAmountOnly(c.unpaidAmount || 0)}`);
+      breakdownBlock = `\n\nPending Breakdown:\n${lines.join('\n')}`;
+    }
+  }
+
+  if (lang === 'ta') {
+    return (
+`வணக்கம் ${memberName} 👋
+
+MSR CHITS மாத தவணை நினைவூட்டல்.
+
+மாதம்: ${monthDisplay}
+சீட்டு எண்: ${chitNumbers}
+செலுத்த வேண்டிய தொகை: ₹${unpaidAmountStr}${breakdownBlock}${paymentDetailsBlock}
+
+தயவுசெய்து நிலுவைத் தொகையைச் செலுத்தி screenshot அனுப்பவும்.
+
+நன்றி.
+MSR CHITS`
+    );
+  }
+
+  return (
+`Hi ${memberName} 👋
+
+MSR CHITS payment reminder.
+
+Month: ${monthDisplay}
+Chit No: ${chitNumbers}
+Unpaid Amount: ₹${unpaidAmountStr}${breakdownBlock}${paymentDetailsBlock}
+
+Please pay the pending amount and share the payment screenshot.
+
+Thank you.
+MSR CHITS`
+  );
+}
+
 // Aliases for compatibility
 export const createWelcomeMessage = buildWelcomeMessage;
 export const generateWelcomeMessage = (member, chit, lang) => {
@@ -551,3 +646,6 @@ export const generatePayoutMessage = (memberOrData, payoutDataOrLang, lang) => {
     language: lang || payoutDataOrLang?.language || memberOrData?.language 
   });
 };
+
+export const generateMonthlyUnpaidReminderMessage = (data, lang) => buildMonthlyUnpaidReminderMessage(data, lang);
+
