@@ -11,6 +11,7 @@ const API_URL = RAW_URL.replace(/\/+$/, '');
 import { generateChitNumber, getNextAvailableChitNumber } from '../utils/chitNumber';
 import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment } from '../utils/chitCalculations';
 import { calculateMonthlyUnpaidSummary } from '../utils/unpaidCalculations';
+import { calculateMonthlyCashFlow } from '../utils/cashFlowCalculations';
 
 const STORAGE_KEYS = {
   SESSION: 'msr_auth_session',
@@ -977,8 +978,15 @@ export const api = {
       updatedAt: new Date().toISOString()
     };
 
-    // Update PAYOUTS_CACHE (avoid duplicate payout IDs)
-    const filteredPayouts = payouts.filter(p => String(p.payoutId) !== String(newPayout.payoutId));
+    // Update PAYOUTS_CACHE (avoid duplicate payout IDs or same chitId + monthNumber)
+    const filteredPayouts = payouts.filter(p => {
+      if (payoutData.payoutId && String(p.payoutId) === String(payoutData.payoutId)) return false;
+      if (String(p.payoutId) === String(newPayout.payoutId)) return false;
+      if (!payoutData.payoutId && (!p.chitId || String(p.chitId) === String(chitId)) && Number(p.month || p.monthNumber) === monthNum) {
+        return false;
+      }
+      return true;
+    });
     setCache(STORAGE_KEYS.PAYOUTS_CACHE, [newPayout, ...filteredPayouts]);
 
     // Update SCHEDULE_CACHE to mark month as Completed
@@ -992,14 +1000,22 @@ export const api = {
       const updatedMonthPayouts = [newPayout, ...existingPayouts];
       const totalPaid = updatedMonthPayouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
+      const actCollection = (payoutData.actualCollection !== undefined && payoutData.actualCollection !== null && payoutData.actualCollection !== '')
+        ? Number(payoutData.actualCollection)
+        : (s.actualCollection !== undefined ? s.actualCollection : s.collectedAmount);
+
       return {
         ...s,
-        payoutStatus: 'Completed',
-        status: 'Completed',
+        payoutStatus: payoutData.status || 'Completed',
+        status: payoutData.status || 'Completed',
         actualPayoutAmount: totalPaid,
+        payoutAmount: numAmount > 0 ? numAmount : (s.payoutAmount || totalPaid),
         payouts: updatedMonthPayouts,
-        assignedMemberName: s.assignedMemberName || payoutData.memberName,
-        assignedMemberId: s.assignedMemberId || payoutData.memberId
+        actualCollection: actCollection,
+        collectedAmount: actCollection,
+        assignedMemberName: payoutData.memberName || s.assignedMemberName,
+        assignedMemberId: payoutData.memberId || s.assignedMemberId,
+        chitNo: payoutData.chitNo || s.chitNo
       };
     });
     setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
@@ -1034,6 +1050,105 @@ export const api = {
     }
 
     return newPayout;
+  },
+
+  // Collection & Payout Summary
+  async getCollectionPayoutSummary(params = {}) {
+    let backendResult = null;
+    if (API_URL) {
+      try {
+        backendResult = await postApi('getCollectionPayoutSummary', params);
+        if (!backendResult) {
+          backendResult = await getApi('getCollectionPayoutSummary', params);
+        }
+      } catch (err) {
+        console.warn('[MSR CHITS API] getCollectionPayoutSummary live backend note:', err.message);
+      }
+    }
+
+    if (backendResult && backendResult.months && backendResult.summary) {
+      return backendResult;
+    }
+
+    // Local fallback calculation using calculateMonthlyCashFlow
+    const [payments, payouts, chits, extraInvs, settings] = await Promise.all([
+      this.getPayments(),
+      this.getPayouts(),
+      this.getChits(),
+      this.getExtraInvestments(),
+      this.getSettings()
+    ]);
+
+    const activeChitId = params.chitId || 'CHIT-100K-01';
+    const chitList = Array.isArray(chits) ? chits : (chits?.chits || []);
+    const chit = chitList.find(c => String(c.chitId) === String(activeChitId)) || chitList[0];
+    const chitSchedule = await this.getMonthlySchedule(activeChitId);
+
+    const calculated = calculateMonthlyCashFlow({
+      payments,
+      payouts,
+      schedule: chitSchedule || [],
+      extraInvestments: extraInvs || [],
+      settings,
+      chit,
+      maxMonths: Number(chit?.durationMonths || chit?.duration || 20)
+    });
+
+    return {
+      success: true,
+      summary: calculated.totals,
+      months: calculated.months
+    };
+  },
+
+  async recordActualCollectionAndPayout(payload) {
+    let backendResult = null;
+    if (API_URL) {
+      try {
+        backendResult = await postApi('recordActualRecord', payload);
+      } catch (err) {
+        console.warn('[MSR CHITS API] recordActualRecord API error, using local fallback:', err.message);
+      }
+    }
+
+    // Update payout via recordPayout (which deduplicates and preserves chitNo)
+    const payoutRecord = await this.recordPayout({
+      ...payload,
+      amount: payload.amount !== undefined ? payload.amount : payload.actualAmount,
+      actualAmount: payload.amount !== undefined ? payload.amount : payload.actualAmount,
+      actualCollection: payload.actualCollection !== undefined ? payload.actualCollection : payload.actualAmountCollected
+    });
+
+    const actualCollection = Number(payload.actualCollection !== undefined ? payload.actualCollection : payload.actualAmountCollected) || 0;
+    const chitId = payload.chitId || 'CHIT-100K-01';
+    const monthNum = Number(payload.month || payload.monthNumber);
+
+    const cachedSchedule = getCache(STORAGE_KEYS.SCHEDULE_CACHE) || [];
+    const updatedSchedule = cachedSchedule.map(s => {
+      const isMatch = (!s.chitId || String(s.chitId) === String(chitId)) &&
+        Number(s.month || s.monthNumber) === monthNum;
+      if (!isMatch) return s;
+
+      return {
+        ...s,
+        actualCollection: actualCollection,
+        collectedAmount: actualCollection,
+        payoutAmount: Number(payload.amount !== undefined ? payload.amount : payload.actualAmount) || s.payoutAmount,
+        payoutStatus: payload.paymentStatus || payload.status || 'Completed',
+        status: payload.paymentStatus || payload.status || 'Completed',
+        assignedMemberName: payload.memberName || s.assignedMemberName,
+        assignedMemberId: payload.memberId || s.assignedMemberId,
+        chitNo: payload.chitNo || s.chitNo
+      };
+    });
+    setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
+
+    return backendResult || {
+      success: true,
+      month: monthNum,
+      actualCollection: actualCollection,
+      payout: payoutRecord
+    };
   },
 
   // Reports

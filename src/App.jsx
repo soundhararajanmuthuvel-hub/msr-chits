@@ -16,6 +16,7 @@ import ProfitLossAnalysis from './pages/ProfitLossAnalysis';
 import Settings from './pages/Settings';
 import WhatsApp from './pages/WhatsApp';
 import MonthlyUnpaid from './pages/MonthlyUnpaid';
+import CollectionPayoutSummary from './pages/CollectionPayoutSummary';
 import LoadingState from './components/common/LoadingState';
 
 // Protected Route Guard
@@ -63,7 +64,9 @@ export function App() {
               <Route path="/payments" element={<Payments />} />
               <Route path="/payments/monthly-unpaid" element={<MonthlyUnpaid />} />
               <Route path="/payouts" element={<Payouts />} />
+              <Route path="/collection-payout" element={<CollectionPayoutSummary />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/reports/collection-payout" element={<CollectionPayoutSummary />} />
               <Route path="/reports/profit-loss" element={<ProfitLossAnalysis />} />
               <Route path="/reports/monthly-unpaid" element={<MonthlyUnpaid />} />
               <Route path="/monthly-unpaid" element={<MonthlyUnpaid />} />

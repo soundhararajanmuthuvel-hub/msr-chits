@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Send,
   PlusCircle,
@@ -8,7 +9,8 @@ import {
   Layers,
   ArrowUpRight,
   ShieldCheck,
-  MessageSquare
+  MessageSquare,
+  Wallet
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatINR } from '../utils/currency';
@@ -22,6 +24,7 @@ import LoadingState from '../components/common/LoadingState';
 import { useChit } from '../context/ChitContext';
 
 export const Payouts = () => {
+  const navigate = useNavigate();
   const { activeChit, isRecordPayoutOpen, setIsRecordPayoutOpen } = useChit();
   const [payouts, setPayouts] = useState([]);
   const [members, setMembers] = useState([]);
@@ -192,14 +195,24 @@ export const Payouts = () => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsRecordPayoutOpen(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors self-start sm:self-auto"
-        >
-          <PlusCircle className="w-4 h-4 text-[#C9A227]" />
-          <span>Record Payout</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => navigate('/collection-payout')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-[#F0FCF4] hover:bg-[#e2f7eb] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+          >
+            <Wallet className="w-4 h-4 text-[#C9A227]" />
+            <span>Collection & Payout Summary</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsRecordPayoutOpen(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4 text-[#C9A227]" />
+            <span>Record Payout</span>
+          </button>
+        </div>
       </div>
 
       {/* 4 Stat Cards */}

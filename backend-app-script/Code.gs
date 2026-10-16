@@ -1568,11 +1568,40 @@ function getAllPayouts() {
 }
 
 function recordChitPayout(data) {
-  const payoutId = generateSequentialId(SHEET_NAMES.PAYOUTS, 'PO', 'payoutId');
   const amount = Number(data.amount || data.actualAmount) || 0;
   const scheduledAmount = Number(data.scheduledAmount || data.scheduledPayoutAmount) || amount;
   const monthNum = Number(data.month || data.monthNumber);
   const chitId = data.chitId || 'CHIT-100K-01';
+
+  // Check if payout already exists (by data.payoutId OR matching chitId + monthNumber)
+  const payoutsSheet = getSheet(SHEET_NAMES.PAYOUTS);
+  let existingPayoutId = data.payoutId || '';
+  let existingRowFound = false;
+
+  if (payoutsSheet && payoutsSheet.getLastRow() >= 2) {
+    const pHeaders = payoutsSheet.getRange(1, 1, 1, payoutsSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const idCol = pHeaders.indexOf('payoutId');
+    const cIdCol = pHeaders.indexOf('chitId');
+    const mCol = pHeaders.indexOf('monthNumber');
+
+    const pRows = payoutsSheet.getRange(2, 1, payoutsSheet.getLastRow() - 1, payoutsSheet.getLastColumn()).getValues();
+    for (let r = 0; r < pRows.length; r++) {
+      const rowId = idCol !== -1 ? String(pRows[r][idCol]) : '';
+      const rowChitId = cIdCol !== -1 ? String(pRows[r][cIdCol]) : '';
+      const rowMonth = mCol !== -1 ? Number(pRows[r][mCol]) : 0;
+
+      const isMatch = (existingPayoutId && rowId === existingPayoutId) ||
+        (!existingPayoutId && rowChitId === chitId && rowMonth === monthNum);
+
+      if (isMatch) {
+        existingRowFound = true;
+        existingPayoutId = rowId || existingPayoutId;
+        break;
+      }
+    }
+  }
+
+  const payoutId = existingPayoutId || generateSequentialId(SHEET_NAMES.PAYOUTS, 'PO', 'payoutId');
 
   // Derive or lookup chitNo
   let chitNo = data.chitNo || '';
@@ -1601,20 +1630,24 @@ function recordChitPayout(data) {
     payoutDate: payoutDate,
     paymentMethod: data.paymentMode || data.paymentMethod || 'Bank Transfer',
     referenceNumber: data.reference || data.referenceNumber || '',
-    status: 'Completed',
+    status: data.status || 'Completed',
     notes: data.notes || '',
-    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     extraInvestmentId: data.extraInvestmentId || data.investmentId || ''
   };
 
-  appendRow(SHEET_NAMES.PAYOUTS, newPayout);
+  if (existingRowFound) {
+    updateRow(SHEET_NAMES.PAYOUTS, 'payoutId', payoutId, newPayout);
+  } else {
+    newPayout.createdAt = new Date().toISOString();
+    appendRow(SHEET_NAMES.PAYOUTS, newPayout);
+  }
 
-  // Update MonthlySchedule tab: set payoutStatus = 'Completed', status = 'Completed', and payoutDate
+  // Update MonthlySchedule tab: set payoutStatus = 'Completed', status = 'Completed', payoutDate, and actualCollection if provided
   try {
     const schSheet = getSheet(SHEET_NAMES.MONTHLY_SCHEDULE);
     if (schSheet && schSheet.getLastRow() >= 2) {
-      const headers = schSheet.getRange(1, 1, 1, schSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+      let headers = schSheet.getRange(1, 1, 1, schSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
       const chitIdCol = headers.indexOf('chitId');
       const monthCol = headers.indexOf('monthNumber');
       const pStatusCol = headers.indexOf('payoutStatus');
@@ -1622,15 +1655,29 @@ function recordChitPayout(data) {
       const pDateCol = headers.indexOf('payoutDate');
       const memNameCol = headers.indexOf('memberName');
       const memIdCol = headers.indexOf('memberId');
+      const pAmtCol = headers.indexOf('payoutAmount');
+
+      let actColIndex = headers.indexOf('actualCollection');
+      if (actColIndex === -1 && (data.actualCollection !== undefined || data.actualAmountCollected !== undefined)) {
+        actColIndex = headers.length;
+        schSheet.getRange(1, actColIndex + 1).setValue('actualCollection');
+        headers.push('actualCollection');
+      }
 
       const sData = schSheet.getRange(2, 1, schSheet.getLastRow() - 1, schSheet.getLastColumn()).getValues();
       for (let r = 0; r < sData.length; r++) {
         if (String(sData[r][chitIdCol]) === chitId && Number(sData[r][monthCol]) === monthNum) {
-          if (pStatusCol !== -1) schSheet.getRange(r + 2, pStatusCol + 1).setValue('Completed');
-          if (statusCol !== -1) schSheet.getRange(r + 2, statusCol + 1).setValue('Completed');
+          if (pStatusCol !== -1) schSheet.getRange(r + 2, pStatusCol + 1).setValue(data.status || 'Completed');
+          if (statusCol !== -1) schSheet.getRange(r + 2, statusCol + 1).setValue(data.status || 'Completed');
           if (pDateCol !== -1) schSheet.getRange(r + 2, pDateCol + 1).setValue(payoutDate);
           if (memNameCol !== -1 && data.memberName) schSheet.getRange(r + 2, memNameCol + 1).setValue(data.memberName);
           if (memIdCol !== -1 && data.memberId) schSheet.getRange(r + 2, memIdCol + 1).setValue(data.memberId);
+          if (pAmtCol !== -1 && amount > 0) schSheet.getRange(r + 2, pAmtCol + 1).setValue(amount);
+
+          if (actColIndex !== -1 && (data.actualCollection !== undefined || data.actualAmountCollected !== undefined)) {
+            const actVal = Number(data.actualCollection !== undefined ? data.actualCollection : data.actualAmountCollected) || 0;
+            schSheet.getRange(r + 2, actColIndex + 1).setValue(actVal);
+          }
           break;
         }
       }
@@ -1676,6 +1723,61 @@ function recordChitPayout(data) {
 
   logActivity('Payout Recorded', 'Disbursed ₹' + amount + ' to ' + newPayout.memberName + ' (Month ' + newPayout.monthNumber + (chitNo ? ', ' + chitNo : '') + ', Funding: ' + newPayout.fundingSource + ')', 'Admin');
   return newPayout;
+}
+
+/**
+ * Records or updates actual collection and actual payout together for a given month.
+ * Avoids duplicate payouts and preserves permanent Chit Nos and payment records.
+ */
+function recordOrUpdateActualRecord(payload) {
+  payload = payload || {};
+  const monthNum = Number(payload.month || payload.monthNumber);
+  const chitId = payload.chitId || 'CHIT-100K-01';
+  const actualCollection = Number(payload.actualCollection !== undefined ? payload.actualCollection : payload.actualAmountCollected) || 0;
+  const actualPayout = Number(payload.amount !== undefined ? payload.amount : payload.actualAmount) || 0;
+
+  // 1. Update MonthlySchedule actualCollection column
+  try {
+    const schSheet = getSheet(SHEET_NAMES.MONTHLY_SCHEDULE);
+    if (schSheet && schSheet.getLastRow() >= 2) {
+      let headers = schSheet.getRange(1, 1, 1, schSheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+      let colIndex = headers.indexOf('actualCollection');
+      if (colIndex === -1) {
+        colIndex = headers.length;
+        schSheet.getRange(1, colIndex + 1).setValue('actualCollection');
+      }
+      const cIdCol = headers.indexOf('chitId');
+      const mCol = headers.indexOf('monthNumber');
+      const sData = schSheet.getRange(2, 1, schSheet.getLastRow() - 1, schSheet.getLastColumn()).getValues();
+      for (let r = 0; r < sData.length; r++) {
+        if (String(sData[r][cIdCol]) === chitId && Number(sData[r][mCol]) === monthNum) {
+          schSheet.getRange(r + 2, colIndex + 1).setValue(actualCollection);
+          break;
+        }
+      }
+    }
+  } catch (schErr) {
+    Logger.log('Error saving actualCollection in schedule: ' + schErr.message);
+  }
+
+  // 2. Record or update actual payout record without duplication
+  const payoutResult = recordChitPayout({
+    ...payload,
+    actualCollection: actualCollection
+  });
+
+  logActivity(
+    'Actual Record Saved',
+    'Month ' + monthNum + ': Collection ₹' + actualCollection + ', Payout ₹' + actualPayout + ' to ' + (payload.memberName || 'Member'),
+    'Admin'
+  );
+
+  return {
+    success: true,
+    month: monthNum,
+    actualCollection: actualCollection,
+    payout: payoutResult
+  };
 }
 
 // ============================================================================
@@ -2220,6 +2322,178 @@ function getProfitLossAnalysis(filters) {
   };
 }
 
+/**
+ * ============================================================================
+ * COLLECTION & PAYOUT SUMMARY
+ * Monthly Collection vs Actual Payout Tracking with Carry-Forward Cash Remaining
+ * ============================================================================
+ */
+function getCollectionPayoutSummary(payload) {
+  payload = payload || {};
+  const chitId = payload.chitId || 'CHIT-100K-01';
+  const chits = getAllChits();
+  const chit = chits.find(c => String(c.chitId) === String(chitId)) || chits[0] || { chitId: chitId, chitValue: 100000, durationMonths: 20 };
+  const payments = getAllPayments();
+  const payouts = getAllPayouts();
+  const schedule = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE);
+  const extraInvestments = getExtraInvestments();
+  const settings = getSystemSettings();
+
+  const chitValue = Number(chit.chitValue || chit.totalAmount) || 100000;
+  const duration = Number(chit.durationMonths || chit.duration) || 20;
+  const initialOpeningBalance = Number(settings.initialOpeningCash || settings.openingCashBalance || 0);
+
+  const chitPayments = payments.filter(p => !p.chitId || String(p.chitId) === String(chitId));
+  const chitPayouts = payouts.filter(po => !po.chitId || String(po.chitId) === String(chitId));
+
+  let runningCash = initialOpeningBalance;
+  let totalCollection = 0;
+  let totalActualPayouts = 0;
+  let totalExtraUsed = 0;
+  let totalExtraRecovered = 0;
+  let totalExpenses = 0;
+
+  const monthsData = [];
+
+  for (let m = 1; m <= duration; m++) {
+    const monthOpening = runningCash;
+    const schItem = schedule.find(s => (!s.chitId || String(s.chitId) === String(chitId)) && Number(s.monthNumber || s.month) === m);
+
+    // Payments for month m
+    const mPayments = chitPayments.filter(p => {
+      const pMonth = Number(p.monthNumber || p.month);
+      if (pMonth !== m) return false;
+      const st = String(p.status || '').toLowerCase();
+      return st !== 'failed' && st !== 'cancelled' && st !== 'deleted' && st !== 'rejected';
+    });
+    const sumPayments = mPayments.reduce((acc, p) => acc + (Number(p.paidAmount || p.amount) || 0), 0);
+
+    let actualCollected = 0;
+    if (schItem && schItem.actualCollection !== undefined && schItem.actualCollection !== null && schItem.actualCollection !== '') {
+      actualCollected = Number(schItem.actualCollection) || 0;
+    } else if (schItem && schItem.collectedAmount !== undefined && schItem.collectedAmount !== null && schItem.collectedAmount !== '') {
+      actualCollected = Number(schItem.collectedAmount) || 0;
+    } else {
+      actualCollected = sumPayments;
+    }
+
+    // Payouts for month m
+    const mPayouts = chitPayouts.filter(po => Number(po.monthNumber || po.month) === m);
+    let actualPayout = 0;
+    let scheduledPayout = 0;
+    let payoutRecipient = '';
+    let chitNo = '';
+    let fundingSource = 'CHIT_FUND';
+    let extraInvestmentId = '';
+    let payoutStatus = 'Upcoming';
+    let payoutDate = '';
+    let payoutId = '';
+
+    if (mPayouts.length > 0) {
+      const primaryPayout = mPayouts[0];
+      actualPayout = mPayouts.reduce((acc, po) => acc + (Number(po.actualAmount !== undefined ? po.actualAmount : po.amount) || 0), 0);
+      scheduledPayout = Number(primaryPayout.scheduledAmount || primaryPayout.scheduledPayoutAmount) || (schItem ? Number(schItem.payoutAmount) : 0) || actualPayout;
+      payoutRecipient = primaryPayout.memberName || (schItem ? (schItem.memberName || schItem.assignedMemberName) : 'Not Assigned');
+      chitNo = primaryPayout.chitNo || schItem?.chitNo || generatePermanentChitNumber('2026', chitValue, m);
+      fundingSource = primaryPayout.fundingSource || 'CHIT_FUND';
+      extraInvestmentId = primaryPayout.extraInvestmentId || '';
+      payoutStatus = primaryPayout.status || 'Completed';
+      payoutDate = primaryPayout.payoutDate || '';
+      payoutId = primaryPayout.payoutId || '';
+    } else if (schItem) {
+      scheduledPayout = Number(schItem.payoutAmount) || 0;
+      payoutRecipient = schItem.memberName || schItem.assignedMemberName || 'Not Assigned';
+      chitNo = schItem.chitNo || generatePermanentChitNumber('2026', chitValue, m);
+      payoutStatus = schItem.payoutStatus || schItem.status || 'Upcoming';
+      payoutDate = schItem.payoutDate || '';
+      if (payoutStatus === 'Completed') {
+        actualPayout = Number(schItem.actualPayoutAmount || schItem.payoutAmount) || scheduledPayout;
+      }
+    } else {
+      chitNo = generatePermanentChitNumber('2026', chitValue, m);
+    }
+
+    const simpleDifference = actualCollected - actualPayout;
+
+    // Extra Investment flows
+    const mInvestments = extraInvestments.filter(inv => {
+      if (inv.month && Number(inv.month) === m) return true;
+      if (inv.investmentDate) {
+        const d = new Date(inv.investmentDate);
+        return !isNaN(d.getTime()) && (d.getMonth() + 1) === m;
+      }
+      return false;
+    });
+    const investmentReceived = mInvestments.reduce((sum, inv) => sum + (Number(inv.investmentAmount) || 0), 0);
+    const investmentRecovered = mInvestments.reduce((sum, inv) => sum + (Number(inv.returnedAmount || inv.recoveredAmount) || 0), 0);
+    const extraUsed = (fundingSource === 'EXTRA_INVESTMENT' || String(fundingSource).toUpperCase().includes('EXTRA')) ? actualPayout : 0;
+
+    const recordedExpenses = 0;
+    const otherOutflows = 0;
+
+    // Carry forward closing cash calculation
+    // Cash Remaining = Opening + Actual Collections + Investment Funds Received - Actual Payouts - Recorded Expenses - Other Outflows - Investments Recovered
+    const netMovement = (actualCollected + investmentReceived) - (actualPayout + recordedExpenses + otherOutflows + investmentRecovered);
+    const closingCash = monthOpening + netMovement;
+    runningCash = closingCash;
+
+    totalCollection += actualCollected;
+    totalActualPayouts += actualPayout;
+    totalExtraUsed += extraUsed;
+    totalExtraRecovered += investmentRecovered;
+    totalExpenses += recordedExpenses;
+
+    const hasData = actualCollected > 0 || actualPayout > 0 || mPayouts.length > 0;
+
+    monthsData.push({
+      monthNumber: m,
+      monthLabel: 'Month ' + m,
+      chitId: chitId,
+      chitNo: chitNo,
+      openingCash: monthOpening,
+      actualCollected: actualCollected,
+      paymentsCount: mPayments.length,
+      payoutRecipient: payoutRecipient,
+      payoutId: payoutId,
+      actualPayout: actualPayout,
+      scheduledPayout: scheduledPayout,
+      payoutStatus: payoutStatus,
+      payoutDate: payoutDate,
+      fundingSource: fundingSource,
+      extraInvestmentId: extraInvestmentId,
+      simpleDifference: simpleDifference,
+      investmentReceived: investmentReceived,
+      investmentRecovered: investmentRecovered,
+      extraInvestmentUsed: extraUsed,
+      recordedExpenses: recordedExpenses,
+      otherOutflows: otherOutflows,
+      netCashMovement: netMovement,
+      closingCash: closingCash,
+      hasData: hasData
+    });
+  }
+
+  const activeMonths = monthsData.filter(m => m.hasData);
+  const finalActiveMonth = activeMonths.length > 0 ? activeMonths[activeMonths.length - 1] : monthsData[0];
+  const finalCashRemaining = finalActiveMonth ? finalActiveMonth.closingCash : initialOpeningBalance;
+
+  return {
+    success: true,
+    summary: {
+      initialOpeningBalance: initialOpeningBalance,
+      totalCollection: totalCollection,
+      totalActualPayouts: totalActualPayouts,
+      simpleDifference: totalCollection - totalActualPayouts,
+      totalExtraUsed: totalExtraUsed,
+      totalExtraRecovered: totalExtraRecovered,
+      totalExpenses: totalExpenses,
+      finalCashRemaining: finalCashRemaining,
+      activeMonthsCount: activeMonths.length
+    },
+    months: monthsData
+  };
+}
+
 // ============================================================================
 // SETTINGS
 // ============================================================================
@@ -2719,6 +2993,17 @@ function handleRequest(e, method) {
       case 'getMonthlyUnpaidSummary':
       case 'getMonthlyUnpaid':
         result = getMonthlyUnpaidSummary(payload);
+        break;
+
+      case 'getCollectionPayoutSummary':
+      case 'getCollectionPayout':
+        result = getCollectionPayoutSummary(payload);
+        break;
+
+      case 'recordActualRecord':
+      case 'recordOrUpdateActualRecord':
+      case 'saveActualCollectionPayout':
+        result = recordOrUpdateActualRecord(payload);
         break;
 
       case 'getProfitLoss':

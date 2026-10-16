@@ -14,7 +14,8 @@ import {
   Database,
   Building2,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Wallet
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useChit } from '../../context/ChitContext';
@@ -36,6 +37,7 @@ export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
     { to: '/payments', label: 'Payments', icon: CreditCard },
     { to: '/monthly-unpaid', label: 'Monthly Unpaid', icon: AlertCircle },
     { to: '/payouts', label: 'Payouts', icon: Send },
+    { to: '/collection-payout', label: 'Collection & Payout', icon: Wallet },
     { to: '/whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/reports/profit-loss', label: 'Profit & Loss', icon: TrendingUp },

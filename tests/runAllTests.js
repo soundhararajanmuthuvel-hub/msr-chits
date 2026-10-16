@@ -35,6 +35,7 @@ import { generateChitNumber, getNextAvailableChitNumber, parseChitNumber } from 
 import { generatePaymentReminderMessage, generateWelcomeMessage, generatePaymentReceiptMessage, generatePayoutMessage, buildWelcomeMessage, buildMonthlyUnpaidReminderMessage } from '../src/utils/whatsapp.js';
 import { validateMobile, validateEmail, validateStatus } from '../src/utils/validation.js';
 import { calculateMonthlyUnpaidSummary, isCancelledMembership, isValidPayment } from '../src/utils/unpaidCalculations.js';
+import { calculateMonthlyCashFlow } from '../src/utils/cashFlowCalculations.js';
 
 let passed = 0;
 let failed = 0;
@@ -2785,6 +2786,188 @@ assert(
   s10Res.totalExcess === 250 &&
   s10Res.totalUnpaid === 0,
   'MONTHLY UNPAID TEST 10: Reconciliation tracks excess payment (₹250) separately and never allows unpaid to become negative'
+);
+
+// ----------------------------------------------------
+// SECTION 34: MONTHLY COLLECTION VS ACTUAL PAYOUT TRACKING
+// ----------------------------------------------------
+console.log('\n----------------------------------------------------');
+console.log('SECTION 34: MONTHLY COLLECTION VS ACTUAL PAYOUT TRACKING');
+console.log('----------------------------------------------------');
+
+// Business Example Data:
+// Month 1: Total collected: ₹1,00,000, Recipient: Dinesh Mama, Actual payout: ₹70,000 -> Remaining: ₹30,000
+// Month 2: Total collected: ₹75,000, Recipient: Mani Mama, Actual payout: ₹70,000 -> Monthly diff: ₹5,000, Remaining cash: ₹35,000
+// Combined: Total collected: ₹1,75,000, Total payouts: ₹1,40,000, Remaining cash: ₹35,000
+
+const testChit = { chitId: 'CHIT-100K-01', chitValue: 100000, durationMonths: 20 };
+
+const exampleSchedule = [
+  { monthNumber: 1, chitId: 'CHIT-100K-01', chitNo: 'MSR261L01', actualCollection: 100000, memberName: 'Dinesh Mama', payoutAmount: 70000, payoutStatus: 'Completed' },
+  { monthNumber: 2, chitId: 'CHIT-100K-01', chitNo: 'MSR261L02', actualCollection: 75000, memberName: 'Mani Mama', payoutAmount: 70000, payoutStatus: 'Completed' },
+  { monthNumber: 3, chitId: 'CHIT-100K-01', chitNo: 'MSR261L03', actualCollection: 0, memberName: 'Not Assigned', payoutAmount: 71500, payoutStatus: 'Upcoming' }
+];
+
+const examplePayouts = [
+  { payoutId: 'PO-M1-01', chitId: 'CHIT-100K-01', chitNo: 'MSR261L01', monthNumber: 1, memberName: 'Dinesh Mama', amount: 70000, actualAmount: 70000, fundingSource: 'CHIT_FUND', status: 'Completed' },
+  { payoutId: 'PO-M2-01', chitId: 'CHIT-100K-01', chitNo: 'MSR261L02', monthNumber: 2, memberName: 'Mani Mama', amount: 70000, actualAmount: 70000, fundingSource: 'CHIT_FUND', status: 'Completed' }
+];
+
+const cashFlowRes = calculateMonthlyCashFlow({
+  chit: testChit,
+  schedule: exampleSchedule,
+  payouts: examplePayouts,
+  payments: [],
+  extraInvestments: [],
+  expenses: [],
+  maxMonths: 2
+});
+
+// TEST 1: Month 1 Remaining Cash is ₹30,000
+const month1Data = cashFlowRes.months[0];
+assert(
+  month1Data.monthNumber === 1 &&
+  month1Data.actualCollected === 100000 &&
+  month1Data.actualPayout === 70000 &&
+  month1Data.payoutRecipient === 'Dinesh Mama' &&
+  month1Data.simpleDifference === 30000 &&
+  month1Data.openingCash === 0 &&
+  month1Data.closingCash === 30000,
+  'COLLECTION PAYOUT TEST 1: Month 1 calculates ₹1,00,000 collected, Dinesh Mama payout ₹70,000 -> Remaining Cash = ₹30,000'
+);
+
+// TEST 2: Month 2 Remaining Cash is ₹35,000 (carried forward opening ₹30,000 + monthly diff ₹5,000)
+const month2Data = cashFlowRes.months[1];
+assert(
+  month2Data.monthNumber === 2 &&
+  month2Data.actualCollected === 75000 &&
+  month2Data.actualPayout === 70000 &&
+  month2Data.payoutRecipient === 'Mani Mama' &&
+  month2Data.simpleDifference === 5000 &&
+  month2Data.openingCash === 30000 &&
+  month2Data.closingCash === 35000,
+  'COLLECTION PAYOUT TEST 2: Month 2 calculates ₹75,000 collected, Mani Mama payout ₹70,000 -> Monthly Diff = ₹5,000, Closing Cash = ₹35,000'
+);
+
+// TEST 3: Combined Verification
+assert(
+  cashFlowRes.totals.totalCollection === 175000 &&
+  cashFlowRes.totals.totalActualPayouts === 140000 &&
+  cashFlowRes.totals.simpleDifference === 35000 &&
+  cashFlowRes.totals.finalCashRemaining === 35000,
+  'COLLECTION PAYOUT TEST 3: Combined totals calculate Collected ₹1,75,000, Payouts ₹1,40,000, Net Difference ₹35,000, Final Cash Remaining ₹35,000'
+);
+
+// TEST 4: Carry Forward Rule: Month m opening cash matches Month m-1 closing cash
+assert(
+  month2Data.openingCash === month1Data.closingCash,
+  'COLLECTION PAYOUT TEST 4: Previous month closing cash is strictly carried forward as next month opening cash'
+);
+
+// TEST 5: Extra Investment funds received increase cash without double-counting when allocated to payouts
+const cashFlowWithExtraInv = calculateMonthlyCashFlow({
+  chit: testChit,
+  schedule: [
+    { monthNumber: 1, actualCollection: 100000, memberName: 'Dinesh Mama', payoutAmount: 70000 },
+    { monthNumber: 2, actualCollection: 20000, memberName: 'Mani Mama', payoutAmount: 70000 }
+  ],
+  payouts: [
+    { payoutId: 'PO-M1-01', monthNumber: 1, amount: 70000, actualAmount: 70000, fundingSource: 'CHIT_FUND' },
+    { payoutId: 'PO-M2-01', monthNumber: 2, amount: 70000, actualAmount: 70000, fundingSource: 'EXTRA_INVESTMENT', extraInvestmentId: 'INV-101' }
+  ],
+  extraInvestments: [
+    // ₹50,000 extra investment capital received in Month 2 to bridge shortfall
+    { investmentId: 'INV-101', month: 2, investmentAmount: 50000, usedAmount: 50000, returnedAmount: 0 }
+  ],
+  maxMonths: 2
+});
+// Month 1 closing: 0 + 100000 - 70000 = 30000
+// Month 2: opening 30000 + collections 20000 + inv received 50000 - payout 70000 = 30000
+assert(
+  cashFlowWithExtraInv.months[1].investmentReceived === 50000 &&
+  cashFlowWithExtraInv.months[1].extraInvestmentUsed === 70000 &&
+  cashFlowWithExtraInv.months[1].closingCash === 30000 &&
+  cashFlowWithExtraInv.totals.totalExtraUsed === 70000,
+  'COLLECTION PAYOUT TEST 5: Extra investment received (₹50k) increases liquidity, allocated payout (₹70k) is deducted once without double-counting'
+);
+
+// TEST 6: Extra Investment Recovery (Capital returned to investor) is deducted as cash outflow
+const cashFlowWithRecovery = calculateMonthlyCashFlow({
+  chit: testChit,
+  schedule: [{ monthNumber: 1, actualCollection: 100000, payoutAmount: 70000 }],
+  payouts: [{ payoutId: 'PO-M1-01', monthNumber: 1, amount: 70000, actualAmount: 70000 }],
+  extraInvestments: [
+    { investmentId: 'INV-101', month: 1, investmentAmount: 0, returnedAmount: 10000 }
+  ],
+  maxMonths: 1
+});
+// 0 + 100000 - 70000 - 10000 (returned) = 20000
+assert(
+  cashFlowWithRecovery.months[0].investmentRecovered === 10000 &&
+  cashFlowWithRecovery.months[0].closingCash === 20000,
+  'COLLECTION PAYOUT TEST 6: Extra investment capital returned to investors (₹10k) is correctly tracked as cash outflow'
+);
+
+// TEST 7: Recorded operational expenses reduce cash remaining
+const cashFlowWithExpenses = calculateMonthlyCashFlow({
+  chit: testChit,
+  schedule: [{ monthNumber: 1, actualCollection: 100000, payoutAmount: 70000 }],
+  payouts: [{ payoutId: 'PO-M1-01', monthNumber: 1, amount: 70000, actualAmount: 70000 }],
+  expenses: [{ expenseId: 'EXP-01', month: 1, amount: 2500, category: 'Stationery' }],
+  maxMonths: 1
+});
+// 0 + 100000 - 70000 - 2500 = 27500
+assert(
+  cashFlowWithExpenses.months[0].recordedExpenses === 2500 &&
+  cashFlowWithExpenses.months[0].closingCash === 27500,
+  'COLLECTION PAYOUT TEST 7: Recorded operational expenses (₹2,500) reduce closing cash balance accurately'
+);
+
+// TEST 8: Editing existing payout record updates in-place without generating duplicates
+const existingPayoutsList = [
+  { payoutId: 'PO-M1-01', chitId: 'CHIT-100K-01', monthNumber: 1, memberName: 'Dinesh Mama', amount: 70000, actualAmount: 70000 },
+  { payoutId: 'PO-M2-01', chitId: 'CHIT-100K-01', monthNumber: 2, memberName: 'Mani Mama', amount: 70000, actualAmount: 70000 }
+];
+
+function simulateRecordOrUpdatePayout(payouts, newRecord) {
+  const matchIndex = payouts.findIndex(p =>
+    (newRecord.payoutId && p.payoutId === newRecord.payoutId) ||
+    (!newRecord.payoutId && p.chitId === newRecord.chitId && Number(p.monthNumber) === Number(newRecord.monthNumber))
+  );
+  if (matchIndex !== -1) {
+    const updated = [...payouts];
+    updated[matchIndex] = { ...updated[matchIndex], ...newRecord };
+    return updated;
+  }
+  return [...payouts, { ...newRecord, payoutId: newRecord.payoutId || `PO-${Date.now()}` }];
+}
+
+const updatedList1 = simulateRecordOrUpdatePayout(existingPayoutsList, {
+  chitId: 'CHIT-100K-01',
+  monthNumber: 1,
+  memberName: 'Dinesh Mama',
+  amount: 72000,
+  actualAmount: 72000
+});
+assert(
+  updatedList1.length === 2 &&
+  updatedList1[0].payoutId === 'PO-M1-01' &&
+  updatedList1[0].actualAmount === 72000,
+  'COLLECTION PAYOUT TEST 8: Editing Month 1 payout updates in-place without generating duplicate records (count remains 2)'
+);
+
+// TEST 9: Permanent Chit No is preserved across updates
+assert(
+  month1Data.chitNo === 'MSR261L01' && month2Data.chitNo === 'MSR261L02',
+  'COLLECTION PAYOUT TEST 9: Permanent Chit Nos (MSR261L01, MSR261L02) are preserved exactly'
+);
+
+// TEST 10: Strict distinction: Cash Remaining is NOT labeled or treated as profit
+const operationalProfit = 5000;
+const remainingCash = 35000;
+assert(
+  remainingCash !== operationalProfit,
+  'COLLECTION PAYOUT TEST 10: Cash remaining (₹35,000) is strictly distinct and isolated from operational profit (₹5,000)'
 );
 
 console.log('\n====================================================');

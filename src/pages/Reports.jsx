@@ -175,6 +175,14 @@ export const Reports = () => {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
+            onClick={() => navigate('/reports/collection-payout')}
+            className="px-3.5 py-2 bg-[#003524] hover:bg-[#174D38] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
+          >
+            <TrendingUp className="w-4 h-4 text-[#FED255]" />
+            <span>Collection & Payout Summary</span>
+          </button>
+          <button
+            type="button"
             onClick={() => navigate('/monthly-unpaid')}
             className="px-3.5 py-2 bg-[#F0FCF4] hover:bg-[#e2f7eb] text-[#003524] border border-[#DCE8E0] text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 min-h-[44px]"
           >
