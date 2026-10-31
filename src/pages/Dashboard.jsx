@@ -40,7 +40,9 @@ export const Dashboard = () => {
     activeChit,
     setIsRecordPaymentOpen,
     setIsAddMemberOpen,
-    setIsRecordPayoutOpen
+    setIsRecordPayoutOpen,
+    dataVersion,
+    invalidateData
   } = useChit();
 
   const [dashboardData, setDashboardData] = useState(null);
@@ -70,12 +72,10 @@ export const Dashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const [dash, cList, msList] = await Promise.all([
-        api.getDashboard(),
+      const [cList, msList] = await Promise.all([
         api.getChits(),
         api.getMemberships()
       ]);
-      setDashboardData(dash);
       const chitsList = Array.isArray(cList) ? cList : (cList?.chits || []);
       setChits(chitsList);
       setMemberships(Array.isArray(msList) ? msList : []);
@@ -86,10 +86,15 @@ export const Dashboard = () => {
       const initialMonth = selectedUnpaidMonth || curMonth;
       if (!selectedUnpaidMonth) setSelectedUnpaidMonth(initialMonth);
 
-      const unpaid = await api.getMonthlyUnpaidSummary({
-        chitId: primary?.chitId || 'CHIT-100K-01',
-        month: initialMonth
-      });
+      const targetChitId = primary?.chitId || 'CHIT-100K-01';
+      const [dash, unpaid] = await Promise.all([
+        api.getDashboard({ chitId: targetChitId, month: initialMonth }),
+        api.getMonthlyUnpaidSummary({
+          chitId: targetChitId,
+          month: initialMonth
+        })
+      ]);
+      setDashboardData(dash);
       setUnpaidSummary(unpaid);
     } catch (err) {
       console.error('Failed to load dashboard:', err);
@@ -102,11 +107,16 @@ export const Dashboard = () => {
   const loadUnpaidForMonth = async (mNum) => {
     setUnpaidLoading(true);
     try {
-      const primary = chits[0];
-      const unpaid = await api.getMonthlyUnpaidSummary({
-        chitId: primary?.chitId || 'CHIT-100K-01',
-        month: mNum
-      });
+      const primary = chits[0] || activeChit;
+      const targetChitId = primary?.chitId || 'CHIT-100K-01';
+      const [dash, unpaid] = await Promise.all([
+        api.getDashboard({ chitId: targetChitId, month: mNum }),
+        api.getMonthlyUnpaidSummary({
+          chitId: targetChitId,
+          month: mNum
+        })
+      ]);
+      setDashboardData(dash);
       setUnpaidSummary(unpaid);
     } catch (err) {
       console.error('Failed to reload unpaid for month:', err);
@@ -123,7 +133,7 @@ export const Dashboard = () => {
 
   useEffect(() => {
     loadData();
-  }, [activeChit]);
+  }, [activeChit, dataVersion]);
 
   const upcomingChits = useMemo(() => {
     return (chits || [])
@@ -486,12 +496,12 @@ export const Dashboard = () => {
         )}
       </div>
 
-      {/* TOP 4 STAT CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+      {/* TOP 5 RECONCILED STAT CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <StatCard
-          title="Total Chits"
-          value={stats?.totalChits || 0}
-          subtitle="Registered Chit Groups"
+          title="Chit Schemes"
+          value={stats?.totalChits || chits.length || 0}
+          subtitle="Registered Schemes"
           icon={Layers}
           accentColor="primary"
         />
@@ -499,23 +509,31 @@ export const Dashboard = () => {
         <StatCard
           title="Active Members"
           value={stats?.activeMembers || 0}
-          subtitle="Enrolled Active Members"
+          subtitle="Unique Active Members"
           icon={Users}
           accentColor="emerald"
         />
 
         <StatCard
+          title="Chit Memberships"
+          value={stats?.activeMemberships || unpaidSummary?.totalMemberships || memberships.length || 0}
+          subtitle="Active Assigned Tickets"
+          icon={Users}
+          accentColor="purple"
+        />
+
+        <StatCard
           title="This Month Collection"
-          value={formatINR(stats?.thisMonthCollection || 0)}
-          subtitle={`Month ${chit.currentMonth} Collected`}
+          value={formatINR(unpaidSummary?.totalCollected ?? stats?.thisMonthCollection ?? 0)}
+          subtitle={`Month ${selectedUnpaidMonth || chit.currentMonth} Collected`}
           icon={CreditCard}
           accentColor="gold"
         />
 
         <StatCard
           title="Pending Payments"
-          value={formatINR(stats?.pendingPayments || 0)}
-          subtitle="Current month due"
+          value={formatINR(unpaidSummary?.totalUnpaid ?? stats?.pendingPayments ?? 0)}
+          subtitle={`Month ${selectedUnpaidMonth || chit.currentMonth} Due`}
           icon={AlertCircle}
           accentColor="blue"
         />
@@ -941,7 +959,10 @@ export const Dashboard = () => {
             setSelectedChitForEnroll(null);
           }}
           targetChit={selectedChitForEnroll}
-          onSuccess={loadData}
+          onSuccess={() => {
+            invalidateData(['members', 'memberships', 'dashboard', 'chits']);
+            loadData();
+          }}
         />
       )}
 
@@ -967,6 +988,7 @@ export const Dashboard = () => {
           prefilledAmount={paymentFormPreFill.amount}
           onSuccess={() => {
             setIsCustomPaymentFormOpen(false);
+            invalidateData(['payments', 'dashboard', 'unpaid', 'cashflow', 'reports']);
             loadData();
           }}
         />

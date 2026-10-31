@@ -300,14 +300,15 @@ export const api = {
   },
 
   // Dashboard
-  async getDashboard() {
+  async getDashboard(params = {}) {
     if (API_URL) {
       try {
-        const data = await getApi('dashboard');
+        const data = await getApi('dashboard', params);
         setCache('msr_dashboard_cache', data);
         return data;
       } catch (e) {
         console.warn('Dashboard fetch error:', e.message);
+        throw e;
       }
     }
 
@@ -316,18 +317,23 @@ export const api = {
 
     const chits = getCache(STORAGE_KEYS.CHITS_CACHE) || [];
     const members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
+    const memberships = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
     const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
 
-    const activeMembers = members.filter(m => m.status === 'Active').length;
+    const activeMembers = members.filter(m => String(m.status || '').toUpperCase() === 'ACTIVE').length;
+    const activeMemberships = memberships.filter(m => String(m.status || '').toUpperCase() !== 'CANCELLED');
     const thisMonthPayments = payments.filter(p => Number(p.month || p.monthNumber) === 1);
     const thisMonthCollected = thisMonthPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+    const expected = activeMemberships.length > 0 ? activeMemberships.length * 3750 : 75000;
 
     return {
       stats: {
         totalChits: chits.length,
         activeMembers: activeMembers,
+        activeMemberships: activeMemberships.length || 20,
         thisMonthCollection: thisMonthCollected,
-        pendingPayments: 0
+        pendingPayments: Math.max(0, expected - thisMonthCollected),
+        expectedCollection: expected
       },
       currentChit: chits[0] || null,
       recentActivity: []
@@ -839,11 +845,7 @@ export const api = {
     let backendResult = null;
 
     if (API_URL) {
-      try {
-        backendResult = await postApi('updateSchedulePayout', payload);
-      } catch (err) {
-        console.warn('[MSR CHITS API] updateMonthlyScheduleItem backend call note:', err.message);
-      }
+      backendResult = await postApi('updateMonthlyInstallment', payload);
     }
 
     // Update SCHEDULE_CACHE
@@ -858,10 +860,12 @@ export const api = {
         ...s,
         monthlyAmount: numMonthly,
         amount: numMonthly,
+        dividend: payload.dividend !== undefined ? Number(payload.dividend) : s.dividend,
         payoutAmount: (payload.payoutAmount && Number(payload.payoutAmount) > 0) ? Number(payload.payoutAmount) : s.payoutAmount
       };
     });
     setCache(STORAGE_KEYS.SCHEDULE_CACHE, updatedSchedule);
+    try { localStorage.removeItem('msr_dashboard_cache'); } catch {}
 
     return backendResult || {
       success: true,
@@ -886,6 +890,7 @@ export const api = {
   },
 
   async recordPayment(paymentData) {
+    try { localStorage.removeItem('msr_dashboard_cache'); } catch {}
     if (API_URL) {
       const newPayment = await postApi('recordPayment', paymentData);
       const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
@@ -1530,6 +1535,13 @@ export const api = {
     return settingsData;
   },
 
+  async changePassword(passwordData) {
+    if (API_URL) {
+      return await postApi('changePassword', passwordData);
+    }
+    return { success: true, message: 'Password updated successfully in demo mode' };
+  },
+
   // Memberships
   async getMemberships(params = {}) {
     if (API_URL) {
@@ -1593,9 +1605,9 @@ export const api = {
       }
     }
     const cached = getCache(STORAGE_KEYS.MEMBERSHIPS_CACHE) || [];
-    const updated = cached.filter(m => String(m.membershipId) !== String(membershipId));
+    const updated = cached.map(m => String(m.membershipId) === String(membershipId) ? { ...m, status: 'CANCELLED' } : m);
     setCache(STORAGE_KEYS.MEMBERSHIPS_CACHE, updated);
-    return { success: true };
+    return { success: true, status: 'CANCELLED' };
   },
 
   async cancelMembership(membershipId) {

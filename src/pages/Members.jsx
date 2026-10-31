@@ -32,7 +32,7 @@ import { useChit } from '../context/ChitContext';
 
 export const Members = () => {
   const navigate = useNavigate();
-  const { setIsRecordPaymentOpen } = useChit();
+  const { setIsRecordPaymentOpen, dataVersion, invalidateData } = useChit();
 
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,11 +59,12 @@ export const Members = () => {
 
   useEffect(() => {
     loadMembers();
-  }, []);
+  }, [dataVersion]);
 
   const totalMembers = members.length;
   const activeMembers = members.filter(m => m.status === 'Active').length;
   const pendingDuesMembers = members.filter(m => (m.totalPending || 0) > 0).length;
+  const totalAssignedTickets = members.reduce((sum, m) => sum + (Array.isArray(m.chits) ? m.chits.filter(c => String(c.status || '').toUpperCase() !== 'CANCELLED').length : (m.payoutMonth && m.payoutMonth !== 'Not Assigned' ? 1 : 0)), 0);
   const assignedChitsCount = members.filter(m => m.payoutMonth && m.payoutMonth !== 'Not Assigned').length;
 
   const filteredMembers = useMemo(() => {
@@ -327,9 +328,9 @@ export const Members = () => {
         />
 
         <StatCard
-          title="Assigned Chits"
-          value={assignedChitsCount}
-          subtitle={`${Math.max(0, totalMembers - assignedChitsCount)} Unassigned`}
+          title="Assigned Tickets"
+          value={totalAssignedTickets}
+          subtitle={`${assignedChitsCount} Members Assigned (${Math.max(0, totalMembers - assignedChitsCount)} Unassigned)`}
           icon={Clock}
           accentColor="blue"
         />

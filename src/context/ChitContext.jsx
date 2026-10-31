@@ -26,6 +26,7 @@ export const ChitProvider = ({ children }) => {
   });
 
   const [toasts, setToasts] = useState([]);
+  const [dataVersion, setDataVersion] = useState(1);
 
   // Modals state accessible across pages
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
@@ -46,6 +47,27 @@ export const ChitProvider = ({ children }) => {
   const removeToast = (id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
+
+  // Invalidate and trigger cross-module reactive synchronization
+  const invalidateData = useCallback((entities = ['all']) => {
+    try {
+      const eList = Array.isArray(entities) ? entities : [entities];
+      const isAll = eList.includes('all');
+
+      if (isAll || eList.includes('dashboard')) localStorage.removeItem('msr_dashboard_cache');
+      if (isAll || eList.includes('payments')) localStorage.removeItem('msr_payments_cache');
+      if (isAll || eList.includes('members')) localStorage.removeItem('msr_members_cache');
+      if (isAll || eList.includes('memberships')) localStorage.removeItem('msr_memberships_cache');
+      if (isAll || eList.includes('schedule')) localStorage.removeItem('msr_schedule_cache');
+      if (isAll || eList.includes('payouts')) localStorage.removeItem('msr_payouts_cache');
+      if (isAll || eList.includes('investments')) localStorage.removeItem('msr_extra_investments_cache');
+      if (isAll || eList.includes('settings')) localStorage.removeItem('msr_settings_cache');
+    } catch {
+      // Ignore localStorage exceptions
+    }
+
+    setDataVersion((v) => v + 1);
+  }, []);
 
   // Check health and sync with backend
   const checkHealth = useCallback(async () => {
@@ -133,6 +155,8 @@ export const ChitProvider = ({ children }) => {
         toasts,
         showToast,
         removeToast,
+        dataVersion,
+        invalidateData,
         // Global Modals
         isRecordPaymentOpen,
         setIsRecordPaymentOpen,

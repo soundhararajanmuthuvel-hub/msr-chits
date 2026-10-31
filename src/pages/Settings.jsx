@@ -116,7 +116,7 @@ export const Settings = () => {
     }
   };
 
-  const handleChangePassword = (e) => {
+  const handleChangePassword = async (e) => {
     e.preventDefault();
     if (!passwordData.newPassword) {
       showToast('Please enter a new password', 'error');
@@ -126,8 +126,16 @@ export const Settings = () => {
       showToast('New passwords do not match', 'error');
       return;
     }
-    showToast('Admin password updated successfully!', 'success');
-    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    try {
+      const res = await api.changePassword({
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      });
+      showToast(res.message || 'Admin password updated successfully in database!', 'success');
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      showToast(err.message || 'Failed to update password', 'error');
+    }
   };
 
   if (loading) {

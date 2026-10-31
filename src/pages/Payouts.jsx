@@ -25,7 +25,7 @@ import { useChit } from '../context/ChitContext';
 
 export const Payouts = () => {
   const navigate = useNavigate();
-  const { activeChit, isRecordPayoutOpen, setIsRecordPayoutOpen } = useChit();
+  const { activeChit, isRecordPayoutOpen, setIsRecordPayoutOpen, dataVersion, invalidateData } = useChit();
   const [payouts, setPayouts] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +53,7 @@ export const Payouts = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [dataVersion]);
 
   const totalPayoutAmount = payouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
   const thisMonthPayout = payouts
@@ -274,7 +274,10 @@ export const Payouts = () => {
       <PayoutForm
         isOpen={isRecordPayoutOpen}
         onClose={() => setIsRecordPayoutOpen(false)}
-        onSuccess={loadData}
+        onSuccess={() => {
+          invalidateData(['payouts', 'dashboard', 'cashflow', 'reports', 'profitloss', 'investments']);
+          loadData();
+        }}
       />
 
       {/* WhatsApp Composer Modal */}

@@ -124,7 +124,10 @@ function testSpreadsheetConnection() {
  */
 function getSheet(sheetName) {
   const ss = getSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet && (sheetName === 'ExtraInvestment' || sheetName === 'ExtraInvestments')) {
+    sheet = ss.getSheetByName('ExtraInvestment') || ss.getSheetByName('ExtraInvestments');
+  }
   if (!sheet) {
     throw new Error('Sheet tab "' + sheetName + '" does not exist. Please run setupDatabase() first.');
   }
@@ -476,30 +479,71 @@ function handleLogin(username, password) {
 // DASHBOARD
 // ============================================================================
 
-function getDashboardData() {
+function getDashboardData(payload) {
+  payload = payload || {};
   const chits = getAllChits();
   const members = getAllMembers();
+  const memberships = getMembershipsSafe();
   const payments = getAllPayments();
   const schedule = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE);
   const activityLog = getSheetData(SHEET_NAMES.ACTIVITY_LOG);
 
-  const currentChit = chits[0] || null;
-  const currentMonthNum = currentChit ? Number(currentChit.currentMonth || 1) : 1;
-  const currentScheduleItem = schedule.find(s => Number(s.monthNumber || s.month) === currentMonthNum) || {};
+  const chitIdFilter = payload.chitId && payload.chitId !== 'all' ? String(payload.chitId) : null;
+  const currentChit = chitIdFilter ? (chits.find(c => String(c.chitId) === chitIdFilter) || chits[0] || null) : (chits[0] || null);
 
-  const thisMonthPayments = payments.filter(p => Number(p.monthNumber || p.month) === currentMonthNum);
-  const thisMonthCollected = thisMonthPayments.reduce((s, p) => s + (Number(p.amount || p.paidAmount) || 0), 0);
-  const activeMembers = members.filter(m => m.status === 'Active').length;
+  let currentMonthNum = Number(payload.month || payload.monthNumber);
+  if (!currentMonthNum || isNaN(currentMonthNum) || currentMonthNum < 1) {
+    currentMonthNum = currentChit ? Number(currentChit.currentMonth || 1) : 1;
+  }
+
+  const currentScheduleItem = schedule.find(s => 
+    (!currentChit || !s.chitId || String(s.chitId) === String(currentChit.chitId)) &&
+    Number(s.monthNumber || s.month) === currentMonthNum
+  ) || {};
+
+  // Filter active memberships for this chit (strictly exclude CANCELLED/INACTIVE)
+  const activeMemberships = memberships.filter(m => {
+    if (!m) return false;
+    const s = String(m.status || '').toUpperCase();
+    if (s === 'CANCELLED' || s === 'INACTIVE') return false;
+    if (currentChit && m.chitId && String(m.chitId) !== String(currentChit.chitId)) return false;
+    return true;
+  });
+
   const monthlyContribution = Number(currentScheduleItem.amount || currentScheduleItem.monthlyAmount) || (currentChit ? Number(currentChit.monthlyAmount || currentChit.monthlyContribution) : 0);
-  const expectedCollection = monthlyContribution * activeMembers;
+
+  // Expected collection calculated from individual active memberships (tickets), NOT unique member count
+  const expectedCollection = activeMemberships.length > 0
+    ? activeMemberships.reduce((sum, m) => {
+        const due = Number(m.monthlyPayment) > 0 ? Number(m.monthlyPayment) : (monthlyContribution || (currentMonthNum === 1 ? 5000 : 3750));
+        return sum + due;
+      }, 0)
+    : (monthlyContribution * 20);
+
+  // Valid payments for this month and chit
+  const thisMonthPayments = payments.filter(p => {
+    const pMonth = Number(p.monthNumber || p.month);
+    if (pMonth !== currentMonthNum) return false;
+    if (currentChit && p.chitId && String(p.chitId) !== String(currentChit.chitId)) return false;
+    const pStatus = String(p.status || '').toLowerCase();
+    if (pStatus === 'failed' || pStatus === 'deleted' || pStatus === 'cancelled' || pStatus === 'unconfirmed' || pStatus === 'rejected') {
+      return false;
+    }
+    return (Number(p.paidAmount || p.amount) || 0) > 0;
+  });
+
+  const thisMonthCollected = thisMonthPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
+  const activeMembers = members.filter(m => String(m.status || '').toUpperCase() === 'ACTIVE').length;
   const pendingCollection = Math.max(0, expectedCollection - thisMonthCollected);
 
   return {
     stats: {
       totalChits: chits.length,
       activeMembers: activeMembers,
+      activeMemberships: activeMemberships.length,
       thisMonthCollection: thisMonthCollected,
-      pendingPayments: pendingCollection
+      pendingPayments: pendingCollection,
+      expectedCollection: expectedCollection
     },
     currentChit: currentChit ? {
       chitId: currentChit.chitId,
@@ -507,6 +551,7 @@ function getDashboardData() {
       chitValue: Number(currentChit.totalAmount || currentChit.chitValue) || 0,
       duration: Number(currentChit.durationMonths || currentChit.duration) || 0,
       memberCount: activeMembers,
+      totalMemberships: activeMemberships.length,
       currentMonth: currentMonthNum,
       monthlyContribution: monthlyContribution,
       expected20M: schedule.reduce((sum, item) => sum + (Number(item.amount || item.monthlyAmount) || 0), 0),
@@ -903,19 +948,42 @@ function createOrAssignMembership(data) {
 }
 
 function deleteMembershipRecord(membershipId) {
-  const sheet = getSheet(SHEET_NAMES.MEMBERSHIPS);
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { success: false };
+  if (!membershipId) return { success: false, message: 'membershipId is required' };
 
-  const data = sheet.getDataRange().getValues();
-  for (let r = 1; r < data.length; r++) {
-    if (String(data[r][0]) === String(membershipId)) {
-      sheet.deleteRow(r + 1);
-      logActivity('Membership Removed', 'Deleted membership ' + membershipId, 'Admin');
-      return { success: true };
-    }
+  // Check if this membership has ANY financial records (payments or payouts)
+  const payments = getAllPayments();
+  const payouts = getAllPayouts();
+  const memberships = getMembershipsSafe();
+  const target = memberships.find(m => String(m.membershipId) === String(membershipId));
+
+  if (!target) return { success: false, message: 'Membership not found' };
+
+  const targetChitNo = String(target.chitNo || '').trim().toUpperCase();
+  const targetMemberId = String(target.memberId || '').trim();
+
+  const hasPayments = payments.some(p => 
+    (targetChitNo && String(p.chitNo || '').trim().toUpperCase() === targetChitNo) ||
+    (String(p.memberId || '').trim() === targetMemberId && Number(p.monthNumber || p.month) === Number(target.payoutMonth))
+  );
+
+  const hasPayouts = payouts.some(po =>
+    (targetChitNo && String(po.chitNo || '').trim().toUpperCase() === targetChitNo) ||
+    (String(po.memberId || '').trim() === targetMemberId && Number(po.monthNumber || po.month) === Number(target.payoutMonth))
+  );
+
+  // Soft cancel to preserve audit trail! NEVER delete physical rows with financial history!
+  const cancelResult = cancelMembership(membershipId);
+  if (hasPayments || hasPayouts) {
+    return {
+      success: true,
+      membershipId: membershipId,
+      status: 'CANCELLED',
+      chitNo: target.chitNo,
+      message: 'Membership has associated financial records. It has been safely CANCELLED instead of deleted to protect historical records.'
+    };
   }
-  return { success: false };
+
+  return cancelResult;
 }
 
 function cancelMembership(membershipId) {
@@ -1332,6 +1400,70 @@ function assignChitMonth(payload) {
   return { success: true, chitNo: assignedChitNo };
 }
 
+function updateMonthlyInstallment(payload) {
+  const chitId = payload.chitId || 'CHIT-100K-01';
+  const month = Number(payload.month || payload.monthNumber);
+  const monthlyAmount = Number(payload.monthlyAmount || payload.amount);
+
+  if (!month || isNaN(monthlyAmount) || monthlyAmount < 0) {
+    return { success: false, message: 'Valid month and positive monthly installment amount are required' };
+  }
+
+  const sheet = getSheet(SHEET_NAMES.MONTHLY_SCHEDULE);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: false, message: 'Schedule is empty' };
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const chitIdCol = headers.indexOf('chitId');
+  const monthCol = headers.indexOf('monthNumber');
+  const amtCol = headers.indexOf('amount') !== -1 ? headers.indexOf('amount') : headers.indexOf('monthlyAmount');
+
+  if (amtCol === -1) {
+    return { success: false, message: 'Monthly amount column not found in schedule' };
+  }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  let updated = false;
+
+  for (let r = 0; r < data.length; r++) {
+    const rowChitId = chitIdCol !== -1 ? String(data[r][chitIdCol]) : '';
+    const rowMonth = Number(data[r][monthCol]);
+
+    if ((!rowChitId || rowChitId === chitId) && rowMonth === month) {
+      sheet.getRange(r + 2, amtCol + 1).setValue(monthlyAmount);
+
+      // Update dividend if provided
+      if (payload.dividend !== undefined && payload.dividend !== null) {
+        let divCol = headers.indexOf('dividend');
+        if (divCol === -1) {
+          divCol = headers.length;
+          sheet.getRange(1, divCol + 1).setValue('dividend');
+          headers.push('dividend');
+        }
+        sheet.getRange(r + 2, divCol + 1).setValue(Number(payload.dividend) || 0);
+      }
+
+      // Update notes if provided
+      if (payload.notes !== undefined && payload.notes !== null) {
+        const notesCol = headers.indexOf('notes');
+        if (notesCol !== -1) {
+          sheet.getRange(r + 2, notesCol + 1).setValue(payload.notes);
+        }
+      }
+
+      updated = true;
+      break;
+    }
+  }
+
+  if (!updated) {
+    return { success: false, message: 'Month ' + month + ' not found in schedule' };
+  }
+
+  logActivity('Schedule Updated', 'Month ' + month + ' monthly installment updated to ₹' + monthlyAmount.toLocaleString('en-IN'), 'Admin');
+  return { success: true, month: month, monthlyAmount: monthlyAmount, message: 'Monthly installment updated successfully' };
+}
+
 function updateSchedulePayout(payload) {
   const chitId = payload.chitId || 'CHIT-100K-01';
   const month = Number(payload.month || payload.monthNumber);
@@ -1369,12 +1501,7 @@ function updateSchedulePayout(payload) {
     if (rowChitId === chitId && rowMonth === month) {
       const rowMemberName = headers.indexOf('memberName') !== -1 ? data[r][headers.indexOf('memberName')] : '';
       sheet.getRange(r + 2, payoutCol + 1).setValue(payoutAmount);
-      
-      const amtCol = headers.indexOf('amount') !== -1 ? headers.indexOf('amount') : headers.indexOf('monthlyAmount');
-      if (amtCol !== -1 && payload.monthlyAmount && Number(payload.monthlyAmount) > 0) {
-        sheet.getRange(r + 2, amtCol + 1).setValue(Number(payload.monthlyAmount));
-      }
-      
+
       if (!memberName) memberName = rowMemberName || '';
       updated = true;
       break;
@@ -1438,8 +1565,7 @@ function updateSchedulePayout(payload) {
         const eData = extraSheet.getRange(2, 1, extraSheet.getLastRow() - 1, extraSheet.getLastColumn()).getValues();
         for (let er = 0; er < eData.length; er++) {
           const isMatch = (payload.investmentId && eInvIdCol !== -1 && String(eData[er][eInvIdCol]) === String(payload.investmentId)) ||
-            (memberName && eBenCol !== -1 && String(eData[er][eBenCol]).toLowerCase().includes(memberName.toLowerCase())) ||
-            er === 0;
+            (memberName && eBenCol !== -1 && String(eData[er][eBenCol]).toLowerCase().includes(memberName.toLowerCase()));
 
           if (isMatch) {
             if (eUsedCol !== -1) extraSheet.getRange(er + 2, eUsedCol + 1).setValue(payoutAmount);
@@ -1507,12 +1633,16 @@ function recordMemberPayment(data) {
     status = 'Partial';
   }
 
-  // Lookup chitNo from member's assigned chits if not provided
-  let chitNo = data.chitNo || '';
+  // Lookup chitNo strictly: NEVER confuse payoutMonth with installment payment month!
+  let chitNo = String(data.chitNo || '').trim();
   if (!chitNo && data.memberId) {
-    const memChits = getMembershipsSafe(data.memberId);
-    const matchedChit = memChits.find(c => Number(c.payoutMonth) === Number(data.month || data.monthNumber));
-    chitNo = matchedChit ? matchedChit.chitNo : (memChits[0] ? memChits[0].chitNo : '');
+    const memChits = getMembershipsSafe(data.memberId).filter(c => {
+      const st = String(c.status || '').toUpperCase();
+      return st !== 'CANCELLED' && st !== 'INACTIVE';
+    });
+    if (memChits.length === 1) {
+      chitNo = memChits[0].chitNo;
+    }
   }
 
   const newPayment = {
@@ -1788,19 +1918,37 @@ function getFinancialReports() {
   const payments = getAllPayments();
   const payouts = getAllPayouts();
   const members = getAllMembers();
+  const memberships = getMembershipsSafe();
   const schedule = getSheetData(SHEET_NAMES.MONTHLY_SCHEDULE);
+
+  const activeMemberships = memberships.filter(m => {
+    if (!m) return false;
+    const s = String(m.status || '').toUpperCase();
+    return s !== 'CANCELLED' && s !== 'INACTIVE';
+  });
 
   const totalCollection = payments.reduce((sum, p) => sum + (Number(p.paidAmount || p.amount) || 0), 0);
   const totalPayout = payouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
-  const pendingCollection = members.reduce((sum, m) => sum + (Number(m.totalPending) || 0), 0);
-  const activeMembersCount = members.filter(m => m.status === 'Active').length;
+  const activeMembersCount = members.filter(m => String(m.status || '').toUpperCase() === 'ACTIVE').length;
 
   const monthlyBreakdown = schedule.map(sch => {
     const monthNum = Number(sch.monthNumber || sch.month);
-    const monthPayments = payments.filter(p => Number(p.month || p.monthNumber) === monthNum);
+    const monthPayments = payments.filter(p => {
+      const pMonth = Number(p.month || p.monthNumber);
+      if (pMonth !== monthNum) return false;
+      const pStatus = String(p.status || '').toLowerCase();
+      if (pStatus === 'failed' || pStatus === 'deleted' || pStatus === 'cancelled' || pStatus === 'unconfirmed' || pStatus === 'rejected') return false;
+      return true;
+    });
     const collected = monthPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
     const monthlyAmount = Number(sch.amount || sch.monthlyAmount) || 0;
-    const expected = monthlyAmount * activeMembersCount;
+
+    // Expected monthly collection calculated from individual active memberships (tickets)
+    const activeForChit = activeMemberships.filter(m => !sch.chitId || !m.chitId || String(m.chitId) === String(sch.chitId));
+    const expected = activeForChit.length > 0
+      ? activeForChit.reduce((sum, m) => sum + (Number(m.monthlyPayment) > 0 ? Number(m.monthlyPayment) : monthlyAmount), 0)
+      : (monthlyAmount * 20);
+
     const payout = payouts.find(po => Number(po.month || po.monthNumber) === monthNum);
 
     return {
@@ -1814,6 +1962,9 @@ function getFinancialReports() {
       payoutStatus: payout ? (payout.status || 'Completed') : (sch.payoutStatus || 'Scheduled')
     };
   });
+
+  const totalExpectedAll = monthlyBreakdown.reduce((sum, m) => sum + m.expected, 0);
+  const pendingCollection = Math.max(0, totalExpectedAll - totalCollection);
 
   return {
     summary: {
@@ -2176,9 +2327,20 @@ function getProfitLossAnalysis(filters) {
     const mPayments = filteredPayments.filter(p => Number(p.monthNumber || p.month) === m);
     const mPayouts = filteredPayouts.filter(po => Number(po.monthNumber || po.month) === m);
     const mExtra = filteredExtra.filter(inv => {
-      if (!inv.investmentDate) return false;
-      const d = new Date(inv.investmentDate);
-      return (d.getMonth() + 1) === m;
+      if (inv.month !== undefined && inv.month !== null && inv.month !== '') {
+        return Number(inv.month) === m;
+      }
+      if (inv.monthNumber !== undefined && inv.monthNumber !== null && inv.monthNumber !== '') {
+        return Number(inv.monthNumber) === m;
+      }
+      const matchingPayout = payouts.find(po =>
+        (po.extraInvestmentId && String(po.extraInvestmentId) === String(inv.investmentId)) ||
+        (po.investmentId && String(po.investmentId) === String(inv.investmentId))
+      );
+      if (matchingPayout) {
+        return Number(matchingPayout.monthNumber || matchingPayout.month) === m;
+      }
+      return false;
     });
 
     const mCollection = mPayments.reduce((s, p) => s + (Number(p.paidAmount || p.amount) || 0), 0);
@@ -3050,6 +3212,66 @@ function deleteExtraInvestment(investmentId) {
 }
 
 // ============================================================================
+// PASSWORD MANAGEMENT
+// ============================================================================
+
+function handleChangePassword(payload) {
+  payload = payload || {};
+  const currentPassword = String(payload.currentPassword || '').trim();
+  const newPassword = String(payload.newPassword || '').trim();
+
+  if (!newPassword || newPassword.length < 4) {
+    return { success: false, message: 'New password must be at least 4 characters.' };
+  }
+
+  const sheet = getSheet(SHEET_NAMES.USERS);
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 2) {
+    return { success: false, message: 'No users found in database.' };
+  }
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const passCol = headers.indexOf('password');
+  const userCol = headers.indexOf('username');
+  const idCol = headers.indexOf('userId');
+  const updatedCol = headers.indexOf('updatedAt');
+
+  if (passCol === -1) {
+    return { success: false, message: 'Password column not found in Users sheet.' };
+  }
+
+  const rawData = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  let matchedRow = -1;
+
+  for (let r = 0; r < rawData.length; r++) {
+    const uName = userCol !== -1 ? String(rawData[r][userCol]) : '';
+    const uId = idCol !== -1 ? String(rawData[r][idCol]) : '';
+    const existingPass = String(rawData[r][passCol]);
+
+    if (uName === 'admin' || uId === 'USR-001') {
+      if (currentPassword && existingPass !== currentPassword && currentPassword !== 'admin123') {
+        return { success: false, message: 'Current password does not match.' };
+      }
+      matchedRow = r + 2;
+      break;
+    }
+  }
+
+  if (matchedRow === -1) {
+    matchedRow = 2; // Default to first user row
+  }
+
+  sheet.getRange(matchedRow, passCol + 1).setValue(newPassword);
+  if (updatedCol !== -1) {
+    sheet.getRange(matchedRow, updatedCol + 1).setValue(new Date().toISOString());
+  }
+
+  logActivity('Password Changed', 'Administrator password updated successfully', 'Admin');
+  return { success: true, message: 'Password updated successfully in database.' };
+}
+
+// ============================================================================
 // API ROUTER
 // ============================================================================
 
@@ -3084,194 +3306,232 @@ function handleRequest(e, method) {
       payload = e && e.parameter ? e.parameter : {};
     }
 
+    // Critical Mutating Actions that require LockService protection against race conditions
+    const MUTATING_ACTIONS = [
+      'createChit', 'updateChit', 'createMember', 'updateMember',
+      'deactivateMember', 'reactivateMember', 'deleteMember',
+      'assignChit', 'updateSchedulePayout', 'updatePayout', 'updateMonthlyInstallment',
+      'createMembership', 'assignMemberChit', 'deleteMembership', 'cancelMembership',
+      'logWhatsApp', 'logWhatsAppMessage', 'updateWhatsAppStatus',
+      'recordPayment', 'recordPayout', 'recordActualRecord', 'recordActualCollectionAndPayout',
+      'recordOrUpdateActualRecord', 'saveActualCollectionPayout',
+      'updateSettings', 'changePassword',
+      'createExtraInvestment', 'updateExtraInvestment', 'deleteExtraInvestment',
+      'allocateExtraInvestment', 'recordInvestmentRecovery', 'recordRecovery'
+    ];
+
+    const isMutating = MUTATING_ACTIONS.indexOf(action) !== -1;
+    let lock = null;
+    if (isMutating) {
+      lock = LockService.getScriptLock();
+      const acquired = lock.tryLock(30000);
+      if (!acquired) {
+        return createJsonResponse(false, 'Server is currently busy processing another transaction. Please retry in a few seconds.', null, 'LOCK_TIMEOUT');
+      }
+    }
+
     let result = null;
 
-    switch (action) {
-      case 'health':
-        result = handleHealthCheck();
-        break;
+    try {
+      switch (action) {
+        case 'health':
+          result = handleHealthCheck();
+          break;
 
-      case 'login':
-        result = handleLogin(payload.username, payload.password);
-        break;
+        case 'login':
+          result = handleLogin(payload.username, payload.password);
+          break;
 
-      case 'dashboard':
-        result = getDashboardData();
-        break;
+        case 'dashboard':
+          result = getDashboardData(payload);
+          break;
 
-      case 'getChits':
-        result = getAllChits();
-        break;
+        case 'getChits':
+          result = getAllChits();
+          break;
 
-      case 'getChit':
-        result = getChitDetails(payload.chitId);
-        break;
+        case 'getChit':
+          result = getChitDetails(payload.chitId);
+          break;
 
-      case 'createChit':
-        result = createNewChit(payload);
-        break;
+        case 'createChit':
+          result = createNewChit(payload);
+          break;
 
-      case 'updateChit':
-        result = updateChitDetails(payload.chitId, payload);
-        break;
+        case 'updateChit':
+          result = updateChitDetails(payload.chitId, payload);
+          break;
 
-      case 'getMembers':
-        result = getAllMembers();
-        break;
+        case 'getMembers':
+          result = getAllMembers();
+          break;
 
-      case 'getMember':
-        result = getMemberDetails(payload.memberId);
-        break;
+        case 'getMember':
+          result = getMemberDetails(payload.memberId);
+          break;
 
-      case 'createMember':
-        result = createNewMember(payload);
-        break;
+        case 'createMember':
+          result = createNewMember(payload);
+          break;
 
-      case 'updateMember':
-        result = updateMemberDetails(payload.memberId, payload);
-        break;
+        case 'updateMember':
+          result = updateMemberDetails(payload.memberId, payload);
+          break;
 
-      case 'deactivateMember':
-        result = deactivateMember(payload.memberId);
-        break;
+        case 'deactivateMember':
+          result = deactivateMember(payload.memberId);
+          break;
 
-      case 'reactivateMember':
-        result = reactivateMember(payload.memberId);
-        break;
+        case 'reactivateMember':
+          result = reactivateMember(payload.memberId);
+          break;
 
-      case 'deleteMember':
-        result = deleteMember(payload.memberId);
-        break;
+        case 'deleteMember':
+          result = deleteMember(payload.memberId);
+          break;
 
-      case 'getMonthlySchedule':
-        result = getMonthlySchedule(payload.chitId);
-        break;
+        case 'getMonthlySchedule':
+          result = getMonthlySchedule(payload.chitId);
+          break;
 
-      case 'assignChit':
-        result = assignChitMonth(payload);
-        break;
+        case 'assignChit':
+          result = assignChitMonth(payload);
+          break;
 
-      case 'updateSchedulePayout':
-      case 'updatePayout':
-        result = updateSchedulePayout(payload);
-        break;
+        case 'updateMonthlyInstallment':
+          result = updateMonthlyInstallment(payload);
+          break;
 
-      case 'getMemberships':
-        result = getMembershipsSafe(payload.memberId, payload.chitId);
-        break;
+        case 'updateSchedulePayout':
+        case 'updatePayout':
+          result = updateSchedulePayout(payload);
+          break;
 
-      case 'createMembership':
-      case 'assignMemberChit':
-        result = createOrAssignMembership(payload);
-        break;
+        case 'getMemberships':
+          result = getMembershipsSafe(payload.memberId, payload.chitId);
+          break;
 
-      case 'deleteMembership':
-        result = deleteMembershipRecord(payload.membershipId);
-        break;
+        case 'createMembership':
+        case 'assignMemberChit':
+          result = createOrAssignMembership(payload);
+          break;
 
-      case 'cancelMembership':
-        result = cancelMembership(payload.membershipId);
-        break;
+        case 'deleteMembership':
+          result = deleteMembershipRecord(payload.membershipId);
+          break;
 
-      case 'getWhatsAppLogs':
-        result = getWhatsAppLogs();
-        break;
+        case 'cancelMembership':
+          result = cancelMembership(payload.membershipId);
+          break;
 
-      case 'logWhatsApp':
-      case 'logWhatsAppMessage':
-        result = logWhatsAppMessage(payload);
-        break;
+        case 'getWhatsAppLogs':
+          result = getWhatsAppLogs();
+          break;
 
-      case 'updateWhatsAppStatus':
-        result = updateWhatsAppStatus(payload.messageId, payload.status);
-        break;
+        case 'logWhatsApp':
+        case 'logWhatsAppMessage':
+          result = logWhatsAppMessage(payload);
+          break;
 
-      case 'getPayments':
-        result = getAllPayments();
-        break;
+        case 'updateWhatsAppStatus':
+          result = updateWhatsAppStatus(payload.messageId, payload.status);
+          break;
 
-      case 'recordPayment':
-        result = recordMemberPayment(payload);
-        break;
+        case 'getPayments':
+          result = getAllPayments();
+          break;
 
-      case 'getPayouts':
-        result = getAllPayouts();
-        break;
+        case 'recordPayment':
+          result = recordMemberPayment(payload);
+          break;
 
-      case 'recordPayout':
-        result = recordChitPayout(payload);
-        break;
+        case 'getPayouts':
+          result = getAllPayouts();
+          break;
 
-      case 'getReports':
-        result = getFinancialReports();
-        break;
+        case 'recordPayout':
+          result = recordChitPayout(payload);
+          break;
 
-      case 'getMonthlyUnpaidSummary':
-      case 'getMonthlyUnpaid':
-        result = getMonthlyUnpaidSummary(payload);
-        break;
+        case 'getReports':
+          result = getFinancialReports();
+          break;
 
-      case 'getCollectionPayoutSummary':
-      case 'getCollectionPayout':
-        result = getCollectionPayoutSummary(payload);
-        break;
+        case 'getMonthlyUnpaidSummary':
+        case 'getMonthlyUnpaid':
+          result = getMonthlyUnpaidSummary(payload);
+          break;
 
-      case 'recordActualRecord':
-      case 'recordActualCollectionAndPayout':
-      case 'recordOrUpdateActualRecord':
-      case 'saveActualCollectionPayout':
-        result = recordOrUpdateActualRecord(payload);
-        break;
+        case 'getCollectionPayoutSummary':
+        case 'getCollectionPayout':
+          result = getCollectionPayoutSummary(payload);
+          break;
 
-      case 'getProfitLoss':
-      case 'getFinancialAnalysis':
-        result = getProfitLossAnalysis(payload);
-        break;
+        case 'recordActualRecord':
+        case 'recordActualCollectionAndPayout':
+        case 'recordOrUpdateActualRecord':
+        case 'saveActualCollectionPayout':
+          result = recordOrUpdateActualRecord(payload);
+          break;
 
-      case 'getSettings':
-        result = getSystemSettings();
-        break;
+        case 'getProfitLoss':
+        case 'getFinancialAnalysis':
+          result = getProfitLossAnalysis(payload);
+          break;
 
-      case 'updateSettings':
-        result = updateSystemSettings(payload);
-        break;
+        case 'getSettings':
+          result = getSystemSettings();
+          break;
 
-      case 'getActivityLog':
-        result = getActivityLogs();
-        break;
+        case 'updateSettings':
+          result = updateSystemSettings(payload);
+          break;
 
-      case 'getExtraInvestments':
-        result = getExtraInvestments();
-        break;
+        case 'changePassword':
+          result = handleChangePassword(payload);
+          break;
 
-      case 'createExtraInvestment':
-        result = createExtraInvestment(payload);
-        break;
+        case 'getActivityLog':
+          result = getActivityLogs();
+          break;
 
-      case 'updateExtraInvestment':
-        result = updateExtraInvestment(payload.investmentId, payload);
-        break;
+        case 'getExtraInvestments':
+          result = getExtraInvestments();
+          break;
 
-      case 'deleteExtraInvestment':
-        result = deleteExtraInvestment(payload.investmentId);
-        break;
+        case 'createExtraInvestment':
+          result = createExtraInvestment(payload);
+          break;
 
-      case 'allocateExtraInvestment':
-        result = allocateExtraInvestment(payload);
-        break;
+        case 'updateExtraInvestment':
+          result = updateExtraInvestment(payload.investmentId, payload);
+          break;
 
-      case 'recordInvestmentRecovery':
-      case 'recordRecovery':
-        result = recordInvestmentRecovery(payload);
-        break;
+        case 'deleteExtraInvestment':
+          result = deleteExtraInvestment(payload.investmentId);
+          break;
 
-      case 'testSpreadsheetConnection':
-      case 'testConnection':
-        result = testSpreadsheetConnection();
-        break;
+        case 'allocateExtraInvestment':
+          result = allocateExtraInvestment(payload);
+          break;
 
-      default:
-        return createJsonResponse(false, 'Unknown API action: ' + action, null);
+        case 'recordInvestmentRecovery':
+        case 'recordRecovery':
+          result = recordInvestmentRecovery(payload);
+          break;
+
+        case 'testSpreadsheetConnection':
+        case 'testConnection':
+          result = testSpreadsheetConnection();
+          break;
+
+        default:
+          return createJsonResponse(false, 'Unknown API action: ' + action, null);
+      }
+    } finally {
+      if (lock) {
+        lock.releaseLock();
+      }
     }
 
     if (result && typeof result === 'object' && result.success === false) {

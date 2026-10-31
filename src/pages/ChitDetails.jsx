@@ -40,7 +40,7 @@ import { calculateMonthlyCashFlow } from '../utils/cashFlowCalculations';
 export const ChitDetails = () => {
   const { chitId } = useParams();
   const navigate = useNavigate();
-  const { setIsRecordPaymentOpen, showToast } = useChit();
+  const { setIsRecordPaymentOpen, showToast, dataVersion, invalidateData } = useChit();
 
   const [data, setData] = useState(null);
   const [members, setMembers] = useState([]);
@@ -89,7 +89,7 @@ export const ChitDetails = () => {
 
   useEffect(() => {
     loadChitDetails();
-  }, [chitId]);
+  }, [chitId, dataVersion]);
 
   const chit = data?.chit;
   const schedule = data?.schedule || [];
@@ -241,15 +241,16 @@ export const ChitDetails = () => {
   };
 
   const handleDeleteMembership = async (membershipId, chitNo) => {
-    if (!window.confirm(`Are you sure you want to remove assignment for Chit ${chitNo}?`)) {
+    if (!window.confirm(`Are you sure you want to cancel assignment for Chit ${chitNo}? Permanent Chit No and historical records are preserved.`)) {
       return;
     }
     try {
-      await api.deleteMembership(membershipId);
-      showToast(`Membership ${chitNo} removed successfully`, 'success');
+      await api.cancelMembership(membershipId);
+      showToast(`Membership ${chitNo} cancelled safely (history preserved)`, 'success');
+      invalidateData(['memberships', 'schedule', 'chits', 'dashboard', 'unpaid']);
       loadChitDetails();
     } catch (err) {
-      showToast(err.message || 'Failed to remove membership', 'error');
+      showToast(err.message || 'Failed to cancel membership', 'error');
     }
   };
 

@@ -38,7 +38,7 @@ import { useChit } from '../context/ChitContext';
 export const MonthlyUnpaid = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { activeChit, showToast } = useChit();
+  const { activeChit, showToast, dataVersion, invalidateData } = useChit();
 
   // Data states
   const [loading, setLoading] = useState(true);
@@ -107,7 +107,7 @@ export const MonthlyUnpaid = () => {
 
   useEffect(() => {
     loadUnpaidData();
-  }, [selectedChitId, selectedMonth]);
+  }, [selectedChitId, selectedMonth, dataVersion]);
 
   // Keep URL search params in sync
   useEffect(() => {
@@ -966,6 +966,7 @@ export const MonthlyUnpaid = () => {
           prefilledAmount={paymentFormPreFill.amount}
           onSuccess={() => {
             setIsPaymentFormOpen(false);
+            invalidateData(['payments', 'dashboard', 'unpaid', 'cashflow', 'reports', 'profitloss']);
             loadUnpaidData();
             showToast('Payment recorded successfully', 'success');
           }}

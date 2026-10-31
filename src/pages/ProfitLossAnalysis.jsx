@@ -40,7 +40,7 @@ import RecordRecoveryModal from '../components/investments/RecordRecoveryModal';
 
 export const ProfitLossAnalysis = () => {
   const navigate = useNavigate();
-  const { showToast } = useChit();
+  const { showToast, dataVersion, invalidateData } = useChit();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -99,7 +99,7 @@ export const ProfitLossAnalysis = () => {
 
   useEffect(() => {
     loadProfitLoss(filters);
-  }, []);
+  }, [dataVersion]);
 
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));

@@ -42,7 +42,7 @@ import LoadingState from '../components/common/LoadingState';
 import Modal from '../components/common/Modal';
 
 export const CollectionPayoutSummary = () => {
-  const { activeChit, showToast, setIsRecordPaymentOpen } = useChit();
+  const { activeChit, showToast, setIsRecordPaymentOpen, dataVersion, invalidateData } = useChit();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ months: [], summary: {} });
   const [chits, setChits] = useState([]);
@@ -110,7 +110,7 @@ export const CollectionPayoutSummary = () => {
 
   useEffect(() => {
     loadSummaryData();
-  }, [selectedChitId]);
+  }, [selectedChitId, dataVersion]);
 
   // Compute 20-member tracking for selected month using single source of truth Google Sheets payments
   const memberCollectionData = useMemo(() => {

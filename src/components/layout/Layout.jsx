@@ -22,7 +22,8 @@ export const Layout = () => {
     setIsRecordPayoutOpen,
     isAssignChitOpen,
     setIsAssignChitOpen,
-    selectedMonthForAssign
+    selectedMonthForAssign,
+    invalidateData
   } = useChit();
 
   return (
@@ -53,26 +54,30 @@ export const Layout = () => {
       {/* Global Toast Notifications */}
       <ToastContainer />
 
-      {/* Global Modals */}
+      {/* Global Modals connected with automated cross-module data invalidation */}
       <PaymentForm
         isOpen={isRecordPaymentOpen}
         onClose={() => setIsRecordPaymentOpen(false)}
+        onSuccess={() => invalidateData(['payments', 'dashboard', 'unpaid', 'cashflow', 'reports', 'profitloss'])}
       />
 
       <MemberForm
         isOpen={isAddMemberOpen}
         onClose={() => setIsAddMemberOpen(false)}
+        onSuccess={() => invalidateData(['members', 'dashboard', 'memberships'])}
       />
 
       <PayoutForm
         isOpen={isRecordPayoutOpen}
         onClose={() => setIsRecordPayoutOpen(false)}
+        onSuccess={() => invalidateData(['payouts', 'dashboard', 'cashflow', 'reports', 'profitloss', 'investments'])}
       />
 
       <AssignChitModal
         isOpen={isAssignChitOpen}
         initialMonth={selectedMonthForAssign}
         onClose={() => setIsAssignChitOpen(false)}
+        onSuccess={() => invalidateData(['memberships', 'schedule', 'chits', 'dashboard', 'members', 'unpaid'])}
       />
     </div>
   );
