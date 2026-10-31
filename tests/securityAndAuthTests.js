@@ -282,3 +282,4 @@ console.log('✅ [PASS] TEST 12: Inactive user account rejected at login');
 console.log('====================================================');
 console.log('ALL 12 SECURITY & AUTHENTICATION TESTS PASSED (100%)');
 console.log('====================================================');
+
