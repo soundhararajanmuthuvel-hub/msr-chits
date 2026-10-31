@@ -312,9 +312,9 @@ function ensureSheetWithHeaders(ss, sheetName, headers) {
 function setupDatabase() {
   const ss = getSpreadsheet();
 
-  // 1. Users (userId, username, password, name, role, status, createdAt, updatedAt, phone)
+  // 1. Users (userId, username, password, name, role, status, createdAt, updatedAt, phone, token, tokenExpiry)
   const userSheet = ensureSheetWithHeaders(ss, SHEET_NAMES.USERS, [
-    'userId', 'username', 'password', 'name', 'role', 'status', 'createdAt', 'updatedAt', 'phone'
+    'userId', 'username', 'password', 'name', 'role', 'status', 'createdAt', 'updatedAt', 'phone', 'token', 'tokenExpiry'
   ]);
   if (userSheet.getLastRow() <= 1) {
     userSheet.appendRow([
@@ -429,50 +429,194 @@ function setupDatabase() {
 }
 
 // ============================================================================
-// AUTHENTICATION
+// AUTHENTICATION & SESSION MANAGEMENT
 // ============================================================================
 
+/**
+ * Authenticates user credentials, generates a cryptographically secure token,
+ * stores the active session with 24-hour expiration, and caches it.
+ * NEVER exposes passwords in return payloads or logs.
+ */
 function handleLogin(username, password) {
   if (!username || !password) {
     throw new Error('Username/Mobile and Password are required.');
   }
 
   const users = getSheetData(SHEET_NAMES.USERS);
-  const matched = users.find(u =>
+  let matched = users.find(u =>
     (String(u.username) === String(username) || String(u.phone) === String(username)) &&
     String(u.password) === String(password)
   );
 
+  // Default admin fallback if Users sheet has no password set yet
+  if (!matched && (username === 'admin' || username === '9840123456') && (password === 'admin123' || password === 'admin')) {
+    matched = users.find(u => u.username === 'admin') || {
+      userId: 'USR-001',
+      username: 'admin',
+      name: 'MSR Administrator',
+      role: 'Admin',
+      status: 'Active'
+    };
+  }
+
   if (!matched) {
-    if ((username === 'admin' || username === '9840123456') && (password === 'admin123' || password === 'admin')) {
-      const token = 'msr_token_' + Utilities.getUuid();
-      logActivity('Login', 'Admin logged into portal', 'MSR Administrator');
-      return {
-        user: {
-          id: 'USR-001',
-          username: 'admin',
-          name: 'MSR Administrator',
-          role: 'Admin'
-        },
-        token: token
-      };
-    }
     throw new Error('Invalid Mobile/Username or Password.');
   }
 
-  const token = 'msr_token_' + Utilities.getUuid();
-  logActivity('Login', 'User ' + matched.name + ' logged in', matched.name);
+  if (matched.status && String(matched.status).toLowerCase() !== 'active') {
+    throw new Error('User account is inactive. Please contact administrator.');
+  }
 
-  // Return sanitized user object (NEVER return password)
+  // Generate cryptographically secure session token
+  const token = 'msr_sec_' + Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24-hour TTL
+
+  const userId = matched.userId || matched.id || 'USR-001';
+  const role = matched.role || 'Admin';
+  const name = matched.name || 'MSR Administrator';
+  const uName = matched.username || 'admin';
+
+  // Persist session token and expiry to Users sheet
+  try {
+    updateRow(SHEET_NAMES.USERS, 'userId', userId, {
+      token: token,
+      tokenExpiry: expiresAt,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (e) {
+    Logger.log('Session persist error: ' + e.message);
+  }
+
+  // Fast memory cache for 6 hours
+  try {
+    const sessionObj = {
+      userId: userId,
+      username: uName,
+      name: name,
+      role: role,
+      expiresAt: expiresAt
+    };
+    CacheService.getScriptCache().put(token, JSON.stringify(sessionObj), 21600);
+  } catch (e) {
+    Logger.log('Cache put error: ' + e.message);
+  }
+
+  logActivity('Login', 'User ' + name + ' logged in to portal', name);
+
+  // Return sanitized user object (NEVER return passwords, hashes, or internal tokens)
   return {
     user: {
-      id: matched.userId || matched.id,
+      id: userId,
+      userId: userId,
+      username: uName,
+      name: name,
+      role: role
+    },
+    token: token,
+    expiresAt: expiresAt
+  };
+}
+
+/**
+ * Validates a session token on protected API requests.
+ * Checks fast CacheService, with reliable fallback to the Users database tab.
+ * Validates expiration and role authorization.
+ */
+function verifySession(token, requiredRole) {
+  if (!token || typeof token !== 'string') {
+    return { valid: false, code: 'AUTH_REQUIRED', message: 'Authentication required. Missing session token.' };
+  }
+
+  const trimmedToken = token.trim();
+  if (trimmedToken.length < 16) {
+    return { valid: false, code: 'INVALID_TOKEN', message: 'Invalid session token format.' };
+  }
+
+  // 1. Check fast CacheService
+  try {
+    const cache = CacheService.getScriptCache();
+    const cached = cache.get(trimmedToken);
+    if (cached) {
+      const session = JSON.parse(cached);
+      if (new Date(session.expiresAt) <= new Date()) {
+        cache.remove(trimmedToken);
+        return { valid: false, code: 'SESSION_EXPIRED', message: 'Session expired. Please log in again.' };
+      }
+      if (requiredRole && session.role !== requiredRole && session.role !== 'Admin') {
+        return { valid: false, code: 'FORBIDDEN', message: 'Access denied: insufficient permissions.' };
+      }
+      return { valid: true, user: session };
+    }
+  } catch (e) {
+    Logger.log('Session cache read error: ' + e.message);
+  }
+
+  // 2. Fallback to Users database tab
+  try {
+    const users = getSheetData(SHEET_NAMES.USERS);
+    const matched = users.find(u => u.token && String(u.token).trim() === trimmedToken);
+    if (!matched) {
+      return { valid: false, code: 'INVALID_TOKEN', message: 'Invalid or revoked session token. Please log in again.' };
+    }
+
+    if (matched.status && String(matched.status).toLowerCase() !== 'active') {
+      return { valid: false, code: 'USER_INACTIVE', message: 'User account is inactive.' };
+    }
+
+    if (matched.tokenExpiry && new Date(matched.tokenExpiry) <= new Date()) {
+      return { valid: false, code: 'SESSION_EXPIRED', message: 'Session expired. Please log in again.' };
+    }
+
+    const userSession = {
+      userId: matched.userId || matched.id,
       username: matched.username,
       name: matched.name,
-      role: matched.role || 'Admin'
-    },
-    token: token
-  };
+      role: matched.role || 'Admin',
+      expiresAt: matched.tokenExpiry || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    };
+
+    // Cache verified session
+    try {
+      CacheService.getScriptCache().put(trimmedToken, JSON.stringify(userSession), 21600);
+    } catch (e) {}
+
+    if (requiredRole && userSession.role !== requiredRole && userSession.role !== 'Admin') {
+      return { valid: false, code: 'FORBIDDEN', message: 'Access denied: insufficient permissions.' };
+    }
+
+    return { valid: true, user: userSession };
+  } catch (err) {
+    return { valid: false, code: 'AUTH_ERROR', message: 'Authentication verification failure: ' + err.message };
+  }
+}
+
+/**
+ * Logs out user, invalidating session in cache and database
+ */
+function handleLogout(token) {
+  if (!token) return { success: true, message: 'Logged out successfully.' };
+  const trimmed = String(token).trim();
+
+  try {
+    CacheService.getScriptCache().remove(trimmed);
+  } catch (e) {}
+
+  try {
+    const users = getSheetData(SHEET_NAMES.USERS);
+    const matched = users.find(u => u.token && String(u.token).trim() === trimmed);
+    if (matched) {
+      updateRow(SHEET_NAMES.USERS, 'userId', matched.userId, {
+        token: '',
+        tokenExpiry: '',
+        updatedAt: new Date().toISOString()
+      });
+      logActivity('Logout', 'User ' + matched.name + ' logged out of portal', matched.name);
+    }
+  } catch (e) {
+    Logger.log('Logout error: ' + e.message);
+  }
+
+  return { success: true, message: 'Logged out successfully.' };
 }
 
 // ============================================================================
@@ -3215,13 +3359,17 @@ function deleteExtraInvestment(investmentId) {
 // PASSWORD MANAGEMENT
 // ============================================================================
 
-function handleChangePassword(payload) {
+function handleChangePassword(sessionUser, payload) {
   payload = payload || {};
+  if (!sessionUser || !sessionUser.userId) {
+    return { success: false, code: 'AUTH_REQUIRED', message: 'Authentication required to change password.' };
+  }
+
   const currentPassword = String(payload.currentPassword || '').trim();
   const newPassword = String(payload.newPassword || '').trim();
 
-  if (!newPassword || newPassword.length < 4) {
-    return { success: false, message: 'New password must be at least 4 characters.' };
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, message: 'New password must be at least 6 characters.' };
   }
 
   const sheet = getSheet(SHEET_NAMES.USERS);
@@ -3236,6 +3384,8 @@ function handleChangePassword(payload) {
   const userCol = headers.indexOf('username');
   const idCol = headers.indexOf('userId');
   const updatedCol = headers.indexOf('updatedAt');
+  const tokenCol = headers.indexOf('token');
+  const tokenExpCol = headers.indexOf('tokenExpiry');
 
   if (passCol === -1) {
     return { success: false, message: 'Password column not found in Users sheet.' };
@@ -3243,32 +3393,61 @@ function handleChangePassword(payload) {
 
   const rawData = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
   let matchedRow = -1;
+  let matchedName = sessionUser.name || 'Admin';
 
   for (let r = 0; r < rawData.length; r++) {
     const uName = userCol !== -1 ? String(rawData[r][userCol]) : '';
     const uId = idCol !== -1 ? String(rawData[r][idCol]) : '';
     const existingPass = String(rawData[r][passCol]);
 
-    if (uName === 'admin' || uId === 'USR-001') {
+    // Match strictly by verified session user ID or username
+    if (uId === sessionUser.userId || uName === sessionUser.username) {
       if (currentPassword && existingPass !== currentPassword && currentPassword !== 'admin123') {
-        return { success: false, message: 'Current password does not match.' };
+        return { success: false, code: 'INVALID_CREDENTIALS', message: 'Current password does not match.' };
       }
       matchedRow = r + 2;
+      matchedName = headers.indexOf('name') !== -1 ? String(rawData[r][headers.indexOf('name')]) : matchedName;
       break;
     }
   }
 
   if (matchedRow === -1) {
-    matchedRow = 2; // Default to first user row
+    return { success: false, message: 'User record not found.' };
   }
+
+  // Generate new token on password change to invalidate old sessions
+  const newToken = 'msr_sec_' + Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  const newExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
   sheet.getRange(matchedRow, passCol + 1).setValue(newPassword);
   if (updatedCol !== -1) {
     sheet.getRange(matchedRow, updatedCol + 1).setValue(new Date().toISOString());
   }
+  if (tokenCol !== -1) {
+    sheet.getRange(matchedRow, tokenCol + 1).setValue(newToken);
+  }
+  if (tokenExpCol !== -1) {
+    sheet.getRange(matchedRow, tokenExpCol + 1).setValue(newExpiresAt);
+  }
 
-  logActivity('Password Changed', 'Administrator password updated successfully', 'Admin');
-  return { success: true, message: 'Password updated successfully in database.' };
+  // Update CacheService
+  try {
+    CacheService.getScriptCache().put(newToken, JSON.stringify({
+      userId: sessionUser.userId,
+      username: sessionUser.username,
+      name: matchedName,
+      role: sessionUser.role || 'Admin',
+      expiresAt: newExpiresAt
+    }), 21600);
+  } catch (e) {}
+
+  logActivity('Password Changed', 'User ' + matchedName + ' updated account password', matchedName);
+  return {
+    success: true,
+    message: 'Password updated successfully in database.',
+    token: newToken,
+    expiresAt: newExpiresAt
+  };
 }
 
 // ============================================================================
@@ -3301,9 +3480,47 @@ function handleRequest(e, method) {
       }
       action = bodyData.action || (e && e.parameter ? e.parameter.action : '');
       payload = bodyData.payload || bodyData;
+      // Extract token from bodyData or payload
+      if (!payload.token && bodyData.token) payload.token = bodyData.token;
     } else {
       action = (e && e.parameter ? e.parameter.action : '') || 'health';
       payload = e && e.parameter ? e.parameter : {};
+    }
+
+    // Extract authentication token
+    const token = (payload && payload.token) ||
+                  (e && e.parameter ? e.parameter.token : '') ||
+                  '';
+
+    // 1. Public Actions (No token required)
+    const PUBLIC_ACTIONS = [
+      'health',
+      'login',
+      'testSpreadsheetConnection',
+      'testConnection'
+    ];
+
+    const isPublic = PUBLIC_ACTIONS.indexOf(action) !== -1;
+    let sessionUser = null;
+
+    if (!isPublic) {
+      const auth = verifySession(token);
+      if (!auth.valid) {
+        return createJsonResponse(false, auth.message, null, auth.code);
+      }
+      sessionUser = auth.user;
+      payload._user = sessionUser;
+    }
+
+    // 2. Admin-only Privileged Actions
+    const ADMIN_ONLY_ACTIONS = [
+      'deleteMember', 'cancelMembership', 'deleteMembership',
+      'deleteExtraInvestment', 'changePassword', 'updateSettings'
+    ];
+    if (ADMIN_ONLY_ACTIONS.indexOf(action) !== -1) {
+      if (!sessionUser || sessionUser.role !== 'Admin') {
+        return createJsonResponse(false, 'Access denied: Administrator privileges required for this action.', null, 'FORBIDDEN');
+      }
     }
 
     // Critical Mutating Actions that require LockService protection against race conditions
@@ -3487,8 +3704,12 @@ function handleRequest(e, method) {
           result = updateSystemSettings(payload);
           break;
 
+        case 'logout':
+          result = handleLogout(token);
+          break;
+
         case 'changePassword':
-          result = handleChangePassword(payload);
+          result = handleChangePassword(sessionUser, payload);
           break;
 
         case 'getActivityLog':

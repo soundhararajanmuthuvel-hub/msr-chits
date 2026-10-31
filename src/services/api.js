@@ -48,10 +48,19 @@ const setCache = (key, data) => {
 /**
  * Robust POST request helper for Google Apps Script
  * Uses text/plain;charset=utf-8 to prevent browser CORS preflight (OPTIONS)
+ * Automatically attaches session authentication token to payload
  */
 export async function postApi(action, payload = {}) {
   if (!API_URL || API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
     throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL in .env');
+  }
+
+  // Attach session token automatically if present
+  const session = getCache(STORAGE_KEYS.SESSION);
+  const token = session?.token || payload.token;
+  const securePayload = { ...payload };
+  if (token && !securePayload.token) {
+    securePayload.token = token;
   }
 
   let response;
@@ -63,7 +72,8 @@ export async function postApi(action, payload = {}) {
       },
       body: JSON.stringify({
         action,
-        payload
+        token: token || undefined,
+        payload: securePayload
       })
     });
   } catch (networkErr) {
@@ -108,8 +118,17 @@ export async function postApi(action, payload = {}) {
   }
 
   if (!result.success) {
+    // If session is expired or invalid, clear local auth session
+    if (result.code === 'AUTH_REQUIRED' || result.code === 'SESSION_EXPIRED' || result.code === 'INVALID_TOKEN') {
+      localStorage.removeItem(STORAGE_KEYS.SESSION);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('msr:auth_expired', { detail: result }));
+      }
+    }
     console.error(`[MSR CHITS API] Application error for action "${action}":`, result.message);
-    throw new Error(result.message || 'MSR CHITS server returned an application error.');
+    const err = new Error(result.message || 'MSR CHITS server returned an application error.');
+    err.code = result.code;
+    throw err;
   }
 
   localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
@@ -118,13 +137,21 @@ export async function postApi(action, payload = {}) {
 
 /**
  * Robust GET request helper for read-only actions with automatic POST fallback
+ * Automatically attaches session authentication token to query parameters
  */
 export async function getApi(action, params = {}) {
   if (!API_URL || API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
     throw new Error('Google Apps Script URL is not configured. Please check VITE_API_URL in .env');
   }
 
-  const queryParams = new URLSearchParams({ action, ...params });
+  const session = getCache(STORAGE_KEYS.SESSION);
+  const token = session?.token || params.token;
+  const mergedParams = { action, ...params };
+  if (token && !mergedParams.token) {
+    mergedParams.token = token;
+  }
+
+  const queryParams = new URLSearchParams(mergedParams);
   const url = `${API_URL}?${queryParams.toString()}`;
 
   try {
@@ -154,13 +181,24 @@ export async function getApi(action, params = {}) {
     }
 
     if (!result.success) {
-      throw new Error(result.message || 'MSR CHITS server returned an application error.');
+      if (result.code === 'AUTH_REQUIRED' || result.code === 'SESSION_EXPIRED' || result.code === 'INVALID_TOKEN') {
+        localStorage.removeItem(STORAGE_KEYS.SESSION);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('msr:auth_expired', { detail: result }));
+        }
+      }
+      const err = new Error(result.message || 'MSR CHITS server returned an application error.');
+      err.code = result.code;
+      throw err;
     }
 
     localStorage.setItem(STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
     return result.data;
   } catch (getErr) {
-    // If the server explicitly responded with "Unknown API action", do NOT retry via POST
+    // If the server explicitly responded with "Unknown API action" or Auth errors, do NOT retry via POST
+    if (getErr.code === 'AUTH_REQUIRED' || getErr.code === 'SESSION_EXPIRED' || getErr.code === 'INVALID_TOKEN') {
+      throw getErr;
+    }
     if (getErr.message && getErr.message.includes('Unknown API action')) {
       throw getErr;
     }
@@ -275,17 +313,25 @@ export const api = {
     return this.healthCheck();
   },
 
-  // Auth / Login
+  // Auth / Login & Session Management
   async login(username, password) {
     if (API_URL) {
       try {
         const data = await postApi('login', { username, password });
-        return { success: true, user: data.user, token: data.token };
+        const sessionData = {
+          user: data.user,
+          token: data.token,
+          expiresAt: data.expiresAt
+        };
+        setCache(STORAGE_KEYS.SESSION, sessionData);
+        return { success: true, user: data.user, token: data.token, expiresAt: data.expiresAt };
       } catch (err) {
         // Fallback local admin check if network fails
         if ((username === 'admin' || username === '9840123456') && (password === 'admin123' || password === 'admin')) {
           const user = { id: 'USR-001', name: 'MSR Administrator', username: 'admin', role: 'Admin' };
-          return { success: true, user, token: `token_${Date.now()}` };
+          const token = `token_${Date.now()}`;
+          setCache(STORAGE_KEYS.SESSION, { user, token });
+          return { success: true, user, token };
         }
         throw err;
       }
@@ -293,10 +339,29 @@ export const api = {
 
     if ((username === 'admin' || username === '9840123456') && (password === 'admin123' || password === 'admin')) {
       const user = { id: 'USR-001', name: 'MSR Administrator', username: 'admin', role: 'Admin' };
-      return { success: true, user, token: `token_${Date.now()}` };
+      const token = `token_${Date.now()}`;
+      setCache(STORAGE_KEYS.SESSION, { user, token });
+      return { success: true, user, token };
     }
 
     throw new Error('Invalid Mobile/Username or Password.');
+  },
+
+  async logout() {
+    const session = getCache(STORAGE_KEYS.SESSION);
+    if (session?.token && API_URL) {
+      try {
+        await postApi('logout', { token: session.token });
+      } catch (e) {
+        // Ignore network errors on logout
+      }
+    }
+    localStorage.removeItem(STORAGE_KEYS.SESSION);
+    return { success: true, message: 'Logged out successfully.' };
+  },
+
+  getSession() {
+    return getCache(STORAGE_KEYS.SESSION);
   },
 
   // Dashboard
