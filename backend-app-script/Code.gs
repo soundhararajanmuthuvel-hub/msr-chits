@@ -2333,7 +2333,7 @@ function getMonthlyUnpaidSummary(payload) {
   const totalExcess = chitItems.reduce((sum, item) => sum + item.excessAmount, 0);
 
   const fullyPaidCount = memberList.filter(m => m.paymentStatus === 'Paid').length;
-  const partiallyPaidCount = memberList.filter(m => m.paymentStatus === 'Partial').length;
+  const partiallyPaidCount = memberList.filter(m => m.paymentStatus === 'Partial').length;    
   const unpaidCount = memberList.filter(m => m.paymentStatus === 'Unpaid').length;
 
   return {
@@ -3466,9 +3466,9 @@ function handleRequest(e, method) {
   try {
     let action = '';
     let payload = {};
+    let bodyData = {};
 
     if (method === 'POST') {
-      let bodyData = {};
       if (e && e.postData && e.postData.contents) {
         try {
           bodyData = JSON.parse(e.postData.contents);
@@ -3487,8 +3487,9 @@ function handleRequest(e, method) {
       payload = e && e.parameter ? e.parameter : {};
     }
 
-    // Extract authentication token
-    const token = (payload && payload.token) ||
+    // Extract authentication token from any available transport
+    const token = (bodyData && bodyData.token) ||
+                  (payload && payload.token) ||
                   (e && e.parameter ? e.parameter.token : '') ||
                   '';
 

@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useChit } from '../context/ChitContext';
 
 export const Login = () => {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, authError, clearAuthError } = useAuth();
   const { syncStatus, checkHealth, showToast } = useChit();
   const navigate = useNavigate();
 
@@ -16,6 +16,12 @@ export const Login = () => {
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
+    if (authError) {
+      setErrorMsg(authError);
+    }
+  }, [authError]);
+
+  useEffect(() => {
     if (isAuthenticated) {
       navigate('/dashboard', { replace: true });
     }
@@ -24,6 +30,7 @@ export const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    if (clearAuthError) clearAuthError();
     setSubmitting(true);
 
     try {

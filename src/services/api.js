@@ -5,13 +5,28 @@
  * Strictly relies on Google Sheets as the single source of truth.
  */
 
-const RAW_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '';
+const RAW_URL = (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_API_URL)
+  ? import.meta.env.VITE_API_URL.trim()
+  : (typeof process !== 'undefined' && process.env?.VITE_API_URL ? process.env.VITE_API_URL.trim() : '');
 const API_URL = RAW_URL.replace(/\/+$/, '');
 
-import { generateChitNumber, getNextAvailableChitNumber } from '../utils/chitNumber';
-import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment } from '../utils/chitCalculations';
-import { calculateMonthlyUnpaidSummary } from '../utils/unpaidCalculations';
-import { calculateMonthlyCashFlow } from '../utils/cashFlowCalculations';
+import { generateChitNumber, getNextAvailableChitNumber } from '../utils/chitNumber.js';
+import { calculateChitParameters, generateChitSchedule, calculateExtraInvestment } from '../utils/chitCalculations.js';
+import { calculateMonthlyUnpaidSummary } from '../utils/unpaidCalculations.js';
+import { calculateMonthlyCashFlow } from '../utils/cashFlowCalculations.js';
+
+export function isAuthError(err) {
+  if (!err) return false;
+  if (err.code === 'AUTH_REQUIRED' || err.code === 'SESSION_EXPIRED' || err.code === 'INVALID_TOKEN' || err.code === 'FORBIDDEN') {
+    return true;
+  }
+  const msg = String(err.message || '');
+  return msg.includes('Authentication required') ||
+         msg.includes('Missing session token') ||
+         msg.includes('Session expired') ||
+         msg.includes('Invalid session token') ||
+         msg.includes('Invalid or revoked session token');
+}
 
 const STORAGE_KEYS = {
   SESSION: 'msr_auth_session',
@@ -277,6 +292,8 @@ function enrichMembers(members, memberships = [], schedule = []) {
   });
 }
 
+let isPaymentSubmitting = false;
+
 export const api = {
   // Health Check
   async healthCheck() {
@@ -413,6 +430,7 @@ export const api = {
         const data = await getApi('getMembers');
         members = data || [];
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('getMembers fetch error:', e.message);
         members = getCache(STORAGE_KEYS.MEMBERS_CACHE) || [];
       }
@@ -437,6 +455,7 @@ export const api = {
         member = res.member;
         payments = res.payments || [];
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('getMember fetch error:', e.message);
       }
     }
@@ -578,6 +597,7 @@ export const api = {
         setCache(STORAGE_KEYS.CHITS_CACHE, list);
         return list;
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('getChits error:', e.message);
       }
     }
@@ -781,6 +801,7 @@ export const api = {
           return schedule;
         }
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('getMonthlySchedule error:', e.message);
       }
     }
@@ -948,14 +969,20 @@ export const api = {
         setCache(STORAGE_KEYS.PAYMENTS_CACHE, data || []);
         return data || [];
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('getPayments error:', e.message);
       }
     }
     return getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
   },
 
-  async recordPayment(paymentData) {
-    try { localStorage.removeItem('msr_dashboard_cache'); } catch {}
+    async recordPayment(paymentData) {
+    if (isPaymentSubmitting) {
+      throw new Error('A payment transaction is currently being processed. Please wait...');
+    }
+    isPaymentSubmitting = true;
+    try {
+      try { localStorage.removeItem('msr_dashboard_cache'); } catch {}
     if (API_URL) {
       const newPayment = await postApi('recordPayment', paymentData);
       const payments = getCache(STORAGE_KEYS.PAYMENTS_CACHE) || [];
@@ -979,7 +1006,10 @@ export const api = {
       status: Number(paymentData.paidAmount) >= Number(paymentData.dueAmount || paymentData.paidAmount) ? 'Paid' : 'Partial'
     };
     setCache(STORAGE_KEYS.PAYMENTS_CACHE, [newPayment, ...payments]);
-    return newPayment;
+      return newPayment;
+    } finally {
+      isPaymentSubmitting = false;
+    }
   },
 
   // Payouts
@@ -990,6 +1020,7 @@ export const api = {
         setCache(STORAGE_KEYS.PAYOUTS_CACHE, data || []);
         return data || [];
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('getPayouts error:', e.message);
       }
     }
@@ -1132,6 +1163,7 @@ export const api = {
           backendResult = await getApi('getCollectionPayoutSummary', params);
         }
       } catch (err) {
+        if (isAuthError(err)) throw err;
         console.warn('[MSR CHITS API] getCollectionPayoutSummary live backend note:', err.message);
       }
     }
@@ -1227,6 +1259,7 @@ export const api = {
       try {
         return await getApi('getReports');
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('getReports error:', e.message);
       }
     }
@@ -1259,6 +1292,7 @@ export const api = {
           return data;
         }
       } catch (e) {
+        if (isAuthError(e)) throw e;
         console.warn('[MSR CHITS API] getMonthlyUnpaidSummary fetch warning, computing directly from verified data:', e.message);
       }
     }
@@ -1618,7 +1652,8 @@ export const api = {
         }
       } catch (e) {
         if (!e.message?.includes('Unknown API action')) {
-          console.warn('getMemberships fetch error:', e.message);
+          if (isAuthError(e)) throw e;
+        console.warn('getMemberships fetch error:', e.message);
         }
       }
     }
